@@ -1,8 +1,10 @@
 {
-  "name": "arbitra-contracts",
+  "name": "arbitra",
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev",
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:local": "hardhat deploy --network hardhat",
@@ -10,6 +12,9 @@
     "lint:fhe": "node .agents/skills/fhevm-skill/scripts/fhe-lint.js contracts/"
   },
   "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "@fhevm/solidity": "^0.11.1",
     "@openzeppelin/confidential-contracts": "^0.4.0",
     "@openzeppelin/contracts": "^5.0.0",
