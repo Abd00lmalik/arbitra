@@ -1,0 +1,280 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  html {
+    background: #0a0f1c;
+    color: #e2e8f0;
+    scroll-behavior: smooth;
+  }
+  body {
+    font-family: "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #0a0f1c;
+    min-height: 100vh;
+  }
+  ::selection {
+    background: rgba(0, 240, 255, 0.2);
+    color: #00f0ff;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0f1c;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.2);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 240, 255, 0.4);
+  }
+}
+
+@layer components {
+  /* Glass card effect */
+  .glass-card {
+    @apply rounded-2xl border border-white/8;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.02) 100%
+    );
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* Neon text effects */
+  .neon-text-cyan {
+    color: #00f0ff;
+    text-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+  }
+
+  .neon-text-purple {
+    color: #7b2fff;
+    text-shadow: 0 0 20px rgba(123, 47, 255, 0.6);
+  }
+
+  /* Encrypted value display */
+  .encrypted-value {
+    @apply font-mono tracking-wider;
+    color: #00f0ff;
+    font-size: 0.85em;
+  }
+
+  /* FHE badge */
+  .fhe-badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium;
+    background: rgba(0, 240, 255, 0.1);
+    color: #00f0ff;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+  }
+
+  /* Sidebar nav items */
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium cursor-pointer;
+    color: #94a3b8;
+    transition: all 0.2s ease;
+  }
+
+  .sidebar-item:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .sidebar-item.active {
+    color: #00f0ff;
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+  }
+
+  /* Neon button base */
+  .neon-btn {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-sm;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .neon-btn-primary {
+    @apply neon-btn;
+    background: linear-gradient(135deg, #00f0ff, #7b2fff);
+    color: white;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+  }
+
+  .neon-btn-primary:hover {
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.5), 0 0 60px rgba(123, 47, 255, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .neon-btn-secondary {
+    @apply neon-btn;
+    background: rgba(0, 240, 255, 0.1);
+    color: #00f0ff;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+  }
+
+  .neon-btn-secondary:hover {
+    background: rgba(0, 240, 255, 0.2);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+  }
+
+  .neon-btn-ghost {
+    @apply neon-btn;
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .neon-btn-ghost:hover {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Input fields */
+  .glass-input {
+    @apply w-full px-4 py-3 rounded-xl text-sm text-white placeholder-slate-500 outline-none;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+  }
+
+  .glass-input:focus {
+    border-color: rgba(0, 240, 255, 0.5);
+    background: rgba(0, 240, 255, 0.05);
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  }
+
+  /* Status badges */
+  .badge-green {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    background: rgba(0, 255, 136, 0.1);
+    color: #00ff88;
+    border: 1px solid rgba(0, 255, 136, 0.2);
+  }
+
+  .badge-yellow {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    background: rgba(255, 196, 0, 0.1);
+    color: #ffc400;
+    border: 1px solid rgba(255, 196, 0, 0.2);
+  }
+
+  .badge-red {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    background: rgba(255, 45, 155, 0.1);
+    color: #ff2d9b;
+    border: 1px solid rgba(255, 45, 155, 0.2);
+  }
+
+  .badge-blue {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+    background: rgba(0, 240, 255, 0.1);
+    color: #00f0ff;
+    border: 1px solid rgba(0, 240, 255, 0.2);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #00f0ff 0%, #7b2fff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Table styles */
+  .arbitra-table {
+    @apply w-full text-sm;
+  }
+
+  .arbitra-table th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider;
+    color: #64748b;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .arbitra-table td {
+    @apply px-4 py-4;
+    color: #e2e8f0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.15s ease;
+  }
+
+  .arbitra-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply glass-card p-5 flex flex-col gap-1;
+  }
+
+  /* Section header */
+  .section-header {
+    @apply flex items-center justify-between mb-6;
+  }
+
+  /* Scan line animation overlay */
+  .scan-line-container {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scan-line-container::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(0, 240, 255, 0.4),
+      transparent
+    );
+    animation: scan-line 4s linear infinite;
+  }
+
+  /* Glow pulse for FHE indicator */
+  .fhe-pulse {
+    @apply relative;
+  }
+
+  .fhe-pulse::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #00f0ff, #7b2fff);
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: -1;
+  }
+
+  .fhe-pulse:hover::before {
+    opacity: 0.3;
+  }
+}
+
+@layer utilities {
+  .border-white\/8 {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .bg-white\/4 {
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+}
