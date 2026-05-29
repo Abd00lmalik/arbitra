@@ -14,7 +14,8 @@ export const ARBITRA_REGISTRY_ADDRESS =
 /** cUSDT — Confidential USDT ERC-7984 wrapper (resolved from Zama Wrappers Registry at deploy time) */
 export const CUSDT_ADDRESS =
   (process.env.NEXT_PUBLIC_CUSDT_ADDRESS as `0x${string}`) ||
-  ("0x0000000000000000000000000000000000000000" as `0x${string}`);
+  ("0x4E7B06D78965594eB5EF5414c357ca21E1554491" as `0x${string}`);
+
 
 /** Zama Wrappers Registry address on Sepolia (read-only, for UI display) */
 export const WRAPPERS_REGISTRY_ADDRESS = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e" as `0x${string}`;

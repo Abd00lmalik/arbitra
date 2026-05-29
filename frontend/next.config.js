@@ -2,9 +2,6 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: [
-    "@reown/appkit",
-    "@reown/appkit-utils",
-    "@reown/appkit-controllers",
     "@walletconnect/universal-provider",
     "@walletconnect/core",
     "@walletconnect/sign-client",
@@ -22,7 +19,7 @@ const nextConfig = {
   },
   /*
    * FHEVM SDK requires SharedArrayBuffer which needs COOP + COEP headers.
-   * Using credentialless (not require-corp) to keep wagmi/WalletConnect working.
+   * Using credentialless (not require-corp) to maintain WalletConnect compatibility.
    */
   async headers() {
     return [
@@ -35,8 +32,30 @@ const nextConfig = {
       },
     ];
   },
-  webpack(config) {
-    config.resolve.fallback = { ...config.resolve.fallback, fs: false };
+  webpack(config, { isServer }) {
+    /* Required for Zama SDK WASM: disable Node.js-only modules in the browser */
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+      };
+    }
+
+    /* Required: enable async WASM loading for @zama-fhe/relayer-sdk */
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+    };
+
+    /* Ensure WASM files from node_modules are bundled as assets */
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: "asset/resource",
+    });
+
     config.resolve.alias = {
       ...config.resolve.alias,
       unstorage: require.resolve("unstorage"),

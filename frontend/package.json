@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@next/swc-win32-x64-msvc": "^16.2.6",
     "@tanstack/react-query": "^5.0.0",
     "@zama-fhe/relayer-sdk": "0.4.1",
     "framer-motion": "^11.0.0",
