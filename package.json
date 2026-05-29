@@ -12,13 +12,14 @@
     "lint:fhe": "node .agents/skills/fhevm-skill/scripts/fhe-lint.js contracts/"
   },
   "dependencies": {
-    "next": "^14.2.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "@fhevm/solidity": "^0.11.1",
     "@openzeppelin/confidential-contracts": "^0.4.0",
     "@openzeppelin/contracts": "^5.0.0",
-    "@zama-fhe/relayer-sdk": "0.4.1"
+    "@zama-fhe/relayer-sdk": "0.4.1",
+    "framer-motion": "^12.40.0",
+    "next": "^14.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@fhevm/hardhat-plugin": "^0.4.2",
