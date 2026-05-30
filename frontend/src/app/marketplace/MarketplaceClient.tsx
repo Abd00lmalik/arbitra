@@ -1,7 +1,13 @@
+/**
+ * @file MarketplaceClient.tsx
+ * @description Browse and factor confidential invoices on Arbitra, featuring Gemini AI risk sidebars.
+ */
+
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useAccount } from "wagmi";
+import { motion, AnimatePresence } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { InvoiceCard } from "@/components/invoice/InvoiceCard";
 import { RiskAssessmentPanel } from "@/components/invoice/RiskAssessmentPanel";
@@ -18,8 +24,8 @@ export default function MarketplaceClient() {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOnChain | null>(null);
   const [busyId, setBusyId] = useState<bigint | null>(null);
 
-  const { factorInvoice, isPending: isFactoring } = useFactorInvoice();
-  const { triggerRepayment, isPending: isRepaying } = useTriggerRepayment();
+  const { factorInvoice } = useFactorInvoice();
+  const { triggerRepayment } = useTriggerRepayment();
 
   const filtered = mockInvoices.filter((inv) => {
     if (activeTab === "available") return !inv.isFactored;
@@ -51,38 +57,62 @@ export default function MarketplaceClient() {
   };
 
   const TABS: Array<{ id: FilterTab; label: string; count: number }> = [
-    { id: "all", label: "All", count: mockInvoices.length },
+    { id: "all", label: "All Assets", count: mockInvoices.length },
     {
       id: "available",
       label: "Available",
-      count: mockInvoices.filter((i) => !i.isFactored).length,
+      count: mockInvoices.filter((i) => !i.isFactored).length
     },
     {
       id: "factored",
       label: "Factored",
-      count: mockInvoices.filter((i) => i.isFactored && !i.isRepaid).length,
+      count: mockInvoices.filter((i) => i.isFactored && !i.isRepaid).length
     },
     {
       id: "repaid",
       label: "Repaid",
-      count: mockInvoices.filter((i) => i.isRepaid).length,
-    },
+      count: mockInvoices.filter((i) => i.isRepaid).length
+    }
   ];
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.05 }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 12 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] }
+    }
+  };
 
   return (
     <AppLayout
       title="Marketplace"
-      description="Browse and factor confidential invoices on Arbitra"
+      description="Browse and purchase confidential real-world invoices using Fully Homomorphic Encryption."
     >
-      <div className="flex gap-6">
+      <div style={{ display: "flex", gap: "24px", alignItems: "flex-start", position: "relative" }}>
         {/* Main column */}
-        <div className="flex-1 min-w-0">
-          {/* Tabs */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Tabs header */}
           <div
-            className="flex items-center gap-1 p-1 rounded-xl mb-6 w-fit"
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
-            role="tablist"
-            aria-label="Invoice filter"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "4px",
+              borderRadius: "14px",
+              marginBottom: "24px",
+              width: "fit-content",
+              background: "rgba(255, 255, 255, 0.03)",
+              border: "1px solid rgba(255, 255, 255, 0.05)"
+            }}
           >
             {TABS.map((tab) => (
               <button
@@ -90,28 +120,31 @@ export default function MarketplaceClient() {
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`
-                  px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                  ${
-                    activeTab === tab.id
-                      ? "text-white"
-                      : "text-slate-500 hover:text-slate-300"
-                  }
-                `}
-                style={
-                  activeTab === tab.id
-                    ? {
-                        background: "rgba(0,240,255,0.1)",
-                        border: "1px solid rgba(0,240,255,0.2)",
-                        color: "#00F0FF",
-                      }
-                    : {}
-                }
+                style={{
+                  background: activeTab === tab.id ? "rgba(0, 240, 255, 0.08)" : "transparent",
+                  border: activeTab === tab.id ? "1px solid rgba(0, 240, 255, 0.22)" : "1px solid transparent",
+                  color: activeTab === tab.id ? "#00F0FF" : "#8B9CC8",
+                  padding: "8px 16px",
+                  borderRadius: "10px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  fontFamily: "Satoshi, sans-serif",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  transition: "all 0.2s"
+                }}
               >
                 {tab.label}
                 <span
-                  className="ml-2 text-xs px-1.5 py-0.5 rounded-full"
-                  style={{ background: "rgba(255,255,255,0.1)" }}
+                  style={{
+                    fontSize: "11px",
+                    padding: "2px 6px",
+                    borderRadius: "100px",
+                    background: activeTab === tab.id ? "rgba(0, 240, 255, 0.15)" : "rgba(255, 255, 255, 0.05)",
+                    color: activeTab === tab.id ? "#00F0FF" : "#8B9CC8"
+                  }}
                 >
                   {tab.count}
                 </span>
@@ -122,61 +155,109 @@ export default function MarketplaceClient() {
           {/* Invoice grid */}
           {filtered.length === 0 ? (
             <GlassCard className="p-12 text-center">
-              <div className="text-4xl mb-3" aria-hidden="true">📭</div>
-              <div className="text-slate-400 text-sm">No invoices in this category yet.</div>
-              <div className="mt-4">
-                <a href="/upload" className="text-neon-cyan text-sm hover:underline">
-                  Upload the first invoice →
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3D4E7A" strokeWidth="1.5">
+                  <path d="M22 12h-6l-3 9L9 3l-3 9H2" />
+                </svg>
+              </div>
+              <div style={{ color: "#8B9CC8", fontSize: "14px", fontFamily: "Satoshi, sans-serif" }}>
+                No invoices in this registry category yet.
+              </div>
+              <div style={{ marginTop: "16px" }}>
+                <a
+                  href="/upload"
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "#00F0FF",
+                    textDecoration: "none",
+                    fontFamily: "Satoshi, sans-serif"
+                  }}
+                >
+                  Tokenize the first invoice &rarr;
                 </a>
               </div>
             </GlassCard>
           ) : (
-            <div
-              className="grid grid-cols-1 xl:grid-cols-2 gap-4"
-              role="list"
-              aria-label="Invoice list"
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                gap: "20px"
+              }}
             >
               {filtered.map((inv) => (
-                <div key={inv.invoiceId.toString()} role="listitem">
-                  <div onClick={() => setSelectedInvoice(inv)} className="cursor-pointer">
-                    <InvoiceCard
-                      invoice={inv}
-                      onFactor={handleFactor}
-                      onRepay={handleRepay}
-                      isBusy={busyId === inv.invoiceId}
-                      currentUserAddress={address}
-                    />
-                  </div>
-                </div>
+                <motion.div
+                  key={inv.invoiceId.toString()}
+                  variants={itemVariants}
+                  onClick={() => setSelectedInvoice(inv)}
+                  style={{
+                    cursor: "pointer",
+                    outline: selectedInvoice?.invoiceId === inv.invoiceId ? "1px solid rgba(0, 240, 255, 0.3)" : "none",
+                    borderRadius: "24px"
+                  }}
+                >
+                  <InvoiceCard
+                    invoice={inv}
+                    onFactor={handleFactor}
+                    onRepay={handleRepay}
+                    isBusy={busyId === inv.invoiceId}
+                    currentUserAddress={address}
+                  />
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           )}
         </div>
 
-        {/* Sidebar — risk panel for selected invoice */}
-        {selectedInvoice && (
-          <aside className="w-80 flex-shrink-0 space-y-4" aria-label="Risk assessment sidebar">
-            <GlassCard className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-white">
-                  Invoice #{selectedInvoice.invoiceId.toString()}
+        {/* Sidebar for Risk Assessment */}
+        <AnimatePresence>
+          {selectedInvoice && (
+            <motion.aside
+              initial={{ opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 40 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                width: "320px",
+                flexShrink: 0,
+                position: "sticky",
+                top: "80px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "16px"
+              }}
+            >
+              <GlassCard className="p-4" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
+                  Selected: Invoice #{selectedInvoice.invoiceId.toString()}
                 </span>
                 <button
                   onClick={() => setSelectedInvoice(null)}
-                  className="text-slate-500 hover:text-white text-xs"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#8B9CC8",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    padding: "4px"
+                  }}
                   aria-label="Close sidebar"
                 >
-                  ✕
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
                 </button>
-              </div>
-              <div className="text-xs text-slate-500">
-                Click &ldquo;Analyze Risk&rdquo; below to get an AI assessment.
-              </div>
-            </GlassCard>
+              </GlassCard>
 
-            <RiskAssessmentPanel invoice={selectedInvoice} />
-          </aside>
-        )}
+              <RiskAssessmentPanel invoice={selectedInvoice} />
+            </motion.aside>
+          )}
+        </AnimatePresence>
       </div>
     </AppLayout>
   );

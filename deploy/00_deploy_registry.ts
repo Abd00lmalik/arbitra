@@ -1,29 +1,21 @@
+/**
+ * @file 00_deploy_registry.ts
+ * @description Deploy ArbitraInvoiceRegistry with the cUSDT address.
+ */
+
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
-import { ethers } from "hardhat";
 
-/**
- * Deploy ArbitraInvoiceRegistry with the cUSDT address.
- *
- * On local hardhat/localhost:
- *   Deploys MockERC7984 as a stand-in for cUSDT.
- *
- * On Sepolia:
- *   Queries the Zama Wrappers Registry to resolve the real cUSDT address
- *   for the standard testnet USDT (0x7169D38820dfd117C3FA1f22a697dBA58d90BA06).
- *   Falls back to a MockERC7984 deployment if the registry lookup fails.
- */
-
-/** Zama Wrappers Registry on Sepolia (source of truth for all confidential wrappers) */
+/* Zama Wrappers Registry on Sepolia (source of truth for all confidential wrappers) */
 const WRAPPERS_REGISTRY_SEPOLIA = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e";
 
-/**
- * Standard USDT on Sepolia testnet.
- * This is the underlying token whose confidential wrapper is cUSDT.
+/*
+ * Standard USDT on Sepolia testnet (USDTMock).
+ * This is the underlying token whose confidential wrapper is cUSDT in the registry.
  */
-const USDT_SEPOLIA = "0x7169D38820dfd117C3FA1f22a697dBA58d90BA06";
+const USDT_SEPOLIA = "0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0";
 
-/**
+/*
  * Minimal ABI fragment for the Wrappers Registry.
  * getConfidentialTokenAddress returns (bool found, address confidentialToken).
  */
@@ -48,7 +40,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   let cUSDTAddress: string;
 
   if (network.name === "hardhat" || network.name === "localhost") {
-    /* --- Local: deploy MockERC7984 --- */
+    /* Local: deploy MockERC7984 */
     const mock = await deploy("MockERC7984", {
       from: deployer,
       args: [],
@@ -58,7 +50,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     cUSDTAddress = mock.address;
     console.log(`\nMockERC7984 (cUSDT stand-in) deployed at: ${cUSDTAddress}`);
   } else {
-    /* --- Sepolia: resolve real cUSDT from Wrappers Registry --- */
+    /* Sepolia: resolve real cUSDT from Wrappers Registry */
     console.log(`\nQuerying Wrappers Registry at ${WRAPPERS_REGISTRY_SEPOLIA}...`);
     console.log(`Looking up cUSDT for underlying USDT at ${USDT_SEPOLIA}...`);
 

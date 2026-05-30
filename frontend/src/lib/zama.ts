@@ -32,15 +32,16 @@ export async function getFhevmInstance(
   if (instanceCache) return instanceCache;
   if (initPromise) return initPromise;
 
-  initPromise = (async () => {
-    /* initSDK pre-loads WASM modules; calling it first gives control over timing */
-    await initSDK();
-    instanceCache = await createInstance({
-      ...SepoliaConfig,
-      network: provider as Parameters<typeof createInstance>[0]["network"],
-    });
-    return instanceCache;
-  })();
+    initPromise = (async () => {
+      /* initSDK pre-loads WASM modules; calling it first gives control over timing */
+      await initSDK();
+      instanceCache = await createInstance({
+        ...SepoliaConfig,
+        relayerUrl: "https://relayer.testnet.zama.org",
+        network: provider as Parameters<typeof createInstance>[0]["network"],
+      });
+      return instanceCache;
+    })();
 
   return initPromise;
 }

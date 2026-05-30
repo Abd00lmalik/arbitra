@@ -1,5 +1,11 @@
+/**
+ * @file UploadClient.tsx
+ * @description Upload page client-side wrapper. Displays the invoice submission wizard and explaining sidebars.
+ */
+
 "use client";
 
+import React from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { UploadInvoiceForm } from "@/components/invoice/UploadInvoiceForm";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -13,17 +19,21 @@ export default function UploadClient() {
       description="Encrypt and submit an invoice for factoring — face values are never exposed on-chain"
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl">
-        {/* Form */}
+        {/* Form column */}
         <div>
           <UploadInvoiceForm />
         </div>
 
-        {/* Explainer */}
+        {/* Explainer column */}
         <div className="space-y-4">
           {/* Faucet callout */}
           <GlassCard className="p-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="text-xl" aria-hidden="true">💧</span>
+              <span className="text-neon-cyan flex-shrink-0" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z" />
+                </svg>
+              </span>
               <div>
                 <div className="text-sm font-medium text-white">Need Test cUSDT?</div>
                 <div className="text-xs text-slate-500">Wrap Sepolia USDT to cUSDT on Zama app.</div>
@@ -88,7 +98,13 @@ export default function UploadClient() {
           {/* Demo limit callout */}
           <GlassCard className="p-4">
             <div className="flex items-start gap-3">
-              <span className="text-amber-400 text-lg mt-0.5" aria-hidden="true">⚠️</span>
+              <span className="text-amber-400 mt-0.5 flex-shrink-0" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </span>
               <div>
                 <div className="text-sm font-medium text-amber-400 mb-1">
                   Demo Invoice Size Limit

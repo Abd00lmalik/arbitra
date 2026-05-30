@@ -1,3 +1,8 @@
+/**
+ * @file Sidebar.tsx
+ * @description Application sidebar containing logo, navigation links, FHE indicator, and wallet connector.
+ */
+
 "use client";
 
 import Link from "next/link";

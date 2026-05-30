@@ -1,6 +1,11 @@
+/**
+ * @file AppLayout.tsx
+ * @description Layout component containing sidebar structure, content viewport, and background grid overlays.
+ */
+
 "use client";
 
-import { ReactNode } from "react";
+import React, { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 
 interface AppLayoutProps {

@@ -1,18 +1,17 @@
+/**
+ * @file FaucetButton.tsx
+ * @description Sleek, premium FaucetButton to guide users to wrap Sepolia USDT to cUSDT on Zama portfolio.
+ */
+
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { NeonButton } from "./NeonButton";
 
-/**
- * FaucetButton Component
- *
- * Provides a sleek, cyber-themed button to guide users to wrap Sepolia USDT
- * into confidential cUSDT via Zama's official faucet/portfolio application.
- */
 export function FaucetButton() {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  const faucetUrl = "https://app.zama.ai";
+  const faucetUrl = "https://faucet.zama.ai";
 
   return (
     <div className="relative inline-block">
@@ -25,8 +24,20 @@ export function FaucetButton() {
         className="flex items-center gap-1.5"
         id="faucet-button"
       >
-        <span className="text-[10px] sm:text-xs">💧</span>
-        <span className="text-[10px] sm:text-xs tracking-wide">Get Test cUSDT</span>
+        {/* Sleek waterdrop SVG icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z" />
+        </svg>
+        <span className="text-[10px] sm:text-xs tracking-wide font-semibold">Get Test cUSDT</span>
       </NeonButton>
 
       {showTooltip && (
@@ -47,9 +58,9 @@ export function FaucetButton() {
             Arbitra uses Zama&apos;s official cUSDT wrapper on Sepolia.
           </p>
           <ol className="list-decimal pl-4 space-y-1 text-slate-400">
-            <li>Open Zama Portfolio.</li>
-            <li>Request Sepolia test USDT from faucet.</li>
-            <li>Wrap USDT to cUSDT to use on Arbitra.</li>
+            <li>Open Zama Faucet at faucet.zama.ai</li>
+            <li>Request Sepolia test USDT from faucet</li>
+            <li>Wrap USDT to cUSDT to use on Arbitra</li>
           </ol>
           <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-[rgba(10,15,30,0.95)]" />
         </div>

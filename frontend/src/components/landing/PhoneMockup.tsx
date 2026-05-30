@@ -1,17 +1,24 @@
 /**
  * @file PhoneMockup.tsx
- * @description Interactive iPhone 15 mockup with encryption toggle showing live dashboard states.
+ * @description Interactive iPhone 15 mockup with encryption toggle showing live dashboard states, marketplace, and AI risk tabs.
  */
 
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/useBreakpoint";
+
+type PhoneTab = "dashboard" | "marketplace" | "risk";
 
 export function PhoneMockup() {
   const isMobile = useIsMobile();
   const [isDecrypted, setIsDecrypted] = useState(false);
+  const [activePhoneTab, setActivePhoneTab] = useState<PhoneTab>("dashboard");
+  const [factoredInvoices, setFactoredInvoices] = useState<Record<string, boolean>>({
+    "ARB-004": false,
+    "ARB-005": false,
+  });
 
   /* Animation variants for floating elements */
   const floatVariants = (yOffset: number, duration: number) => ({
@@ -25,6 +32,15 @@ export function PhoneMockup() {
     }
   });
 
+  const handleFactorSimulated = (id: string) => {
+    setFactoredInvoices((prev) => ({ ...prev, [id]: true }));
+  };
+
+  /* Calculated stats based on interactive factoring */
+  const totalBalance = 8750 + 
+    (factoredInvoices["ARB-004"] ? 4200 : 0) + 
+    (factoredInvoices["ARB-005"] ? 1800 : 0);
+
   return (
     <section
       style={{
@@ -35,6 +51,36 @@ export function PhoneMockup() {
         overflow: "hidden"
       }}
     >
+      {/* Background Floating Orbs around mockup */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: "20%",
+          top: "30%",
+          width: "350px",
+          height: "350px",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(0, 240, 255, 0.04) 0%, transparent 70%)",
+          zIndex: 1,
+          pointerEvents: "none"
+        }}
+      />
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: "20%",
+          top: "20%",
+          width: "400px",
+          height: "400px",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(123, 47, 255, 0.04) 0%, transparent 70%)",
+          zIndex: 1,
+          pointerEvents: "none"
+        }}
+      />
+
       <div style={{ maxWidth: "1100px", margin: "0 auto", textAlign: "center" }}>
         {/* Section Headers */}
         <span
@@ -85,10 +131,11 @@ export function PhoneMockup() {
             justifyContent: "center",
             alignItems: "center",
             position: "relative",
-            minHeight: "720px"
+            minHeight: "720px",
+            zIndex: 2
           }}
         >
-          {/* ── Left Floating Cards (Desktop only) ── */}
+          {/* Left Floating Cards (Desktop only) */}
           {!isMobile && (
             <>
               {/* Floating Card 1 (Top-Left) */}
@@ -161,7 +208,7 @@ export function PhoneMockup() {
             </>
           )}
 
-          {/* ── Center iPhone 15 Pro CSS Frame ── */}
+          {/* Center iPhone 15 Pro CSS Frame */}
           <div
             style={{
               width: "320px",
@@ -198,15 +245,19 @@ export function PhoneMockup() {
                 display: "flex",
                 flexDirection: "column",
                 background: "#060B18",
-                padding: "36px 16px 16px",
-                overflowY: "auto"
+                padding: "36px 14px 14px",
+                overflow: "hidden"
               }}
             >
               {/* Mini-Dashboard Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                 <div>
-                  <div style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Welcome</div>
-                  <div style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>Dashboard</div>
+                  <div style={{ fontSize: "9px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left" }}>Welcome</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
+                    {activePhoneTab === "dashboard" && "Dashboard"}
+                    {activePhoneTab === "marketplace" && "Marketplace"}
+                    {activePhoneTab === "risk" && "Risk Engine"}
+                  </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "10px", color: "#00F0FF", fontWeight: 600 }}>
                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00FF88" }} />
@@ -214,138 +265,344 @@ export function PhoneMockup() {
                 </div>
               </div>
 
-              {/* Portfolio Ring & Stats Card */}
-              <div
-                style={{
-                  background: "rgba(10, 16, 38, 0.6)",
-                  border: "1px solid rgba(255, 255, 255, 0.05)",
-                  borderRadius: "16px",
-                  padding: "16px",
-                  marginBottom: "16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "16px"
-                }}
-              >
-                {/* Conic-gradient Donut Chart */}
-                <div
+              {/* Dynamic screen area */}
+              <div style={{ flex: 1, overflowY: "auto", marginBottom: "12px", paddingRight: "2px" }} className="hide-scrollbar">
+                <AnimatePresence mode="wait">
+                  {activePhoneTab === "dashboard" && (
+                    <motion.div
+                      key="dashboard"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      {/* Portfolio Ring & Stats Card */}
+                      <div
+                        style={{
+                          background: "rgba(10, 16, 38, 0.6)",
+                          border: "1px solid rgba(255, 255, 255, 0.05)",
+                          borderRadius: "16px",
+                          padding: "12px",
+                          marginBottom: "12px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px"
+                        }}
+                      >
+                        {/* Conic Donut Chart */}
+                        <div
+                          style={{
+                            width: "60px",
+                            height: "60px",
+                            borderRadius: "50%",
+                            background: `conic-gradient(#00F0FF 0% ${factoredInvoices["ARB-004"] ? "75%" : "60%"}, #7B2FFF ${factoredInvoices["ARB-004"] ? "75%" : "60%"} 85%, rgba(255,255,255,0.05) 85% 100%)`,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center"
+                          }}
+                        >
+                          <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "#0A1026" }} />
+                        </div>
+
+                        {/* Portfolio stats */}
+                        <div style={{ flex: 1, textAlign: "left" }}>
+                          <span style={{ fontSize: "9px", color: "#8B9CC8" }}>Portfolio Value</span>
+                          <div
+                            style={{
+                              fontSize: "16px",
+                              fontWeight: 700,
+                              color: "#00F0FF",
+                              fontFamily: "JetBrains Mono, monospace",
+                              marginTop: "2px"
+                            }}
+                          >
+                            {isDecrypted ? `$${totalBalance.toLocaleString()}` : "🔒 FHE"}
+                          </div>
+                          <div style={{ fontSize: "9px", color: "#00FF88", marginTop: "2px" }}>
+                            +12.4% yield APR
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Invoices list title */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          Asset Registry
+                        </span>
+                        <span style={{ fontSize: "9px", color: "#8B9CC8" }}>
+                          Active: {3 + (factoredInvoices["ARB-004"] ? 1 : 0) + (factoredInvoices["ARB-005"] ? 1 : 0)}
+                        </span>
+                      </div>
+
+                      {/* Invoices */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {[
+                          { id: "ARB-001", val: "$5,000", badge: "badge-green", color: "#00FF88" },
+                          { id: "ARB-002", val: "$2,500", badge: "badge-blue", color: "#00F0FF" },
+                          { id: "ARB-003", val: "$1,250", badge: "badge-yellow", color: "#FFC400" },
+                          ...(factoredInvoices["ARB-004"] ? [{ id: "ARB-004", val: "$4,200", badge: "badge-green", color: "#00FF88" }] : []),
+                          ...(factoredInvoices["ARB-005"] ? [{ id: "ARB-005", val: "$1,800", badge: "badge-green", color: "#00FF88" }] : [])
+                        ].map((inv) => (
+                          <div
+                            key={inv.id}
+                            style={{
+                              background: "rgba(255, 255, 255, 0.02)",
+                              border: "1px solid rgba(255, 255, 255, 0.04)",
+                              borderRadius: "12px",
+                              padding: "8px 10px",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center"
+                            }}
+                          >
+                            <div style={{ textAlign: "left" }}>
+                              <div style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</div>
+                              <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Factoring cUSDT</div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontSize: "10px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
+                                {isDecrypted ? inv.val : "🔒 FHE"}
+                              </div>
+                              <span style={{ fontSize: "8px", color: inv.color, textTransform: "uppercase", fontWeight: 600 }}>
+                                Verified
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {activePhoneTab === "marketplace" && (
+                    <motion.div
+                      key="marketplace"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+                    >
+                      <div style={{ fontSize: "10px", color: "#8B9CC8", textAlign: "left" }}>
+                        Select available invoices to purchase at a homomorphically calculated discount.
+                      </div>
+
+                      {[
+                        { id: "ARB-004", val: "$4,200", disc: "12% discount", yield: "+6.8% APR" },
+                        { id: "ARB-005", val: "$1,800", disc: "8% discount", yield: "+5.1% APR" }
+                      ].map((inv) => (
+                        <div
+                          key={inv.id}
+                          style={{
+                            background: "rgba(255, 255, 255, 0.02)",
+                            border: "1px solid rgba(255, 255, 255, 0.05)",
+                            borderRadius: "14px",
+                            padding: "12px",
+                            textAlign: "left",
+                            position: "relative"
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</span>
+                            <span style={{ fontSize: "9px", color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
+                              {isDecrypted ? inv.val : "🔒 FHE"}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#8B9CC8", marginBottom: "10px" }}>
+                            <span>{inv.disc}</span>
+                            <span style={{ color: "#00FF88" }}>{inv.yield}</span>
+                          </div>
+
+                          {factoredInvoices[inv.id] ? (
+                            <div
+                              style={{
+                                width: "100%",
+                                padding: "6px 0",
+                                background: "rgba(0, 255, 136, 0.08)",
+                                border: "1px solid rgba(0, 255, 136, 0.2)",
+                                borderRadius: "8px",
+                                color: "#00FF88",
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                textAlign: "center"
+                              }}
+                            >
+                              Factored Successfully
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleFactorSimulated(inv.id)}
+                              style={{
+                                width: "100%",
+                                padding: "6px 0",
+                                background: "linear-gradient(135deg, #00F0FF, #7B2FFF)",
+                                border: "none",
+                                borderRadius: "8px",
+                                color: "white",
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                boxShadow: "0 0 10px rgba(0, 240, 255, 0.2)"
+                              }}
+                            >
+                              Factor Invoice
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
+
+                  {activePhoneTab === "risk" && (
+                    <motion.div
+                      key="risk"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ display: "flex", flexDirection: "column", gap: "12px", textAlign: "left" }}
+                    >
+                      <div
+                        style={{
+                          background: "rgba(123, 47, 255, 0.08)",
+                          border: "1px solid rgba(123, 47, 255, 0.2)",
+                          borderRadius: "14px",
+                          padding: "12px"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <span style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF" }}>Gemini Credit Score</span>
+                          <span style={{ fontSize: "10px", color: "#00FF88", fontWeight: 700 }}>VERIFIED</span>
+                        </div>
+                        <div style={{ fontSize: "20px", fontWeight: 800, color: "#EEF2FF", marginBottom: "4px" }}>
+                          94.2% Repay
+                        </div>
+                        <div style={{ fontSize: "9px", color: "#8B9CC8" }}>
+                          Calculated securely on-chain using FHE credit history matrices.
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          background: "rgba(255, 255, 255, 0.02)",
+                          border: "1px solid rgba(255, 255, 255, 0.04)",
+                          borderRadius: "14px",
+                          padding: "12px"
+                        }}
+                      >
+                        <div style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", marginBottom: "6px" }}>AI Risk Report</div>
+                        <p style={{ fontSize: "9px", color: "#EEF2FF", lineHeight: "1.4" }}>
+                          Analysis of encrypted counterparty default indicates low systemic risk. Recommended factoring range yields 12% APR with high capital velocity.
+                        </p>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <div style={{ flex: 1, padding: "8px", background: "rgba(0, 240, 255, 0.05)", border: "1px solid rgba(0, 240, 255, 0.1)", borderRadius: "10px", textAlign: "center" }}>
+                          <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Risk Rating</div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#00F0FF", marginTop: "2px" }}>A+ Stable</div>
+                        </div>
+                        <div style={{ flex: 1, padding: "8px", background: "rgba(0, 255, 136, 0.05)", border: "1px solid rgba(0, 255, 136, 0.1)", borderRadius: "10px", textAlign: "center" }}>
+                          <div style={{ fontSize: "8px", color: "#8B9CC8" }}>LTV Ratio</div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "#00FF88", marginTop: "2px" }}>88.5%</div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Toggle & Tabbar navigation */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "auto" }}>
+                {/* EIP-712 Decryption Toggle */}
+                <button
+                  onClick={() => setIsDecrypted(!isDecrypted)}
                   style={{
-                    width: "70px",
-                    height: "70px",
-                    borderRadius: "50%",
-                    background: "conic-gradient(#00F0FF 0% 60%, #7B2FFF 60% 85%, rgba(255,255,255,0.05) 85% 100%)",
+                    background: isDecrypted ? "rgba(123, 47, 255, 0.12)" : "rgba(0, 240, 255, 0.12)",
+                    border: isDecrypted ? "1px solid rgba(123, 47, 255, 0.3)" : "1px solid rgba(0, 240, 255, 0.3)",
+                    borderRadius: "12px",
+                    padding: "8px",
+                    color: isDecrypted ? "#A87FFF" : "#00F0FF",
+                    fontFamily: "Satoshi, sans-serif",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center"
+                    justifyContent: "center",
+                    gap: "6px",
+                    boxShadow: isDecrypted ? "0 0 10px rgba(123,47,255,0.15)" : "0 0 10px rgba(0,240,255,0.15)",
+                    transition: "all 0.2s"
                   }}
                 >
-                  <div style={{ width: "50px", height: "50px", borderRadius: "50%", background: "#0A1026" }} />
-                </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {isDecrypted ? (
+                      <>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                      </>
+                    ) : (
+                      <>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </>
+                    )}
+                  </svg>
+                  {isDecrypted ? "Encrypt View (FHE)" : "Decrypt View (Key)"}
+                </button>
 
-                {/* Portfolio stats */}
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <span style={{ fontSize: "10px", color: "#8B9CC8" }}>Portfolio Value</span>
-                  <div
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 700,
-                      color: "#00F0FF",
-                      fontFamily: "JetBrains Mono, monospace",
-                      marginTop: "2px"
-                    }}
-                  >
-                    {isDecrypted ? "$8,750" : "🔒 FHE"}
-                  </div>
-                  <div style={{ fontSize: "10px", color: "#00FF88", marginTop: "2px" }}>
-                    +12.4% yield APR
-                  </div>
-                </div>
-              </div>
-
-              {/* Invoices list title */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                <span style={{ fontSize: "11px", fontWeight: 700, color: "#EEF2FF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  Asset Registry
-                </span>
-                <span style={{ fontSize: "10px", color: "#8B9CC8" }}>Active: 3</span>
-              </div>
-
-              {/* Invoices */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
-                {[
-                  { id: "ARB-001", val: "$5,000", dec: "Decrypted", badge: "badge-green", color: "#00FF88" },
-                  { id: "ARB-002", val: "$2,500", dec: "Decrypted", badge: "badge-blue", color: "#00F0FF" },
-                  { id: "ARB-003", val: "$1,250", dec: "Decrypted", badge: "badge-yellow", color: "#FFC400" }
-                ].map((inv) => (
-                  <div
-                    key={inv.id}
-                    style={{
-                      background: "rgba(255, 255, 255, 0.02)",
-                      border: "1px solid rgba(255, 255, 255, 0.04)",
-                      borderRadius: "12px",
-                      padding: "10px 12px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center"
-                    }}
-                  >
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: "11px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</div>
-                      <div style={{ fontSize: "9px", color: "#8B9CC8" }}>Factoring cUSDT</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "11px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
-                        {isDecrypted ? inv.val : "🔒 FHE"}
-                      </div>
-                      <span style={{ fontSize: "8px", color: inv.color, textTransform: "uppercase", fontWeight: 600 }}>
-                        Verified
+                {/* Inner Tab bar */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    background: "rgba(255, 255, 255, 0.03)",
+                    border: "1px solid rgba(255, 255, 255, 0.05)",
+                    borderRadius: "12px",
+                    padding: "4px"
+                  }}
+                >
+                  {[
+                    { id: "dashboard", label: "Dash", path: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
+                    { id: "marketplace", label: "Trade", path: "M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" },
+                    { id: "risk", label: "Risk", path: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActivePhoneTab(tab.id as PhoneTab)}
+                      style={{
+                        flex: 1,
+                        background: activePhoneTab === tab.id ? "rgba(0, 240, 255, 0.08)" : "transparent",
+                        border: "none",
+                        borderRadius: "8px",
+                        padding: "6px 0",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "2px",
+                        transition: "all 0.15s"
+                      }}
+                    >
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke={activePhoneTab === tab.id ? "#00F0FF" : "#64748B"}
+                        strokeWidth="2"
+                      >
+                        <path d={tab.path} />
+                      </svg>
+                      <span style={{ fontSize: "8px", fontWeight: 600, color: activePhoneTab === tab.id ? "#00F0FF" : "#64748B" }}>
+                        {tab.label}
                       </span>
-                    </div>
-                  </div>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              {/* ── Decryption Toggle Button (Standout Hero interaction) ── */}
-              <button
-                onClick={() => setIsDecrypted(!isDecrypted)}
-                style={{
-                  background: isDecrypted ? "rgba(123, 47, 255, 0.15)" : "rgba(0, 240, 255, 0.15)",
-                  border: isDecrypted ? "1px solid rgba(123, 47, 255, 0.4)" : "1px solid rgba(0, 240, 255, 0.4)",
-                  borderRadius: "12px",
-                  padding: "12px",
-                  color: isDecrypted ? "#A87FFF" : "#00F0FF",
-                  fontFamily: "Satoshi, sans-serif",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  marginTop: "auto",
-                  boxShadow: isDecrypted ? "0 0 15px rgba(123,47,255,0.2)" : "0 0 15px rgba(0,240,255,0.2)",
-                  transition: "all 0.2s"
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  {isDecrypted ? (
-                    <>
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                    </>
-                  ) : (
-                    <>
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </>
-                  )}
-                </svg>
-                {isDecrypted ? "Encrypt View (FHE)" : "Decrypt View (Key)"}
-              </button>
             </div>
           </div>
 
-          {/* ── Right Floating Cards (Desktop only) ── */}
+          {/* Right Floating Cards (Desktop only) */}
           {!isMobile && (
             <>
               {/* Floating Card 3 (Top-Right) */}
@@ -416,6 +673,15 @@ export function PhoneMockup() {
           )}
         </div>
       </div>
+      <style>{`
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </section>
   );
 }

@@ -1,7 +1,12 @@
+/**
+ * @file InvoiceCard.tsx
+ * @description Renders individual invoice details with interactive decryption modal triggers, factoring approval flows, and visual maturity progress bars.
+ */
+
 "use client";
 
-import { useState } from "react";
-import { useAccount, useWalletClient } from "wagmi";
+import React, { useState } from "react";
+import { useWalletClient } from "wagmi";
 import type { InvoiceOnChain } from "@/lib/contracts";
 import {
   formatCUSDT,
@@ -119,10 +124,72 @@ export function InvoiceCard({
     }
   };
 
+  /* Maturity bar calculations */
+  const renderMaturityBar = () => {
+    if (!invoice.isFactored || invoice.isRepaid) return null;
+
+    if (decrypted?.dueDate !== undefined) {
+      const due = Number(decrypted.dueDate);
+      const upload = Number(invoice.uploadTimestamp);
+      const now = Math.floor(Date.now() / 1000);
+      const total = due - upload;
+      const elapsed = now - upload;
+      const progress = total > 0 ? Math.max(0, Math.min(100, (elapsed / total) * 100)) : 0;
+      const daysLeft = total > 0 ? Math.max(0, Math.floor((due - now) / 86400)) : 0;
+
+      return (
+        <div className="mt-3 p-2 rounded-xl bg-white/2 border border-white/5">
+          <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+            <span className="font-semibold">Maturity Progress ({daysLeft} days left)</span>
+            <span className="text-neon-cyan font-mono">{Math.round(progress)}%</span>
+          </div>
+          <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-neon-cyan to-neon-purple transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    /* Fallback: locked shimmer bar when due date is still encrypted */
+    return (
+      <div className="mt-3 p-2 rounded-xl bg-white/2 border border-white/5">
+        <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+          <span className="flex items-center gap-1 font-semibold">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            Maturity Timeline
+          </span>
+          <span className="text-neon-cyan font-mono text-[9px] uppercase tracking-wider">FHE SECURE</span>
+        </div>
+        <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden relative">
+          <div
+            className="h-full bg-gradient-to-r from-neon-cyan/10 via-neon-purple/20 to-neon-cyan/10 absolute inset-0"
+            style={{
+              width: "100%",
+              animation: "shimmerBar 2s infinite linear",
+              backgroundSize: "200% 100%"
+            }}
+          />
+        </div>
+        <style>{`
+          @keyframes shimmerBar {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+          }
+        `}</style>
+      </div>
+    );
+  };
+
   return (
     <>
       <GlassCard className="p-5 flex flex-col gap-4" hover glow="cyan">
-        {/* Header row */}
+        /* Header row */
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -139,7 +206,7 @@ export function InvoiceCard({
           <FHEBadge />
         </div>
 
-        {/* Encrypted fields grid */}
+        /* Encrypted fields grid */
         <div className="grid grid-cols-2 gap-3">
           {[
             {
@@ -168,7 +235,7 @@ export function InvoiceCard({
               className="p-2.5 rounded-lg"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
             >
-              <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">
+              <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-semibold">
                 {field.label}
               </div>
               <EncryptedValue
@@ -181,15 +248,18 @@ export function InvoiceCard({
           ))}
         </div>
 
-        {/* Buyer row */}
+        /* Maturity bar display if factored */
+        {renderMaturityBar()}
+
+        /* Buyer row */
         <div className="flex items-center justify-between text-xs text-slate-500">
           <span>Buyer: <span className="font-mono text-slate-400">{shortAddress(invoice.buyer)}</span></span>
           <span>Uploaded: {formatTimestamp(invoice.uploadTimestamp)}</span>
         </div>
 
-        {/* Actions */}
+        /* Actions */
         <div className="flex gap-2 pt-1">
-          {/* Decrypt */}
+          /* Decrypt */
           {zamaReady && canDecrypt && !decrypted && (
             <NeonButton
               variant="secondary"
@@ -207,7 +277,7 @@ export function InvoiceCard({
             </NeonButton>
           )}
 
-          {/* Factor */}
+          /* Factor */
           {!invoice.isFactored && !isSupplier && onFactor && (
             <NeonButton
               variant="primary"
@@ -221,7 +291,7 @@ export function InvoiceCard({
             </NeonButton>
           )}
 
-          {/* Repay */}
+          /* Repay */
           {invoice.isFactored && !invoice.isRepaid && isSupplier && onRepay && (
             <NeonButton
               variant="ghost"
@@ -237,7 +307,7 @@ export function InvoiceCard({
         </div>
       </GlassCard>
 
-      {/* Decryption modal */}
+      /* Decryption modal */
       <DecryptionModal
         isOpen={showDecryptModal}
         onClose={() => setShowDecryptModal(false)}

@@ -1,6 +1,6 @@
 /**
  * @file BackgroundGrid.tsx
- * @description Renders the animated background grid, scanlines, scroll progress bar, and floating security orb.
+ * @description Renders the animated background grid, scanlines, scroll progress bar, floating security orb, and floating cUSDT faucet pill.
  */
 
 "use client";
@@ -13,7 +13,7 @@ export function BackgroundGrid() {
 
   return (
     <>
-      {/* Scroll Progress Indicator at top of screen */}
+      /* Scroll Progress Indicator at top of screen */
       <motion.div
         style={{
           position: "fixed",
@@ -28,7 +28,7 @@ export function BackgroundGrid() {
         }}
       />
 
-      {/* Floating Security Orb Background Element */}
+      /* Floating Security Orb Background Element */
       <div
         aria-hidden
         style={{
@@ -48,7 +48,7 @@ export function BackgroundGrid() {
           animation: "floatOrb 15s ease-in-out infinite alternate"
         }}
       >
-        {/* Inner locked state details */}
+        /* Inner locked state details */
         <div
           style={{
             position: "absolute",
@@ -60,7 +60,7 @@ export function BackgroundGrid() {
             animation: "rotateOrb 25s linear infinite"
           }}
         >
-          {/* Circular grid scanner */}
+          /* Circular grid scanner */
           <svg width="180" height="180" viewBox="0 0 200 200" fill="none">
             <circle cx="100" cy="100" r="80" stroke="#00F0FF" strokeWidth="1" strokeDasharray="5 5" />
             <circle cx="100" cy="100" r="50" stroke="#7B2FFF" strokeWidth="1" strokeDasharray="3 8" />
@@ -69,7 +69,7 @@ export function BackgroundGrid() {
           </svg>
         </div>
 
-        {/* Locked padlock indicator in center */}
+        /* Locked padlock indicator in center */
         <div
           style={{
             position: "absolute",
@@ -87,7 +87,55 @@ export function BackgroundGrid() {
         </div>
       </div>
 
-      {/* Main scanning grid background */}
+      /* Floating Faucet Pill (Bottom-Right) */
+      <motion.a
+        href="https://faucet.zama.ai"
+        target="_blank"
+        rel="noopener noreferrer"
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1, duration: 0.5 }}
+        whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(0, 240, 255, 0.4)" }}
+        whileTap={{ scale: 0.95 }}
+        style={{
+          position: "fixed",
+          bottom: "24px",
+          right: "24px",
+          zIndex: 50,
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 18px",
+          background: "rgba(10, 16, 38, 0.85)",
+          border: "1.5px solid rgba(0, 240, 255, 0.3)",
+          borderRadius: "100px",
+          color: "#00F0FF",
+          fontSize: "12px",
+          fontWeight: 700,
+          fontFamily: "Satoshi, sans-serif",
+          textDecoration: "none",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+          cursor: "pointer"
+        }}
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z" />
+        </svg>
+        Get Test cUSDT
+      </motion.a>
+
+      /* Main scanning grid background */
       <div
         aria-hidden
         style={{
@@ -102,7 +150,7 @@ export function BackgroundGrid() {
           backgroundSize: "44px 44px"
         }}
       >
-        {/* Animated vertical scan lines */}
+        /* Animated vertical scan lines */
         <div
           style={{
             position: "absolute",
