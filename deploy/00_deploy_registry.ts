@@ -1,112 +1,80 @@
-/**
- * @file 00_deploy_registry.ts
- * @description Deploy ArbitraInvoiceRegistry with the cUSDT address.
- */
-
 import { HardhatRuntimeEnvironment } from "hardhat/types";
-import { DeployFunction } from "hardhat-deploy/types";
-
-/* Zama Wrappers Registry on Sepolia (source of truth for all confidential wrappers) */
-const WRAPPERS_REGISTRY_SEPOLIA = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e";
+import { DeployFunction }             from "hardhat-deploy/types";
 
 /*
- * Standard USDT on Sepolia testnet (USDTMock).
- * This is the underlying token whose confidential wrapper is cUSDT in the registry.
+ * Zama Wrappers Registry on Sepolia.
+ * USDC on Sepolia (official Circle): 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+ * USDT on Sepolia (Zama underlying): 0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0
  */
-const USDT_SEPOLIA = "0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0";
+const WRAPPERS_REGISTRY = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e";
+const USDC_SEPOLIA       = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+const USDT_SEPOLIA       = "0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0";
 
-/*
- * Minimal ABI fragment for the Wrappers Registry.
- * getConfidentialTokenAddress returns (bool found, address confidentialToken).
- */
+/* Minimal ABI for getConfidentialTokenAddress */
 const REGISTRY_ABI = [
-  {
-    inputs: [{ internalType: "address", name: "token", type: "address" }],
-    name: "getConfidentialTokenAddress",
-    outputs: [
-      { internalType: "bool", name: "found", type: "bool" },
-      { internalType: "address", name: "confidentialToken", type: "address" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+  "function getConfidentialTokenAddress(address token) external view returns (bool found, address confidentialToken)"
+];
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
-  const { deployments, getNamedAccounts, network } = hre;
+  const { deployments, getNamedAccounts, network, ethers: hEthers } = hre;
   const { deploy } = deployments;
   const { deployer } = await getNamedAccounts();
 
-  let cUSDTAddress: string;
+  let cUSDCAddress: string;
 
-  if (network.name === "hardhat" || network.name === "localhost") {
-    /* Local: deploy MockERC7984 */
-    const mock = await deploy("MockERC7984", {
-      from: deployer,
-      args: [],
-      log: true,
-      waitConfirmations: 1,
-    });
-    cUSDTAddress = mock.address;
-    console.log(`\nMockERC7984 (cUSDT stand-in) deployed at: ${cUSDTAddress}`);
-  } else {
-    /* Sepolia: resolve real cUSDT from Wrappers Registry */
-    console.log(`\nQuerying Wrappers Registry at ${WRAPPERS_REGISTRY_SEPOLIA}...`);
-    console.log(`Looking up cUSDT for underlying USDT at ${USDT_SEPOLIA}...`);
-
-    const provider = hre.ethers.provider;
-    const registry = new hre.ethers.Contract(
-      WRAPPERS_REGISTRY_SEPOLIA,
-      REGISTRY_ABI,
-      provider
+  if (network.name === "sepolia") {
+    /* Query the Zama Wrappers Registry for the canonical cUSDC address */
+    const registry = new hEthers.Contract(
+      WRAPPERS_REGISTRY, REGISTRY_ABI,
+      await hEthers.provider.getSigner(deployer)
     );
-
-    let resolvedFromRegistry = false;
+    
+    console.log(`\nQuerying wrappers registry at ${WRAPPERS_REGISTRY} for USDC ${USDC_SEPOLIA}...`);
     try {
-      const [found, confidentialToken] = await registry.getConfidentialTokenAddress(USDT_SEPOLIA);
-      if (found && confidentialToken !== "0x0000000000000000000000000000000000000000") {
-        cUSDTAddress = confidentialToken;
-        resolvedFromRegistry = true;
-        console.log(`✅ cUSDT resolved from registry: ${cUSDTAddress}`);
+      const [found, confidentialToken] = await registry.getConfidentialTokenAddress(USDC_SEPOLIA);
+      if (found && confidentialToken !== hEthers.ZeroAddress) {
+        cUSDCAddress = confidentialToken;
+        console.log(`✓ cUSDC address from Zama Wrappers Registry: ${cUSDCAddress}`);
       } else {
-        console.warn(`⚠️  Registry returned not-found for USDT. Deploying MockERC7984 as fallback.`);
+        console.log(`⚠️ cUSDC not found in Zama Wrappers Registry for USDC. Querying cUSDT as fallback...`);
+        const [usdtFound, usdtConfidentialToken] = await registry.getConfidentialTokenAddress(USDT_SEPOLIA);
+        if (usdtFound && usdtConfidentialToken !== hEthers.ZeroAddress) {
+          cUSDCAddress = usdtConfidentialToken;
+          console.log(`✓ Using cUSDT from Wrappers Registry as cUSDC fallback: ${cUSDCAddress}`);
+        } else {
+          cUSDCAddress = "0x4E7B06D78965594eB5EF5414c357ca21E1554491"; // hardcoded fallback
+          console.log(`✓ Using hardcoded cUSDT address as fallback: ${cUSDCAddress}`);
+        }
       }
-    } catch (err) {
-      console.warn(`⚠️  Registry query failed: ${err}. Deploying MockERC7984 as fallback.`);
+    } catch (e: any) {
+      console.warn(`⚠️ Registry query failed: ${e.message || e}. Using hardcoded fallback.`);
+      cUSDCAddress = "0x4E7B06D78965594eB5EF5414c357ca21E1554491"; // cUSDT fallback
     }
-
-    if (!resolvedFromRegistry) {
-      /* Override from env if set */
-      const envOverride = process.env.CUSDT_SEPOLIA_ADDRESS;
-      if (envOverride) {
-        cUSDTAddress = envOverride;
-        console.log(`Using CUSDT_SEPOLIA_ADDRESS from env: ${cUSDTAddress}`);
-      } else {
-        const mock = await deploy("MockERC7984", {
-          from: deployer,
-          args: [],
-          log: true,
-          waitConfirmations: 2,
-        });
-        cUSDTAddress = mock.address;
-        console.log(`MockERC7984 (fallback) deployed at: ${cUSDTAddress}`);
-      }
-    }
+  } else {
+    /*
+     * For local testing: deploy a minimal ERC-20 mock that satisfies
+     * the IERC7984 interface.
+     */
+    const mock = await deploy("MockERC7984", {
+      from: deployer, args: [], log: true, waitConfirmations: 1,
+    });
+    cUSDCAddress = mock.address;
+    console.log(`(local) MockERC7984 at ${cUSDCAddress}`);
   }
 
   const registry = await deploy("ArbitraInvoiceRegistry", {
     from: deployer,
-    args: [cUSDTAddress],
+    args: [cUSDCAddress],
     log: true,
     waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
-  console.log(`\nArbitraInvoiceRegistry deployed at: ${registry.address}`);
-  console.log(`Network: ${network.name}`);
-  console.log(`cUSDT address: ${cUSDTAddress}`);
-  console.log(`\nAdd to frontend/.env.local:`);
+  console.log("\n════════════════════════════════════════════════════");
+  console.log("DEPLOYMENT COMPLETE — ADD TO VERCEL ENV VARIABLES:");
   console.log(`NEXT_PUBLIC_REGISTRY_ADDRESS=${registry.address}`);
-  console.log(`NEXT_PUBLIC_CUSDT_ADDRESS=${cUSDTAddress}`);
+  console.log(`NEXT_PUBLIC_CUSDC_ADDRESS=${cUSDCAddress}`);
+  console.log(`NEXT_PUBLIC_USDC_ADDRESS=${USDC_SEPOLIA}`);
+  console.log("════════════════════════════════════════════════════\n");
 };
 
 func.tags = ["ArbitraInvoiceRegistry"];

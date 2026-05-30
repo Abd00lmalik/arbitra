@@ -5,7 +5,7 @@
 
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "../ui/GlassCard";
@@ -21,7 +21,7 @@ interface UploadInvoiceFormProps {
 }
 
 interface FormState {
-  faceValueCUSDT: string;
+  faceValueCUSDC: string;
   dueDateISO: string;
   buyerAddress: string;
 }
@@ -32,13 +32,13 @@ type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
-  const { instance, isReady: zamaReady, error: zamaError } = useZama();
-  const { uploadInvoice, isPending } = useUploadInvoice();
+  const { instance, isReady: zamaReady } = useZama();
+  const { uploadInvoice } = useUploadInvoice();
 
   const [wizardStep, setWizardStep] = useState<WizardStep>(1);
   const [encryptionSubstep, setEncryptionSubstep] = useState<EncryptionSubstep>("idle");
   const [form, setForm] = useState<FormState>({
-    faceValueCUSDT: "",
+    faceValueCUSDC: "",
     dueDateISO: "",
     buyerAddress: "",
   });
@@ -53,12 +53,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   );
 
   const validateStep1 = (): string | null => {
-    const faceValue = parseFloat(form.faceValueCUSDT);
-    if (!form.faceValueCUSDT || isNaN(faceValue) || faceValue <= 0) {
+    const faceValue = parseFloat(form.faceValueCUSDC);
+    if (!form.faceValueCUSDC || isNaN(faceValue) || faceValue <= 0) {
       return "Face value must be a positive number.";
     }
     if (faceValue > 3356) {
-      return "Max demo invoice is $3,356 cUSDT due to euint64 overflow limits.";
+      return "Max demo invoice is $3,356 cUSDC due to euint64 overflow limits.";
     }
     if (!form.dueDateISO) {
       return "Due date is required.";
@@ -122,7 +122,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
       /* Substep 2: Generating ZK proofs */
       setEncryptionSubstep("zkp");
-      const faceValueMicro = BigInt(Math.round(parseFloat(form.faceValueCUSDT) * 1_000_000));
+      const faceValueMicro = BigInt(Math.round(parseFloat(form.faceValueCUSDC) * 1_000_000));
       const dueTimestamp = BigInt(Math.floor(new Date(form.dueDateISO).getTime() / 1000));
       
       const { handle1, handle2, inputProof } = await encryptTwoUint64(
@@ -155,7 +155,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       );
 
       setTxHash(hash || null);
-      setForm({ faceValueCUSDT: "", dueDateISO: "", buyerAddress: "" });
+      setForm({ faceValueCUSDC: "", dueDateISO: "", buyerAddress: "" });
+      if (onSuccess && hash) {
+        /* Optional success callback */
+      }
     } catch (err) {
       console.error("[UploadInvoiceForm] Error:", err);
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -221,28 +224,28 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             className="space-y-4"
           >
             <div>
-              <label htmlFor="faceValueCUSDT" className="block text-sm text-slate-400 mb-1.5 font-medium">
-                Face Value (cUSDT)
+              <label htmlFor="faceValueCUSDC" className="block text-sm text-slate-400 mb-1.5 font-medium">
+                Face Value (cUSDC)
                 <span className="ml-1.5 text-xs text-slate-600">• max $3,356 limit</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm font-semibold" aria-hidden="true">$</span>
                 <input
-                  id="faceValueCUSDT"
-                  name="faceValueCUSDT"
+                  id="faceValueCUSDC"
+                  name="faceValueCUSDC"
                   type="number"
                   min="0.01"
                   max="3356"
                   step="0.01"
-                  value={form.faceValueCUSDT}
+                  value={form.faceValueCUSDC}
                   onChange={handleChange}
                   className="glass-input pl-8 pr-24 font-mono"
                   placeholder="1000.00"
                   required
                 />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <FHEBadge size="sm" animated={false} label="Encrypted" />
-                </div>
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <FHEBadge size="sm" animated={false} label="Encrypted" />
+                  </div>
               </div>
             </div>
 
@@ -262,9 +265,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   min={new Date(Date.now() + 86400000).toISOString().split("T")[0]}
                   required
                 />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <FHEBadge size="sm" animated={false} label="Encrypted" />
-                </div>
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <FHEBadge size="sm" animated={false} label="Encrypted" />
+                  </div>
               </div>
             </div>
 
@@ -356,7 +359,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
               <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2">
                 <span className="text-slate-500">Face Value</span>
-                <span className="text-neon-cyan font-mono font-semibold">${parseFloat(form.faceValueCUSDT).toFixed(2)} cUSDT</span>
+                <span className="text-neon-cyan font-mono font-semibold">${parseFloat(form.faceValueCUSDC).toFixed(2)} cUSDC</span>
               </div>
               <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2">
                 <span className="text-slate-500">Maturity Date</span>
@@ -438,7 +441,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Invoice Tokenized successfully</h3>
+                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Invoice Tokenized Successfully</h3>
                   <p className="text-xs text-slate-500 mt-2">
                     Face values are encrypted and stored on Sepolia at:
                   </p>

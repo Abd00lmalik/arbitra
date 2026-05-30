@@ -159,7 +159,7 @@ export function PhoneMockup() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "#8B9CC8", marginBottom: "8px" }}>
                   <span>Face Value:</span>
                   <span style={{ fontFamily: "JetBrains Mono, monospace", color: "#00F0FF", fontWeight: 500 }}>
-                    {isDecrypted ? "$142,000" : "0x7f3a...b81e"}
+                    {isDecrypted ? "$142,000 cUSDC" : "0x7f3a...b81e"}
                   </span>
                 </div>
                 <div style={{ display: "inline-flex", padding: "4px 8px", borderRadius: "100px", background: "rgba(0, 255, 136, 0.1)", border: "1px solid rgba(0,255,136,0.2)", fontSize: "10px", color: "#00FF88", fontWeight: 600 }}>
@@ -273,7 +273,7 @@ export function PhoneMockup() {
                     Dashboard
                   </h3>
                 </div>
-                {/* Active Address Indicator */}
+                {/* Active Wallet Connected Display */}
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "9px", color: "#00F0FF", fontWeight: 600 }}>
                   <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
                   0x7b2f...e00f
@@ -345,7 +345,7 @@ export function PhoneMockup() {
                 }}
               >
                 <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
-                <span>FHE Active • Zama FHEVM v0.11 • Sepolia</span>
+                <span>FHE Shield Active • Zama v0.11 • Sepolia</span>
               </div>
 
               {/* Static screen area */}
@@ -364,7 +364,7 @@ export function PhoneMockup() {
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
                       <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Total Factored Volume</div>
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "#00FF88", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
-                        {isDecrypted ? "$375,000.00" : "🔒 FHE Secured"}
+                        {isDecrypted ? "$375,000.00 cUSDC" : "0x9a8b...f2de 🔒"}
                       </div>
                     </div>
                   </div>
@@ -376,12 +376,12 @@ export function PhoneMockup() {
                     </div>
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
                       <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Yield Rate</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APR</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APY</div>
                     </div>
                     <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
                       <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Confidential Factored Balance</div>
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
-                        {isDecrypted ? "$250,000.00" : "🔒 FHE Secured"}
+                        {isDecrypted ? "$250,000.00 cUSDC" : "0x0f8c...4b12 🔒"}
                       </div>
                     </div>
                   </div>
@@ -443,21 +443,21 @@ export function PhoneMockup() {
                       id: "Invoice #1",
                       status: "Verified",
                       color: "#00FF88",
-                      clear: "$142,000",
+                      clear: "$142,000 cUSDC",
                       cipher: "0x7f3a...b81e"
                     },
                     {
                       id: "Invoice #2",
                       status: "Pending",
                       color: "#FFC400",
-                      clear: "$89,500",
+                      clear: "$89,500 cUSDC",
                       cipher: "0x0f8c...4b12"
                     },
                     {
                       id: "Invoice #3",
                       status: "Settled",
                       color: "#00F0FF",
-                      clear: "$210,000",
+                      clear: "$210,000 cUSDC",
                       cipher: "0x8e5f...c9d4"
                     }
                   ].map((inv) => (
@@ -484,7 +484,7 @@ export function PhoneMockup() {
                           {isDecrypted ? inv.clear : inv.cipher}
                         </div>
                         <div style={{ fontSize: "7px", color: "#8B9CC8" }}>
-                          cUSDT
+                          cUSDC
                         </div>
                       </div>
                     </div>
@@ -592,7 +592,7 @@ export function PhoneMockup() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  cUSDT Transferred
+                  cUSDC Transferred
                 </div>
                 <div style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
                   - $1,250.00

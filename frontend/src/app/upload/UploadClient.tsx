@@ -10,13 +10,13 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { UploadInvoiceForm } from "@/components/invoice/UploadInvoiceForm";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { FHEBadge } from "@/components/ui/FHEBadge";
-import { FaucetButton } from "@/components/ui/FaucetButton";
+import { FaucetLinks } from "@/components/shared/FaucetLinks";
 
 export default function UploadClient() {
   return (
     <AppLayout
       title="Upload Invoice"
-      description="Encrypt and submit an invoice for factoring — face values are never exposed on-chain"
+      description="Encrypt and tokenize an invoice for factoring — face values are never exposed publicly on-chain"
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl">
         {/* Form column */}
@@ -27,7 +27,7 @@ export default function UploadClient() {
         {/* Explainer column */}
         <div className="space-y-4">
           {/* Faucet callout */}
-          <GlassCard className="p-4 flex items-center justify-between gap-4">
+          <GlassCard className="p-4 flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <span className="text-neon-cyan flex-shrink-0" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -35,11 +35,11 @@ export default function UploadClient() {
                 </svg>
               </span>
               <div>
-                <div className="text-sm font-medium text-white">Need Test cUSDT?</div>
-                <div className="text-xs text-slate-500">Wrap Sepolia USDT to cUSDT on Zama app.</div>
+                <div className="text-sm font-medium text-white">Need Test Assets?</div>
+                <div className="text-xs text-slate-500">Get Circle USDC faucet tokens and Sepolia ETH to interact with the platform.</div>
               </div>
             </div>
-            <FaucetButton />
+            <FaucetLinks />
           </GlassCard>
 
           <GlassCard className="p-5">
@@ -112,7 +112,7 @@ export default function UploadClient() {
                 <div className="text-xs text-slate-500 leading-relaxed">
                   This demo uses <code className="text-neon-cyan">euint64</code> for face values.
                   Due to intermediate multiplication overflow, the maximum safe invoice size is{" "}
-                  <strong className="text-white">$3,356 cUSDT</strong> at a 15% discount rate and
+                  <strong className="text-white">$3,356 cUSDC</strong> at a 15% discount rate and
                   365-day maturity. Production deployments would use euint128 or intermediate
                   scaling to support larger amounts.
                 </div>

@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
 /**
  * @file ArbitraInvoiceRegistry.sol
  * @description Core registry for Arbitra confidential invoice factoring.
  *              Stores invoice data as FHE ciphertexts, computes encrypted
  *              purchase prices using the formula P = V * (1 - d * t),
  *              tracks supplier repayment history in encrypted state, and
- *              integrates with real cUSDT (ERC-7984 wrapper) for settlement.
+ *              integrates with real cUSDC (ERC-7984 wrapper) for settlement.
  *
- *              Payment token: official Zama cUSDT on Sepolia, discovered via
+ *              Payment token: official Zama cUSDC on Sepolia, discovered via
  *              the Wrappers Registry at 0x2f0750Bbb0A246059d80e94c454586a7F27a128e.
  */
 pragma solidity ^0.8.27;
@@ -17,20 +17,20 @@ import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IERC7984 } from "@openzeppelin/confidential-contracts/interfaces/IERC7984.sol";
 
-/****** Contract ******/
+/*************** Contract ***************/
 
 /**
  * @title  ArbitraInvoiceRegistry
  * @notice Decentralized confidential invoice factoring registry using Zama FHEVM.
  *         Suppliers upload invoices with FHE-encrypted face values and due dates.
  *         Purchase prices are computed homomorphically from encrypted repayment ratios.
- *         Investors settle via real cUSDT (Confidential USDT, ERC-7984).
+ *         Investors settle via real cUSDC (Confidential USDC, ERC-7984).
  *
  * @dev    Inherits ZamaEthereumConfig for on-chain FHE verifier addresses.
  *         All FHE state changes call FHE.allowThis immediately after computation.
  *
- *         Operator model: investors call cUSDT.setOperator(registryAddress, expiry)
- *         before factoring. The registry calls cUSDT.confidentialTransferFrom using
+ *         Operator model: investors call cUSDC.setOperator(registryAddress, expiry)
+ *         before factoring. The registry calls cUSDC.confidentialTransferFrom using
  *         the handle-only overload (no proof needed — registry has ACL from allowTransient).
  *
  *         Solidity target: ^0.8.27, EVM: cancun.
@@ -39,7 +39,7 @@ import { IERC7984 } from "@openzeppelin/confidential-contracts/interfaces/IERC79
  */
 contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
 
-    /****** Constants ******/
+    /*************** Constants ***************/
 
     /**
      * @notice Scaling denominator for discount math.
@@ -67,7 +67,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
      */
     uint48 public constant DEFAULT_OPERATOR_EXPIRY_SECONDS = 7 days;
 
-    /****** Data Structures ******/
+    /*************** Data Structures ***************/
 
     /**
      * @notice On-chain invoice record.
@@ -75,7 +75,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
      *         Identity and status fields are plaintext for UI routing.
      */
     struct Invoice {
-        euint64  faceValue;       /* Encrypted face value in cUSDT micro-units (6 dec) */
+        euint64  faceValue;       /* Encrypted face value in cUSDC micro-units (6 dec) */
         euint64  dueDate;         /* Encrypted due date as Unix timestamp               */
         euint64  purchasePrice;   /* Encrypted purchase price P = V*(1 - d*t)          */
         euint64  discountRate;    /* Encrypted discount rate in BPS at upload time      */
@@ -98,7 +98,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         bool    initialized;       /* Plaintext flag for first-upload path */
     }
 
-    /****** State ******/
+    /*************** State ***************/
 
     /** @notice Total invoices ever uploaded */
     uint256 public invoiceCount;
@@ -116,14 +116,14 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
     mapping(address => uint256[]) public investorInvoiceIds;
 
     /**
-     * @notice Official cUSDT token (ERC-7984 wrapper).
+     * @notice Official cUSDC token (ERC-7984 wrapper).
      *         Address is resolved at deploy time from the Zama Wrappers Registry:
      *         Sepolia registry: 0x2f0750Bbb0A246059d80e94c454586a7F27a128e
-     *         Call getConfidentialTokenAddress(USDT_SEPOLIA) to get cUSDT address.
+     *         Call getWrapper(USDC_ADDRESS) to get cUSDC address.
      */
-    IERC7984 public immutable cUSDT;
+    IERC7984 public immutable cUSDC;
 
-    /****** Events ******/
+    /*************** Events ***************/
 
     /** @notice Emitted when a new invoice is uploaded */
     event InvoiceUploaded(
@@ -147,25 +147,25 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         uint256 timestamp
     );
 
-    /****** Custom Errors ******/
+    /*************** Custom Errors ***************/
 
-    /** @notice Thrown when cUSDT.isOperator returns false for the investor */
+    /** @notice Thrown when cUSDC.isOperator returns false for the investor */
     error InvestorNotApprovedOperator(address investor, address registry);
 
-    /****** Constructor ******/
+    /*************** Constructor ***************/
 
     /**
-     * @notice Deploy registry with the cUSDT address.
-     * @param _cUSDT Address of the ERC-7984 cUSDT wrapper.
-     *               On Sepolia: resolved via Wrappers Registry.getConfidentialTokenAddress(USDT_SEPOLIA).
+     * @notice Deploy registry with the cUSDC address.
+     * @param _cUSDC Address of the ERC-7984 cUSDC wrapper.
+     *               On Sepolia: resolved via Wrappers Registry.getWrapper(USDC_SEPOLIA).
      *               On localhost: a MockERC7984 deployment.
      */
-    constructor(address _cUSDT) Ownable(msg.sender) {
-        require(_cUSDT != address(0), "Arbitra: zero cUSDT address");
-        cUSDT = IERC7984(_cUSDT);
+    constructor(address _cUSDC) Ownable(msg.sender) {
+        require(_cUSDC != address(0), "Arbitra: zero cUSDC address");
+        cUSDC = IERC7984(_cUSDC);
     }
 
-    /****** Supplier Functions ******/
+    /*************** Supplier Functions ***************/
 
     /**
      * @notice Upload a new invoice with FHE-encrypted face value and due date.
@@ -269,17 +269,17 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         emit InvoiceRepaid(invoiceId, msg.sender, block.timestamp);
     }
 
-    /****** Investor Functions ******/
+    /*************** Investor Functions ***************/
 
     /**
      * @notice Investor factors (purchases) an invoice at its encrypted purchase price.
      *
      *         Pre-condition: investor must have called
-     *           cUSDT.setOperator(registryAddress, expiry)
+     *           cUSDC.setOperator(registryAddress, expiry)
      *         before this call. The registry verifies operator status and reverts
      *         with InvestorNotApprovedOperator if not set.
      *
-     *         Calls cUSDT.confidentialTransferFrom(investor, supplier, purchasePrice)
+     *         Calls cUSDC.confidentialTransferFrom(investor, supplier, purchasePrice)
      *         using the handle-only overload — the registry must have transient ACL
      *         on purchasePrice, which it grants via FHE.allowTransient before the call.
      *
@@ -291,21 +291,21 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         require(inv.supplier != address(0), "Arbitra: invalid invoice");
         require(inv.supplier != msg.sender, "Arbitra: supplier cannot factor own invoice");
 
-        /* Verify investor has approved this registry as an operator on cUSDT */
-        if (!cUSDT.isOperator(msg.sender, address(this))) {
+        /* Verify investor has approved this registry as an operator on cUSDC */
+        if (!cUSDC.isOperator(msg.sender, address(this))) {
             revert InvestorNotApprovedOperator(msg.sender, address(this));
         }
 
-        /* Grant cUSDT transient ACL on purchasePrice for this tx's cross-contract call.
-         * Without this, cUSDT.confidentialTransferFrom reverts with ACLNotAllowed()
+        /* Grant cUSDC transient ACL on purchasePrice for this tx's cross-contract call.
+         * Without this, cUSDC.confidentialTransferFrom reverts with ACLNotAllowed()
          * when it attempts FHE operations on the handle.
          * Transient access expires after this transaction. */
-        FHE.allowTransient(inv.purchasePrice, address(cUSDT));
+        FHE.allowTransient(inv.purchasePrice, address(cUSDC));
 
-        /* Transfer cUSDT from investor to supplier at the encrypted purchase price.
+        /* Transfer cUSDC from investor to supplier at the encrypted purchase price.
          * Uses the handle-only overload: caller (registry) must be an approved operator
          * for `from` (investor) — verified above via isOperator. */
-        euint64 transferred = cUSDT.confidentialTransferFrom(
+        euint64 transferred = cUSDC.confidentialTransferFrom(
             msg.sender,
             inv.supplier,
             inv.purchasePrice
@@ -352,7 +352,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         }
     }
 
-    /****** View Functions ******/
+    /*************** View Functions ***************/
 
     /**
      * @notice Get all invoice IDs uploaded by a supplier.
@@ -416,15 +416,15 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
     }
 
     /**
-     * @notice Check if an investor has approved the registry as a cUSDT operator.
+     * @notice Check if an investor has approved the registry as a cUSDC operator.
      * @param investor  The investor address to check
      * @return approved True if the registry is a valid operator for the investor
      */
     function isInvestorApproved(address investor) external view returns (bool approved) {
-        return cUSDT.isOperator(investor, address(this));
+        return cUSDC.isOperator(investor, address(this));
     }
 
-    /****** Internal FHE Helpers ******/
+    /*************** Internal FHE Helpers ***************/
 
     /**
      * @notice Compute encrypted discount rate based on supplier's historical repayment ratio.

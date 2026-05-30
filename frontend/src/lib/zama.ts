@@ -1,151 +1,119 @@
-"use client";
-
 /**
- * Zama FHEVM SDK integration for Arbitra.
- * Uses @zama-fhe/relayer-sdk/web (browser sub-path).
- * IMPORTANT: This module must only be imported in client components.
- *            The initSDK/createInstance calls touch IndexedDB which does not
- *            exist during Next.js SSR.
+ * @file zama.ts
+ * @description Zama FHEVM SDK initialization and encryption/decryption helpers.
+ *              Uses @zama-fhe/relayer-sdk/web (v0.4.1) for web environment.
  */
 
-import { useEffect, useState } from "react";
+let sdkInstance: any | null = null;
 
-/* Sub-path import required — bare import fails (anti-pattern #15) */
-import {
-  createInstance,
-  initSDK,
-  SepoliaConfig,
-} from "@zama-fhe/relayer-sdk/web";
+export async function getZamaSDK() {
+  if (typeof window === "undefined") return null;
+  if (sdkInstance) return sdkInstance;
 
-export type FhevmInstance = Awaited<ReturnType<typeof createInstance>>;
-
-let instanceCache: FhevmInstance | null = null;
-let initPromise: Promise<FhevmInstance> | null = null;
-
-/**
- * Initialize and return the Zama SDK instance (singleton).
- * Safe to call multiple times; only initializes once.
- */
-export async function getFhevmInstance(
-  provider: unknown
-): Promise<FhevmInstance> {
-  if (instanceCache) return instanceCache;
-  if (initPromise) return initPromise;
-
-    initPromise = (async () => {
-      /* initSDK pre-loads WASM modules; calling it first gives control over timing */
-      await initSDK();
-      instanceCache = await createInstance({
-        ...SepoliaConfig,
-        relayerUrl: "https://relayer.testnet.zama.org",
-        network: provider as Parameters<typeof createInstance>[0]["network"],
-      });
-      return instanceCache;
-    })();
-
-  return initPromise;
+  try {
+    /* Load relayer-sdk 0.4.1 /web */
+    const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
+    await initSDK();
+    const instance = await createInstance({
+      ...SepoliaConfig,
+      relayerUrl: "https://relayer.testnet.zama.org",
+      network: window.ethereum as any,
+    });
+    sdkInstance = instance;
+    return sdkInstance;
+  } catch (e) {
+    console.error("[Arbitra] FHEVM init failed:", e);
+    return null;
+  }
 }
 
 /**
- * React hook that lazily initializes the Zama SDK instance.
- * Gated behind useEffect to avoid SSR IndexedDB errors (anti-pattern #19c).
- */
-export function useFhevmInstance(): FhevmInstance | null {
-  const [instance, setInstance] = useState<FhevmInstance | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      if (typeof window === "undefined" || !window.ethereum) return;
-
-      try {
-        const inst = await getFhevmInstance(window.ethereum);
-        if (!cancelled) setInstance(inst);
-      } catch (err) {
-        console.error("[Zama] Failed to initialize FHEVM instance:", err);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return instance;
-}
-
-/**
- * Encrypt a single euint64 value for a specific contract and user.
- * Returns { handles, inputProof } ready for contract calls.
+ * Encrypt a uint64 value for on-chain submission.
+ * Returns the externalEuint64 handle and ZKPoK proof bytes as hex strings.
  */
 export async function encryptUint64(
-  instance: FhevmInstance,
+  instance: any,
   value: bigint,
   contractAddress: string,
   userAddress: string
-): Promise<{ handle: Uint8Array; inputProof: Uint8Array }> {
-  const input = instance.createEncryptedInput(contractAddress, userAddress);
+): Promise<{ handle: `0x${string}`; inputProof: `0x${string}` }> {
+  const activeInstance = instance || (await getZamaSDK());
+  if (!activeInstance) throw new Error("FHEVM SDK not initialized");
+
+  const input = activeInstance.createEncryptedInput(contractAddress, userAddress);
   input.add64(value);
   const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
   return {
-    handle: encrypted.handles[0],
-    inputProof: encrypted.inputProof,
+    handle: toHex(encrypted.handles[0]),
+    inputProof: toHex(encrypted.inputProof),
   };
 }
 
 /**
- * Encrypt two euint64 values in a single input (shared proof).
+ * Encrypt two uint64 values in a single input (shared proof).
  * Used for uploadInvoice (faceValue + dueDate).
  */
 export async function encryptTwoUint64(
-  instance: FhevmInstance,
+  instance: any,
   value1: bigint,
   value2: bigint,
   contractAddress: string,
   userAddress: string
 ): Promise<{
-  handle1: Uint8Array;
-  handle2: Uint8Array;
-  inputProof: Uint8Array;
+  handle1: `0x${string}`;
+  handle2: `0x${string}`;
+  inputProof: `0x${string}`;
 }> {
-  const input = instance.createEncryptedInput(contractAddress, userAddress);
+  const activeInstance = instance || (await getZamaSDK());
+  if (!activeInstance) throw new Error("FHEVM SDK not initialized");
+
+  const input = activeInstance.createEncryptedInput(contractAddress, userAddress);
   input.add64(value1);
   input.add64(value2);
   const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
   return {
-    handle1: encrypted.handles[0],
-    handle2: encrypted.handles[1],
-    inputProof: encrypted.inputProof,
+    handle1: toHex(encrypted.handles[0]),
+    handle2: toHex(encrypted.handles[1]),
+    inputProof: toHex(encrypted.inputProof),
   };
 }
 
 /**
- * Perform EIP-712 userDecrypt for a set of handles from a contract.
- * The caller must have ACL permission (via FHE.allow) on each handle.
- * Returns a bare Record (not wrapped in .clearValues) per anti-pattern #18.
+ * EIP-712 userDecrypt for a set of encrypted handles.
+ * Triggers a MetaMask signature prompt.
+ * Compatible with useInvoiceDecrypt hook.
  */
 export async function userDecryptHandles(
-  instance: FhevmInstance,
+  instance: any,
   handles: Array<{ handle: string; contractAddress: string }>,
   signer: {
-    signTypedData: (
-      domain: object,
-      types: object,
-      value: object
-    ) => Promise<string>;
+    signTypedData: (domain: object, types: object, value: object) => Promise<string>;
     getAddress: () => Promise<string>;
   }
 ): Promise<Record<string, bigint | boolean | string>> {
-  const userAddress = await signer.getAddress();
-  const keypair = instance.generateKeypair();
+  const activeInstance = instance || (await getZamaSDK());
+  if (!activeInstance) throw new Error("FHEVM SDK not initialized");
 
+  /* EIP-712 decryption using relayer-sdk */
+  const userAddress = await signer.getAddress();
+  const keypair = activeInstance.generateKeypair();
   const startTimestamp = Math.floor(Date.now() / 1000);
   const durationDays = 7;
-
   const contractAddresses = [...new Set(handles.map((h) => h.contractAddress))];
 
-  const eip712 = instance.createEIP712(
+  const eip712 = activeInstance.createEIP712(
     keypair.publicKey,
     contractAddresses,
     startTimestamp,
@@ -161,8 +129,7 @@ export async function userDecryptHandles(
     eip712.message
   );
 
-  /* userDecrypt returns a bare Record, NOT an object with .clearValues */
-  const clearValues = await instance.userDecrypt(
+  const clearValues = await activeInstance.userDecrypt(
     handles.map((h) => ({ handle: h.handle, contractAddress: h.contractAddress })),
     keypair.privateKey,
     keypair.publicKey,

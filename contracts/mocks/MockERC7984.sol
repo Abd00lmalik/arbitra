@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
 /**
  * @file MockERC7984.sol
  * @description Minimal ERC-7984 shim for local Hardhat testing.
@@ -21,7 +21,7 @@ import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
  * @title  MockERC7984
  * @notice Test-only ERC-7984 shim for local Hardhat environment.
  *         Replaces MockCUSDC. Implements operator approval and encrypted transfers
- *         using the same interface as the real Zama cUSDT wrapper on Sepolia.
+ *         using the same interface as the real Zama cUSDC wrapper on Sepolia.
  * @custom:security-contact security@arbitra.finance
  */
 contract MockERC7984 is ZamaEthereumConfig {
@@ -29,12 +29,12 @@ contract MockERC7984 is ZamaEthereumConfig {
     /****** State ******/
 
     /** @notice Token name */
-    string public name = "Mock Confidential USDT";
+    string public name = "Mock Confidential USDC";
 
     /** @notice Token symbol */
-    string public symbol = "cUSDT";
+    string public symbol = "cUSDC";
 
-    /** @notice Token decimals (6 for USDT compatibility) */
+    /** @notice Token decimals (6 for USDC compatibility) */
     uint8 public decimals = 6;
 
     /** @notice Encrypted balances per address */

@@ -1,24 +1,27 @@
 /**
  * @file DashboardClient.tsx
- * @description Main dashboard interface featuring role-specific stats cards, portfolio distribution charts, transaction lists, and security engine specs.
+ * @description Main dashboard interface featuring clean metrics, dynamic role switching,
+ *              Faucet links, on-chain balances, and a USDC wrapping control panel.
  */
 
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useAccount } from "wagmi";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { FHEBadge } from "@/components/ui/FHEBadge";
-import { FaucetButton } from "@/components/ui/FaucetButton";
 import { PortfolioDonut } from "@/components/ui/PortfolioDonut";
+import { RoleToggle } from "@/components/shared/RoleToggle";
+import { FaucetLinks } from "@/components/shared/FaucetLinks";
+import { WrapUSDCButton } from "@/components/shared/WrapUSDCButton";
 import {
   useInvoiceCount,
   useSupplierInvoices,
   useInvestorInvoices,
   useMockInvoiceList,
-  useRealInvoiceList,
+  useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useZama } from "@/providers/ZamaProvider";
 import { useRole } from "@/providers/RoleProvider";
@@ -75,6 +78,7 @@ export default function DashboardClient() {
   const { role } = useRole();
   const mockInvoices = useMockInvoiceList();
   const { data: realInvoices, isLoading: isLoadingInvoices } = useRealInvoiceList();
+  const [wrapAmount, setWrapAmount] = useState<number>(100);
 
   const hasRealInvoices = realInvoices && realInvoices.length > 0;
   const invoices = hasRealInvoices ? realInvoices : mockInvoices;
@@ -118,7 +122,7 @@ export default function DashboardClient() {
   return (
     <AppLayout
       title="Dashboard"
-      description="Confidential overview of your tokenized invoices and factoring yield."
+      description="Overview of your tokenized invoices, factored yield, and confidential balance."
     >
       <motion.div
         variants={containerVariants}
@@ -126,14 +130,15 @@ export default function DashboardClient() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Header Toolbar */}
-        <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-navy-800 border border-white/5 text-xs text-slate-400 font-semibold">
-            Active Mode: <span className="text-white ml-1 font-bold capitalize">{role}</span>
+        {/* Header Toolbar containing role toggle and faucet links */}
+        <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4 bg-navy-950/40 p-4 border border-white/5 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Switch Mode:</span>
+            <RoleToggle />
           </div>
 
           <div className="flex items-center gap-3">
-            <FaucetButton />
+            <FaucetLinks />
           </div>
         </motion.div>
 
@@ -185,11 +190,12 @@ export default function DashboardClient() {
           </motion.div>
         )}
 
-        {/* Outer 2/3 Left vs 1/3 Right Column Grid */}
+        {/* Column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Left Column (2/3 width) */}
           <div className="lg:col-span-2 space-y-6">
-            {/* User-friendly FHE status banner */}
+            
+            {/* Clean Shield banner */}
             <div
               style={{
                 display: "flex",
@@ -209,12 +215,11 @@ export default function DashboardClient() {
                   height: "8px",
                   borderRadius: "50%",
                   background: zamaReady ? "#00FF88" : "#FFC400",
-                  boxShadow: zamaReady ? "0 0 10px #00FF88" : "0 0 10px #FFC400",
-                  animation: "pulse 2s ease-in-out infinite"
+                  boxShadow: zamaReady ? "0 0 10px #00FF88" : "0 0 10px #FFC400"
                 }}
               />
               <span style={{ fontSize: "13px", color: "#8B9CC8", fontFamily: "Satoshi, sans-serif", fontWeight: 600 }}>
-                FHE Active • Zama FHEVM v0.11 • Sepolia
+                FHE Cryptographic Protocol Active (Sepolia Network)
               </span>
               <div style={{ marginLeft: "auto" }}>
                 <FHEBadge />
@@ -250,9 +255,8 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Total Factored Volume"
-                    value={mySupplierInvoices > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
-                    delta={mySupplierInvoices > 0 ? "FHE Protected" : undefined}
+                    label="Total Factored Invoices"
+                    value={factored}
                     color="#00FF88"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -262,8 +266,8 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Repaid Volume"
-                    value={repaid > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
+                    label="Repaid Invoices"
+                    value={repaid}
                     color="#FF2D6B"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -286,8 +290,8 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Average Yield Rate"
-                    value={myInvestorInvoices > 0 ? "14.20% APR" : "0.00% APR"}
+                    label="Current Net APY Yield"
+                    value={myInvestorInvoices > 0 ? "14.20% APY" : "0.00% APY"}
                     delta={myInvestorInvoices > 0 ? "Premium" : undefined}
                     color="#7B2FFF"
                     icon={
@@ -299,8 +303,8 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Confidential Factored Balance"
-                    value={myInvestorInvoices > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
+                    label="Confidential Factored State"
+                    value="Shielded"
                     color="#00FF88"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -310,7 +314,7 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Total factoring volume on chain"
+                    label="Total Platform Invoices"
                     value={totalInvoices}
                     color="#FF2D6B"
                     icon={
@@ -439,6 +443,39 @@ export default function DashboardClient() {
 
           {/* Right Column (1/3 width) */}
           <div className="space-y-6">
+            
+            {/* USDC Wrapping Utility Card */}
+            <GlassCard className="p-6">
+              <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif", marginBottom: "12px" }}>
+                Wrapping Utility
+              </h3>
+              <p style={{ fontSize: "12px", color: "#8B9CC8", lineHeight: "1.5", marginBottom: "16px" }}>
+                Wrap your standard Sepolia USDC to Confidential USDC (cUSDC) using Zama's official wrappers registry before factoring.
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "10px", color: "#8B9CC8", fontWeight: 600, textTransform: "uppercase" }}>Amount to Wrap (USDC)</label>
+                  <input
+                    type="number"
+                    value={wrapAmount}
+                    onChange={(e) => setWrapAmount(Number(e.target.value))}
+                    style={{
+                      background: "rgba(255, 255, 255, 0.03)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "10px",
+                      padding: "8px 12px",
+                      fontSize: "13px",
+                      color: "#white",
+                      fontFamily: "JetBrains Mono, monospace",
+                      outline: "none"
+                    }}
+                  />
+                </div>
+                <WrapUSDCButton amountUSDC={wrapAmount} />
+              </div>
+            </GlassCard>
+
             {/* Portfolio Donut */}
             <GlassCard className="p-6">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
@@ -469,7 +506,7 @@ export default function DashboardClient() {
                   },
                   {
                     label: "Confidential Asset",
-                    value: "Confidential USDT (cUSDT)",
+                    value: "Confidential USDC (cUSDC)",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7B2FFF" strokeWidth="1.5">
                         <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -478,8 +515,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Access Control Schema",
-                    value: "EIP-712 Authenticated Permit",
+                    label: "Access Control Permit",
+                    value: "Secure Wallet Auth Permit",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="1.5">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -487,8 +524,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Security Network Status",
-                    value: "Active Cryptographic Coprocessor",
+                    label: "Status Monitor",
+                    value: "Active Transaction Verification",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF2D6B" strokeWidth="1.5">
                         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -524,12 +561,6 @@ export default function DashboardClient() {
           </div>
         </div>
       </motion.div>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
     </AppLayout>
   );
 }

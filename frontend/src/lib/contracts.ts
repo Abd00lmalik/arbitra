@@ -1,279 +1,58 @@
 /**
- * Contract addresses and ABI for Arbitra.
- * Addresses sourced from NEXT_PUBLIC_ env vars (set after deployment).
- *
- * Payment token: cUSDT — official Confidential USDT from Zama Wrappers Registry.
- * Registry (Sepolia): 0x2f0750Bbb0A246059d80e94c454586a7F27a128e
- * Get test cUSDT by wrapping Sepolia USDT at: https://app.zama.ai
+ * @file contracts.ts
+ * @description Arbitra contract addresses, ABIs, and helper utilities.
+ *              All dynamic addresses are fetched from NEXT_PUBLIC_* environment variables.
  */
 
-export const ARBITRA_REGISTRY_ADDRESS =
-  (process.env.NEXT_PUBLIC_REGISTRY_ADDRESS as `0x${string}`) ||
-  ("0x0000000000000000000000000000000000000000" as `0x${string}`);
-
-/** cUSDT — Confidential USDT ERC-7984 wrapper (resolved from Zama Wrappers Registry at deploy time) */
-export const CUSDT_ADDRESS =
-  (process.env.NEXT_PUBLIC_CUSDT_ADDRESS as `0x${string}`) ||
-  ("0x4E7B06D78965594eB5EF5414c357ca21E1554491" as `0x${string}`);
-
-
-/** Zama Wrappers Registry address on Sepolia (read-only, for UI display) */
-export const WRAPPERS_REGISTRY_ADDRESS = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e" as `0x${string}`;
+export const ARBITRA_REGISTRY_ADDRESS = (
+  process.env.NEXT_PUBLIC_REGISTRY_ADDRESS ?? "0x0000000000000000000000000000000000000000"
+) as `0x${string}`;
 
 /**
- * URL for getting test cUSDT on Sepolia.
- * Users wrap Sepolia USDT → cUSDT via the Zama Portfolio app.
+ * Confidential USDC — ERC-7984 wrapped USDC from Zama Wrappers Registry.
+ * Underlying: USDC 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+ * Registry:   0x2f0750Bbb0A246059d80e94c454586a7F27a128e
  */
-export const CUSDT_FAUCET_URL = "https://app.zama.ai";
+export const CUSDC_ADDRESS = (
+  process.env.NEXT_PUBLIC_CUSDC_ADDRESS ?? "0x0000000000000000000000000000000000000000"
+) as `0x${string}`;
 
-export const ARBITRA_REGISTRY_ABI = [
-  /* ── View ── */
-  {
-    name: "invoiceCount",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    name: "invoices",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "invoiceId", type: "uint256" }],
-    outputs: [
-      { name: "faceValue", type: "bytes32" },
-      { name: "dueDate", type: "bytes32" },
-      { name: "purchasePrice", type: "bytes32" },
-      { name: "discountRate", type: "bytes32" },
-      { name: "supplier", type: "address" },
-      { name: "investor", type: "address" },
-      { name: "buyer", type: "address" },
-      { name: "isFactored", type: "bool" },
-      { name: "isRepaid", type: "bool" },
-      { name: "uploadTimestamp", type: "uint256" },
-    ],
-  },
-  {
-    name: "getAllInvoiceIds",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "ids", type: "uint256[]" }],
-  },
-  {
-    name: "getSupplierInvoices",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "supplier", type: "address" }],
-    outputs: [{ name: "", type: "uint256[]" }],
-  },
-  {
-    name: "getInvestorInvoices",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "investor", type: "address" }],
-    outputs: [{ name: "", type: "uint256[]" }],
-  },
-  {
-    name: "getInvoiceHandles",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "invoiceId", type: "uint256" }],
-    outputs: [
-      { name: "faceValueHandle", type: "bytes32" },
-      { name: "dueDateHandle", type: "bytes32" },
-      { name: "purchasePriceHandle", type: "bytes32" },
-      { name: "discountRateHandle", type: "bytes32" },
-    ],
-  },
-  {
-    name: "getSupplierRatioHandle",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "supplier", type: "address" }],
-    outputs: [{ name: "ratioHandle", type: "bytes32" }],
-  },
-  {
-    name: "supplierStats",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "supplier", type: "address" }],
-    outputs: [
-      { name: "totalInvoices", type: "bytes32" },
-      { name: "repaidInvoices", type: "bytes32" },
-      { name: "repaymentRatioBps", type: "bytes32" },
-      { name: "initialized", type: "bool" },
-    ],
-  },
-  {
-    name: "isInvestorApproved",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "investor", type: "address" }],
-    outputs: [{ name: "approved", type: "bool" }],
-  },
-  /* ── Write ── */
-  {
-    name: "uploadInvoice",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "encFaceValue", type: "bytes32" },
-      { name: "proofFaceValue", type: "bytes" },
-      { name: "encDueDate", type: "bytes32" },
-      { name: "proofDueDate", type: "bytes" },
-      { name: "buyer", type: "address" },
-    ],
-    outputs: [{ name: "invoiceId", type: "uint256" }],
-  },
-  {
-    name: "factorInvoice",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "invoiceId", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    name: "triggerRepayment",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "invoiceId", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    name: "grantRiskAssessmentAccess",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "invoiceId", type: "uint256" }],
-    outputs: [],
-  },
-  /* ── Events ── */
-  {
-    name: "InvoiceUploaded",
-    type: "event",
-    inputs: [
-      { name: "invoiceId", type: "uint256", indexed: true },
-      { name: "supplier", type: "address", indexed: true },
-      { name: "buyer", type: "address", indexed: true },
-      { name: "timestamp", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    name: "InvoiceFactored",
-    type: "event",
-    inputs: [
-      { name: "invoiceId", type: "uint256", indexed: true },
-      { name: "investor", type: "address", indexed: true },
-      { name: "timestamp", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    name: "InvoiceRepaid",
-    type: "event",
-    inputs: [
-      { name: "invoiceId", type: "uint256", indexed: true },
-      { name: "supplier", type: "address", indexed: true },
-      { name: "timestamp", type: "uint256", indexed: false },
-    ],
-  },
-  /* ── Custom Errors ── */
-  {
-    name: "InvestorNotApprovedOperator",
-    type: "error",
-    inputs: [
-      { name: "investor", type: "address" },
-      { name: "registry", type: "address" },
-    ],
-  },
-] as const;
+/** @deprecated Use CUSDC_ADDRESS */
+export const CUSDT_ADDRESS = CUSDC_ADDRESS;
 
-/**
- * Minimal ERC-7984 ABI for cUSDT interactions from the frontend.
- * Used by the "Approve & Factor" flow to call setOperator on cUSDT.
- */
-export const CUSDT_ABI = [
-  {
-    name: "setOperator",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "operator", type: "address" },
-      { name: "until", type: "uint48" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "isOperator",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "holder", type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    name: "confidentialBalanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "bytes32" }],
-  },
-  {
-    name: "name",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "string" }],
-  },
-  {
-    name: "symbol",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "string" }],
-  },
-  {
-    name: "decimals",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint8" }],
-  },
-] as const;
+/** Underlying USDC on Sepolia (Circle official) */
+export const USDC_ADDRESS = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as const;
 
-/** Invoice data shape from chain (handles are bytes32 opaque) */
-export interface InvoiceOnChain {
-  invoiceId: bigint;
-  faceValue: `0x${string}`;
-  dueDate: `0x${string}`;
-  purchasePrice: `0x${string}`;
-  discountRate: `0x${string}`;
-  supplier: `0x${string}`;
-  investor: `0x${string}`;
-  buyer: `0x${string}`;
-  isFactored: boolean;
-  isRepaid: boolean;
-  uploadTimestamp: bigint;
+/** Zama Wrappers Registry */
+export const WRAPPERS_REGISTRY_ADDRESS = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e" as const;
+export const WRAPPERS_REGISTRY = WRAPPERS_REGISTRY_ADDRESS;
+
+export const SEPOLIA_CHAIN_ID = 11155111;
+export const ETHERSCAN_BASE = "https://sepolia.etherscan.io";
+export const TOKEN_DECIMALS = 6; /* USDC uses 6 decimals */
+export const TOKEN_SYMBOL = "USDC";
+export const CTOKEN_SYMBOL = "cUSDC";
+
+/** Convert USDC human amount (e.g. 1000.50) to micro-units (bigint) */
+export function toMicroUnits(humanAmount: number): bigint {
+  return BigInt(Math.round(humanAmount * 10 ** TOKEN_DECIMALS));
 }
 
-/** Decoded invoice with plaintext FHE fields (after userDecrypt) */
-export interface InvoiceDecoded extends InvoiceOnChain {
-  faceValueClear?: bigint;
-  dueDateClear?: bigint;
-  purchasePriceClear?: bigint;
-  discountRateClear?: bigint;
+/** Convert micro-units (bigint) to human USDC string */
+export function fromMicroUnits(micro: bigint): string {
+  const n = Number(micro) / 10 ** TOKEN_DECIMALS;
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Format cUSDT micro-unit amount as readable USDT string */
-export function formatCUSDT(microUnits: bigint | undefined): string {
+/** Format cUSDC/cUSDT micro-unit amount as readable string */
+export function formatCUSDC(microUnits: bigint | undefined): string {
   if (microUnits === undefined) return "—";
-  const dollars = Number(microUnits) / 1_000_000;
-  return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cUSDT`;
+  const dollars = Number(microUnits) / 10 ** TOKEN_DECIMALS;
+  return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cUSDC`;
 }
 
-/** @deprecated Use formatCUSDT */
-export const formatCUSDC = formatCUSDT;
+/** @deprecated Use formatCUSDC */
+export const formatCUSDT = formatCUSDC;
 
 /** Format a Unix timestamp as locale date string */
 export function formatTimestamp(ts: bigint | number | undefined): string {
@@ -299,11 +78,274 @@ export function daysUntilDue(dueTimestamp: bigint | undefined): number {
   return Math.max(0, Math.floor(diff / 86400));
 }
 
+/** Truncate an Ethereum address for display: 0x1234…5678 */
+export function truncateAddress(addr: string): string {
+  if (!addr || addr.length < 10) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
 /** Short address display */
 export function shortAddress(addr: string): string {
   if (!addr || addr === "0x0000000000000000000000000000000000000000") return "—";
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-/** Default operator approval duration: 7 days in seconds */
 export const DEFAULT_OPERATOR_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
+
+/* Invoice data shape from chain (handles are bytes32 opaque) */
+export interface InvoiceOnChain {
+  invoiceId: bigint;
+  faceValue: `0x${string}`;
+  dueDate: `0x${string}`;
+  purchasePrice: `0x${string}`;
+  discountRate: `0x${string}`;
+  supplier: `0x${string}`;
+  investor: `0x${string}`;
+  buyer: `0x${string}`;
+  isFactored: boolean;
+  isRepaid: boolean;
+  uploadTimestamp: bigint;
+}
+
+/* Decoded invoice with plaintext FHE fields (after userDecrypt) */
+export interface InvoiceDecoded extends InvoiceOnChain {
+  faceValueClear?: bigint;
+  dueDateClear?: bigint;
+  purchasePriceClear?: bigint;
+  discountRateClear?: bigint;
+}
+
+/* ── ABIs ── */
+
+export const REGISTRY_ABI = [
+  /* uploadInvoice */
+  {
+    type: "function", name: "uploadInvoice",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "encFaceValue",   type: "bytes32" },
+      { name: "proofFaceValue", type: "bytes"   },
+      { name: "encDueDate",     type: "bytes32" },
+      { name: "proofDueDate",   type: "bytes"   },
+      { name: "buyer",          type: "address" },
+    ],
+    outputs: [{ name: "invoiceId", type: "uint256" }],
+  },
+  /* factorInvoice */
+  {
+    type: "function", name: "factorInvoice",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [],
+  },
+  /* triggerRepayment */
+  {
+    type: "function", name: "triggerRepayment",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [],
+  },
+  /* grantRiskAssessmentAccess */
+  {
+    type: "function", name: "grantRiskAssessmentAccess",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [],
+  },
+  /* getAllInvoiceIds */
+  {
+    type: "function", name: "getAllInvoiceIds",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "ids", type: "uint256[]" }],
+  },
+  /* getSupplierInvoices */
+  {
+    type: "function", name: "getSupplierInvoices",
+    stateMutability: "view",
+    inputs: [{ name: "supplier", type: "address" }],
+    outputs: [{ type: "uint256[]" }],
+  },
+  /* getInvestorInvoices */
+  {
+    type: "function", name: "getInvestorInvoices",
+    stateMutability: "view",
+    inputs: [{ name: "investor", type: "address" }],
+    outputs: [{ type: "uint256[]" }],
+  },
+  /* invoices(id) ── returns the full Invoice struct */
+  {
+    type: "function", name: "invoices",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "faceValue",       type: "bytes32" },
+      { name: "dueDate",         type: "bytes32" },
+      { name: "purchasePrice",   type: "bytes32" },
+      { name: "discountRate",    type: "bytes32" },
+      { name: "supplier",        type: "address" },
+      { name: "investor",        type: "address" },
+      { name: "buyer",           type: "address" },
+      { name: "isFactored",      type: "bool"    },
+      { name: "isRepaid",        type: "bool"    },
+      { name: "uploadTimestamp", type: "uint256" },
+    ],
+  },
+  /* getInvoiceHandles */
+  {
+    type: "function", name: "getInvoiceHandles",
+    stateMutability: "view",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [
+      { name: "faceValueHandle",     type: "bytes32" },
+      { name: "dueDateHandle",       type: "bytes32" },
+      { name: "purchasePriceHandle", type: "bytes32" },
+      { name: "discountRateHandle",  type: "bytes32" },
+    ],
+  },
+  /* invoiceCount */
+  {
+    type: "function", name: "invoiceCount",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  /* Events */
+  {
+    type: "event", name: "InvoiceUploaded",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "supplier",  type: "address", indexed: true },
+      { name: "buyer",     type: "address", indexed: true },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "InvoiceFactored",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "investor",  type: "address", indexed: true },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "InvoiceRepaid",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "supplier",  type: "address", indexed: true },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+export const ARBITRA_REGISTRY_ABI = REGISTRY_ABI;
+
+/* cUSDC minimal ABI for approvals and operator queries */
+export const CUSDC_ABI = [
+  {
+    type: "function", name: "confidentialApprove",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "spender", type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function", name: "encryptedBalanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "function", name: "confidentialBalanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "function", name: "setOperator",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "operator", type: "address" },
+      { name: "until", type: "uint48" }
+    ],
+    outputs: [],
+  },
+  {
+    type: "function", name: "isOperator",
+    stateMutability: "view",
+    inputs: [
+      { name: "holder", type: "address" },
+      { name: "spender", type: "address" }
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function", name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint8" }],
+  },
+  {
+    type: "function", name: "symbol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "string" }],
+  },
+  {
+    type: "function", name: "name",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "string" }],
+  }
+] as const;
+
+export const CUSDT_ABI = CUSDC_ABI;
+
+/* Standard USDC ABI for wrap approval */
+export const USDC_ABI = [
+  {
+    type: "function", name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount",  type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function", name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner",   type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
+/* Zama Wrappers Registry ABI */
+export const WRAPPERS_REGISTRY_ABI = [
+  {
+    type: "function", name: "wrap",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "underlying", type: "address" },
+      { name: "amount",     type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function", name: "getWrapper",
+    stateMutability: "view",
+    inputs: [{ name: "underlying", type: "address" }],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function", name: "getConfidentialTokenAddress",
+    stateMutability: "view",
+    inputs: [{ name: "token", type: "address" }],
+    outputs: [
+      { name: "found", type: "bool" },
+      { name: "confidentialToken", type: "address" },
+    ],
+  },
+] as const;
