@@ -13,7 +13,7 @@ export function BackgroundGrid() {
 
   return (
     <>
-      /* Scroll Progress Indicator at top of screen */
+      {/* Scroll Progress Indicator at top of screen */}
       <motion.div
         style={{
           position: "fixed",
@@ -28,7 +28,7 @@ export function BackgroundGrid() {
         }}
       />
 
-      /* Floating Security Orb Background Element */
+      {/* Floating Security Orb Background Element */}
       <div
         aria-hidden
         style={{
@@ -48,7 +48,7 @@ export function BackgroundGrid() {
           animation: "floatOrb 15s ease-in-out infinite alternate"
         }}
       >
-        /* Inner locked state details */
+        {/* Inner locked state details */}
         <div
           style={{
             position: "absolute",
@@ -60,7 +60,7 @@ export function BackgroundGrid() {
             animation: "rotateOrb 25s linear infinite"
           }}
         >
-          /* Circular grid scanner */
+          {/* Circular grid scanner */}
           <svg width="180" height="180" viewBox="0 0 200 200" fill="none">
             <circle cx="100" cy="100" r="80" stroke="#00F0FF" strokeWidth="1" strokeDasharray="5 5" />
             <circle cx="100" cy="100" r="50" stroke="#7B2FFF" strokeWidth="1" strokeDasharray="3 8" />
@@ -69,7 +69,7 @@ export function BackgroundGrid() {
           </svg>
         </div>
 
-        /* Locked padlock indicator in center */
+        {/* Locked padlock indicator in center */}
         <div
           style={{
             position: "absolute",
@@ -87,7 +87,7 @@ export function BackgroundGrid() {
         </div>
       </div>
 
-      /* Floating Faucet Pill (Bottom-Right) */
+      {/* Floating Faucet Pill (Bottom-Right) */}
       <motion.a
         href="https://faucet.zama.ai"
         target="_blank"
@@ -135,7 +135,7 @@ export function BackgroundGrid() {
         Get Test cUSDT
       </motion.a>
 
-      /* Main scanning grid background */
+      {/* Main scanning grid background */}
       <div
         aria-hidden
         style={{
@@ -150,7 +150,7 @@ export function BackgroundGrid() {
           backgroundSize: "44px 44px"
         }}
       >
-        /* Animated vertical scan lines */
+        {/* Animated vertical scan lines */}
         <div
           style={{
             position: "absolute",

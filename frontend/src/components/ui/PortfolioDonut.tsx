@@ -1,5 +1,11 @@
+/**
+ * @file PortfolioDonut.tsx
+ * @description Customized Recharts Donut chart displaying invoice distributions with high contrast labels, matching legend colors, and dynamic category maps.
+ */
+
 "use client";
 
+import React from "react";
 import {
   PieChart,
   Pie,
@@ -15,7 +21,12 @@ interface PortfolioDonutProps {
   repaid: number;
 }
 
-const COLORS = ["#00F0FF", "#7B2FFF", "#00FF88"];
+const COLOR_MAP: Record<string, string> = {
+  Factored: "#00F0FF",   /* Neon Cyan */
+  Available: "#7B2FFF",  /* Neon Purple */
+  Repaid: "#00FF88",     /* Neon Green */
+};
+
 const RADIAN = Math.PI / 180;
 
 function renderCustomLabel({
@@ -59,8 +70,20 @@ export function PortfolioDonut({ factored, available, repaid }: PortfolioDonutPr
   if (total === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-slate-500 text-sm">
-        <div className="text-4xl mb-2" aria-hidden="true">📭</div>
-        No invoices yet
+        {/* Replaced emoji 📭 with custom inline SVG */}
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="text-slate-600 mb-2"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+        </svg>
+        <span>No invoices yet</span>
       </div>
     );
   }
@@ -88,7 +111,7 @@ export function PortfolioDonut({ factored, available, repaid }: PortfolioDonutPr
             stroke="rgba(0,0,0,0.5)"
           >
             {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              <Cell key={`cell-${index}`} fill={COLOR_MAP[entry.name] || "#ffffff"} />
             ))}
           </Pie>
           <Tooltip
@@ -104,9 +127,12 @@ export function PortfolioDonut({ factored, available, repaid }: PortfolioDonutPr
           <Legend
             iconType="circle"
             iconSize={8}
-            formatter={(value) => (
-              <span style={{ color: "#94a3b8", fontSize: "11px" }}>{value}</span>
-            )}
+            formatter={(value) => {
+              const color = COLOR_MAP[value] || "#94a3b8";
+              return (
+                <span style={{ color, fontSize: "11px", fontWeight: 600 }}>{value}</span>
+              );
+            }}
           />
         </PieChart>
       </ResponsiveContainer>

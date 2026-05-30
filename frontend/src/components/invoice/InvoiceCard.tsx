@@ -189,7 +189,7 @@ export function InvoiceCard({
   return (
     <>
       <GlassCard className="p-5 flex flex-col gap-4" hover glow="cyan">
-        /* Header row */
+        {/* Header row */}
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -206,7 +206,7 @@ export function InvoiceCard({
           <FHEBadge />
         </div>
 
-        /* Encrypted fields grid */
+        {/* Encrypted fields grid */}
         <div className="grid grid-cols-2 gap-3">
           {[
             {
@@ -248,18 +248,18 @@ export function InvoiceCard({
           ))}
         </div>
 
-        /* Maturity bar display if factored */
+        {/* Maturity bar display if factored */}
         {renderMaturityBar()}
 
-        /* Buyer row */
+        {/* Buyer row */}
         <div className="flex items-center justify-between text-xs text-slate-500">
           <span>Buyer: <span className="font-mono text-slate-400">{shortAddress(invoice.buyer)}</span></span>
           <span>Uploaded: {formatTimestamp(invoice.uploadTimestamp)}</span>
         </div>
 
-        /* Actions */
+        {/* Actions */}
         <div className="flex gap-2 pt-1">
-          /* Decrypt */
+          {/* Decrypt */}
           {zamaReady && canDecrypt && !decrypted && (
             <NeonButton
               variant="secondary"
@@ -277,7 +277,7 @@ export function InvoiceCard({
             </NeonButton>
           )}
 
-          /* Factor */
+          {/* Factor */}
           {!invoice.isFactored && !isSupplier && onFactor && (
             <NeonButton
               variant="primary"
@@ -291,7 +291,7 @@ export function InvoiceCard({
             </NeonButton>
           )}
 
-          /* Repay */
+          {/* Repay */}
           {invoice.isFactored && !invoice.isRepaid && isSupplier && onRepay && (
             <NeonButton
               variant="ghost"
@@ -307,7 +307,7 @@ export function InvoiceCard({
         </div>
       </GlassCard>
 
-      /* Decryption modal */
+      {/* Decryption modal */}
       <DecryptionModal
         isOpen={showDecryptModal}
         onClose={() => setShowDecryptModal(false)}
