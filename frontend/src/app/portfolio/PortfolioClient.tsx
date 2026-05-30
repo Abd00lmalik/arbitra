@@ -21,10 +21,12 @@ import {
   useTriggerRepayment,
   useInvoiceHandles,
   useIsInvestorApproved,
-  useSetOperator
+  useSetOperator,
+  useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useInvoiceDecrypt } from "@/hooks/useInvoiceDecrypt";
 import { useZama } from "@/providers/ZamaProvider";
+import { useRole } from "@/providers/RoleProvider";
 import {
   formatCUSDT,
   formatTimestamp,
@@ -408,13 +410,17 @@ function InvoiceDetailsModal({
 
 export default function PortfolioClient() {
   const { address, isConnected } = useAccount();
-  const allInvoices = useMockInvoiceList();
+  const { role, setRole } = useRole();
+  const mockInvoices = useMockInvoiceList();
+  const { data: realInvoices, isLoading: isLoadingInvoices } = useRealInvoiceList();
 
   const { factorInvoice, isPending: isFactoring } = useFactorInvoice();
   const { triggerRepayment, isPending: isRepaying } = useTriggerRepayment();
 
-  /* Global User Active Role Toggle state */
-  const [activeRole, setActiveRole] = useState<"supplier" | "investor">("supplier");
+  const hasRealInvoices = realInvoices && realInvoices.length > 0;
+  const allInvoices = hasRealInvoices ? realInvoices : mockInvoices;
+  const isDemoMode = !hasRealInvoices;
+
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOnChain | null>(null);
 
   /* Filter invoices for the connected user */
@@ -433,7 +439,7 @@ export default function PortfolioClient() {
   const available = mySupplierInvoices.filter((i) => !i.isFactored).length;
   const repaid = mySupplierInvoices.filter((i) => i.isRepaid).length;
 
-  const currentDisplayInvoices = activeRole === "supplier" ? mySupplierInvoices : myInvestorInvoices;
+  const currentDisplayInvoices = role === "supplier" ? mySupplierInvoices : myInvestorInvoices;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -494,9 +500,9 @@ export default function PortfolioClient() {
           {/* Switch Role Toggle */}
           <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/2 border border-white/5 text-xs">
             <button
-              onClick={() => setActiveRole("supplier")}
+              onClick={() => setRole("supplier")}
               className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                activeRole === "supplier"
+                role === "supplier"
                   ? "bg-neon-cyan/10 border border-neon-cyan/35 text-neon-cyan font-bold"
                   : "text-slate-400 border border-transparent hover:text-white"
               }`}
@@ -504,9 +510,9 @@ export default function PortfolioClient() {
               Role: Supplier
             </button>
             <button
-              onClick={() => setActiveRole("investor")}
+              onClick={() => setRole("investor")}
               className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                activeRole === "investor"
+                role === "investor"
                   ? "bg-neon-purple/10 border border-neon-purple/35 text-neon-purple font-bold"
                   : "text-slate-400 border border-transparent hover:text-white"
               }`}
@@ -519,6 +525,35 @@ export default function PortfolioClient() {
             <FaucetButton />
           </div>
         </motion.div>
+
+        {/* Demo Mode Banner */}
+        {isDemoMode && (
+          <motion.div variants={itemVariants}>
+            <div
+              style={{
+                padding: "16px 20px",
+                borderRadius: "16px",
+                background: "rgba(0, 240, 255, 0.05)",
+                border: "1px solid rgba(0, 240, 255, 0.2)",
+                color: "#EEF2FF",
+                fontSize: "13px",
+                fontFamily: "Satoshi, sans-serif",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px"
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <span>
+                <strong>Demo Mode Active:</strong> No on-chain invoices detected for your wallet on Sepolia. Showing simulated portfolio. Go to the <strong>Upload</strong> page to create a real encrypted invoice.
+              </span>
+            </div>
+          </motion.div>
+        )}
 
         {/* Header stats grid */}
         <motion.div variants={itemVariants} className="grid grid-cols-3 gap-4">
@@ -549,12 +584,12 @@ export default function PortfolioClient() {
           {/* Compact clickable grid lists based on role */}
           <div className="lg:col-span-2 space-y-4">
             <h2 className="text-sm font-semibold text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>
-              {activeRole === "supplier" ? "Your Uploaded Invoices" : "Your Factored Investments"} ({currentDisplayInvoices.length})
+              {role === "supplier" ? "Your Uploaded Invoices" : "Your Factored Investments"} ({currentDisplayInvoices.length})
             </h2>
 
             {currentDisplayInvoices.length === 0 ? (
               <GlassCard className="p-12 text-center">
-                <div className="flex justify-center text-slate-600 mb-3" aria-hidden="true">
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
                   <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <polyline points="17 8 12 3 7 8" />
@@ -562,9 +597,9 @@ export default function PortfolioClient() {
                   </svg>
                 </div>
                 <div className="text-slate-400 text-sm mb-4">
-                  {activeRole === "supplier" ? "No invoices uploaded yet." : "No factored investments yet."}
+                  {role === "supplier" ? "No invoices uploaded yet." : "No factored investments yet."}
                 </div>
-                {activeRole === "supplier" ? (
+                {role === "supplier" ? (
                   <Link href="/upload">
                     <button className="neon-btn-secondary text-xs px-4 py-2 rounded-lg">
                       Upload your first invoice
@@ -590,7 +625,7 @@ export default function PortfolioClient() {
                     <GlassCard
                       className="p-4 flex flex-col gap-3 transition-all duration-200"
                       hover
-                      glow={activeRole === "supplier" ? "cyan" : "purple"}
+                      glow={role === "supplier" ? "cyan" : "purple"}
                     >
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-bold text-white font-mono">
@@ -620,7 +655,7 @@ export default function PortfolioClient() {
                         style={{
                           marginTop: "4px",
                           fontSize: "10px",
-                          color: activeRole === "supplier" ? "#00F0FF" : "#A87FFF",
+                          color: role === "supplier" ? "#00F0FF" : "#A87FFF",
                           fontWeight: 700,
                           textAlign: "right",
                           display: "flex",

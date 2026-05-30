@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@/styles/globals.css";
 import { WagmiProvider } from "@/providers/WagmiProvider";
 import { ZamaProvider } from "@/providers/ZamaProvider";
+import { RoleProvider } from "@/providers/RoleProvider";
 
 export const metadata: Metadata = {
   title: "Arbitra — Confidential Invoice Factoring",
@@ -38,7 +39,11 @@ export default function RootLayout({
       </head>
       <body className="bg-navy-900 text-white antialiased">
         <WagmiProvider>
-          <ZamaProvider>{children}</ZamaProvider>
+          <ZamaProvider>
+            <RoleProvider>
+              {children}
+            </RoleProvider>
+          </ZamaProvider>
         </WagmiProvider>
       </body>
     </html>

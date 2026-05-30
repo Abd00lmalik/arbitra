@@ -107,7 +107,7 @@ export function CTASection() {
             </motion.span>
           </Link>
 
-          <a href="https://faucet.zama.ai" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+          <a href="https://faucet.testnet.zama.org" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
             <motion.span
               whileHover={{ scale: 1.03, background: "rgba(0, 240, 255, 0.08)" }}
               whileTap={{ scale: 0.97 }}

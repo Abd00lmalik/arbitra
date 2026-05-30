@@ -199,7 +199,7 @@ export function HeroSection() {
         {/* Nav actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <a
-            href="https://faucet.zama.ai"
+            href="https://faucet.testnet.zama.org"
             target="_blank"
             rel="noopener noreferrer"
             style={{

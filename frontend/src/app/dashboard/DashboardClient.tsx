@@ -5,7 +5,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useAccount } from "wagmi";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -18,8 +18,10 @@ import {
   useSupplierInvoices,
   useInvestorInvoices,
   useMockInvoiceList,
+  useRealInvoiceList,
 } from "@/hooks/useArbitraRegistry";
 import { useZama } from "@/providers/ZamaProvider";
+import { useRole } from "@/providers/RoleProvider";
 import Link from "next/link";
 
 interface StatCardProps {
@@ -70,7 +72,13 @@ function StatCard({ label, value, delta, icon, color = "#00F0FF" }: StatCardProp
 export default function DashboardClient() {
   const { address, isConnected } = useAccount();
   const { isReady: zamaReady } = useZama();
+  const { role } = useRole();
   const mockInvoices = useMockInvoiceList();
+  const { data: realInvoices, isLoading: isLoadingInvoices } = useRealInvoiceList();
+
+  const hasRealInvoices = realInvoices && realInvoices.length > 0;
+  const invoices = hasRealInvoices ? realInvoices : mockInvoices;
+  const isDemoMode = !hasRealInvoices;
 
   const { data: invoiceCount } = useInvoiceCount();
   const { data: supplierIds } = useSupplierInvoices(
@@ -80,16 +88,13 @@ export default function DashboardClient() {
     isConnected ? address : undefined
   );
 
-  /* Global Switch Role Toggle state */
-  const [activeRole, setActiveRole] = useState<"supplier" | "investor">("supplier");
+  const totalInvoices = isConnected && invoiceCount ? Number(invoiceCount) : invoices.length;
+  const mySupplierInvoices = isConnected ? (supplierIds?.length ?? 0) : (isDemoMode ? 1 : 0);
+  const myInvestorInvoices = isConnected ? (investorIds?.length ?? 0) : (isDemoMode ? 1 : 0);
 
-  const totalInvoices = invoiceCount ? Number(invoiceCount) : 0;
-  const mySupplierInvoices = supplierIds?.length ?? 0;
-  const myInvestorInvoices = investorIds?.length ?? 0;
-
-  const factored = mockInvoices.filter((i) => i.isFactored && !i.isRepaid).length;
-  const available = mockInvoices.filter((i) => !i.isFactored).length;
-  const repaid = mockInvoices.filter((i) => i.isRepaid).length;
+  const factored = invoices.filter((i) => i.isFactored && !i.isRepaid).length;
+  const available = invoices.filter((i) => !i.isFactored).length;
+  const repaid = invoices.filter((i) => i.isRepaid).length;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -121,29 +126,10 @@ export default function DashboardClient() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Header Toolbar with switch role toggle */}
+        {/* Header Toolbar */}
         <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/2 border border-white/5 text-xs">
-            <button
-              onClick={() => setActiveRole("supplier")}
-              className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                activeRole === "supplier"
-                  ? "bg-neon-cyan/10 border border-neon-cyan/35 text-neon-cyan font-bold"
-                  : "text-slate-400 border border-transparent hover:text-white"
-              }`}
-            >
-              Role: Supplier
-            </button>
-            <button
-              onClick={() => setActiveRole("investor")}
-              className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                activeRole === "investor"
-                  ? "bg-neon-purple/10 border border-neon-purple/35 text-neon-purple font-bold"
-                  : "text-slate-400 border border-transparent hover:text-white"
-              }`}
-            >
-              Role: Investor
-            </button>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-navy-800 border border-white/5 text-xs text-slate-400 font-semibold">
+            Active Mode: <span className="text-white ml-1 font-bold capitalize">{role}</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -170,11 +156,40 @@ export default function DashboardClient() {
           </motion.div>
         )}
 
+        {/* Demo Mode Banner */}
+        {isConnected && isDemoMode && (
+          <motion.div variants={itemVariants}>
+            <div
+              style={{
+                padding: "16px 20px",
+                borderRadius: "16px",
+                background: "rgba(0, 240, 255, 0.05)",
+                border: "1px solid rgba(0, 240, 255, 0.2)",
+                color: "#EEF2FF",
+                fontSize: "13px",
+                fontFamily: "Satoshi, sans-serif",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px"
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <span>
+                <strong>Demo Mode Active:</strong> No on-chain invoices detected for your wallet on Sepolia. Showing simulated portfolio statistics. Use the <strong>Upload</strong> page to create a real encrypted invoice.
+              </span>
+            </div>
+          </motion.div>
+        )}
+
         {/* Outer 2/3 Left vs 1/3 Right Column Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Left Column (2/3 width) */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Customer-Facing FHE Shielding pill (No raw debug logs) */}
+            {/* User-friendly FHE status banner */}
             <div
               style={{
                 display: "flex",
@@ -198,11 +213,8 @@ export default function DashboardClient() {
                   animation: "pulse 2s ease-in-out infinite"
                 }}
               />
-              <span style={{ fontSize: "13px", color: "#8B9CC8", fontFamily: "Satoshi, sans-serif" }}>
-                FHEVM Shielding:{" "}
-                <span style={{ color: zamaReady ? "#00FF88" : "#FFC400", fontWeight: 600 }}>
-                  {zamaReady ? "Active (Zero plaintext on-chain)" : "Securing Node Connection..."}
-                </span>
+              <span style={{ fontSize: "13px", color: "#8B9CC8", fontFamily: "Satoshi, sans-serif", fontWeight: 600 }}>
+                FHE Active • Zama FHEVM v0.11 • Sepolia
               </span>
               <div style={{ marginLeft: "auto" }}>
                 <FHEBadge />
@@ -211,7 +223,7 @@ export default function DashboardClient() {
 
             {/* Dynamic statistics cards grid based on active user role */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {activeRole === "supplier" ? (
+              {role === "supplier" ? (
                 <>
                   <StatCard
                     label="My Uploaded Invoices"
@@ -239,8 +251,8 @@ export default function DashboardClient() {
                   />
                   <StatCard
                     label="Total Factored Volume"
-                    value={mySupplierInvoices > 0 ? `$${(mySupplierInvoices * 125000).toLocaleString()}` : "$0.00"}
-                    delta="+14.2%"
+                    value={mySupplierInvoices > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
+                    delta={mySupplierInvoices > 0 ? "FHE Protected" : undefined}
                     color="#00FF88"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -251,7 +263,7 @@ export default function DashboardClient() {
                   />
                   <StatCard
                     label="Repaid Volume"
-                    value={repaid > 0 ? `$${(repaid * 125000).toLocaleString()}` : "$0.00"}
+                    value={repaid > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
                     color="#FF2D6B"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -275,8 +287,8 @@ export default function DashboardClient() {
                   />
                   <StatCard
                     label="Average Yield Rate"
-                    value="14.20% APR"
-                    delta="Premium"
+                    value={myInvestorInvoices > 0 ? "14.20% APR" : "0.00% APR"}
+                    delta={myInvestorInvoices > 0 ? "Premium" : undefined}
                     color="#7B2FFF"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -288,7 +300,7 @@ export default function DashboardClient() {
                   />
                   <StatCard
                     label="Confidential Factored Balance"
-                    value={myInvestorInvoices > 0 ? `$${(myInvestorInvoices * 125000).toLocaleString()}` : "$0.00"}
+                    value={myInvestorInvoices > 0 ? (isDemoMode ? "$125,000.00" : "🔒 FHE Secured") : "$0.00"}
                     color="#00FF88"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -299,7 +311,7 @@ export default function DashboardClient() {
                   />
                   <StatCard
                     label="Total factoring volume on chain"
-                    value={totalInvoices || 2}
+                    value={totalInvoices}
                     color="#FF2D6B"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -318,7 +330,7 @@ export default function DashboardClient() {
                 Recent Invoices
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {mockInvoices.map((inv) => (
+                {invoices.map((inv) => (
                   <div
                     key={inv.invoiceId.toString()}
                     style={{
@@ -360,7 +372,7 @@ export default function DashboardClient() {
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <FHEBadge size="sm" label="Encrypted" animated={false} />
+                      <FHEBadge size="sm" label="FHE Protected" animated={false} />
                       {inv.isRepaid ? (
                         <span
                           style={{
@@ -438,16 +450,16 @@ export default function DashboardClient() {
               <PortfolioDonut factored={factored} available={available} repaid={repaid} />
             </GlassCard>
 
-            {/* Secured Node Configurations (Replaced tech specs jargon) */}
+            {/* Platform Security Specifications */}
             <GlassCard className="p-6">
               <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif", marginBottom: "20px" }}>
-                Homomorphic Security Engine
+                Confidential Infrastructure
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {[
                   {
-                    label: "Security Standard",
-                    value: "128-Bit FHE (TFHE-rs)",
+                    label: "Privacy Protocol",
+                    value: "Fully Homomorphic Encryption (FHE)",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="1.5">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -456,8 +468,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Encryption Protocol",
-                    value: "Confidential cUSDT ERC-7984",
+                    label: "Confidential Asset",
+                    value: "Confidential USDT (cUSDT)",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7B2FFF" strokeWidth="1.5">
                         <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -466,8 +478,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Access Controls",
-                    value: "EIP-712 Signed Permit",
+                    label: "Access Control Schema",
+                    value: "EIP-712 Authenticated Permit",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="1.5">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -475,8 +487,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Node Connection Status",
-                    value: "Active Secure Coprocessor",
+                    label: "Security Network Status",
+                    value: "Active Cryptographic Coprocessor",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF2D6B" strokeWidth="1.5">
                         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />

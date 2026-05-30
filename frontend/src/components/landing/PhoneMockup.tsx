@@ -1,6 +1,6 @@
 /**
  * @file PhoneMockup.tsx
- * @description Interactive iPhone 15 mockup with encryption toggle showing a premium static dashboard mock, capacity ring, and mock transaction list.
+ * @description Interactive iPhone 15 mockup with simulated dashboard mirroring the real Arbitra UI.
  */
 
 "use client";
@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/useBreakpoint";
 export function PhoneMockup() {
   const isMobile = useIsMobile();
   const [isDecrypted, setIsDecrypted] = useState(false);
+  const [activeRole, setActiveRole] = useState<"supplier" | "investor">("supplier");
   const [isScanning, setIsScanning] = useState(false);
 
   /* Animation variants for floating elements */
@@ -153,7 +154,7 @@ export function PhoneMockup() {
                   Invoice Detail
                 </div>
                 <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginBottom: "4px" }}>
-                  ARB-094
+                  Invoice #1
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "#8B9CC8", marginBottom: "8px" }}>
                   <span>Face Value:</span>
@@ -266,144 +267,194 @@ export function PhoneMockup() {
               </AnimatePresence>
 
               {/* Mini-Dashboard Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                 <div>
-                  <div style={{ fontSize: "9px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "left" }}>Welcome</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
+                  <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
                     Dashboard
-                  </div>
+                  </h3>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "10px", color: "#00F0FF", fontWeight: 600 }}>
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#00FF88" }} />
-                  0x7F...3B
+                {/* Active Address Indicator */}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "9px", color: "#00F0FF", fontWeight: 600 }}>
+                  <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
+                  0x7b2f...e00f
                 </div>
+              </div>
+
+              {/* Simulated Role Toggle inside iPhone screen */}
+              <div
+                style={{
+                  display: "flex",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  border: "1px solid rgba(255, 255, 255, 0.05)",
+                  borderRadius: "10px",
+                  padding: "2px",
+                  marginBottom: "12px"
+                }}
+              >
+                <button
+                  onClick={() => setActiveRole("supplier")}
+                  style={{
+                    flex: 1,
+                    background: activeRole === "supplier" ? "rgba(0, 240, 255, 0.08)" : "transparent",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "4px 0",
+                    color: activeRole === "supplier" ? "#00F0FF" : "#64748B",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  Supplier Mode
+                </button>
+                <button
+                  onClick={() => setActiveRole("investor")}
+                  style={{
+                    flex: 1,
+                    background: activeRole === "investor" ? "rgba(123, 47, 255, 0.08)" : "transparent",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "4px 0",
+                    color: activeRole === "investor" ? "#A87FFF" : "#64748B",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  Investor Mode
+                </button>
+              </div>
+
+              {/* FHE Status badge */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 10px",
+                  background: "rgba(0, 240, 255, 0.04)",
+                  border: "1px solid rgba(0, 240, 255, 0.15)",
+                  borderRadius: "10px",
+                  fontSize: "9px",
+                  color: "#00FF88",
+                  marginBottom: "12px",
+                  justifyContent: "center",
+                  fontWeight: 600
+                }}
+              >
+                <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
+                <span>FHE Active • Zama FHEVM v0.11 • Sepolia</span>
               </div>
 
               {/* Static screen area */}
               <div style={{ flex: 1, overflowY: "auto", marginBottom: "12px", paddingRight: "2px" }} className="hide-scrollbar">
-                {/* Total Factored Volume */}
+                {/* Dynamic Stats Cards */}
+                {activeRole === "supplier" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Uploaded</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>3</div>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Awaiting</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>1</div>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Total Factored Volume</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#00FF88", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
+                        {isDecrypted ? "$375,000.00" : "🔒 FHE Secured"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Investments</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>2</div>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Yield Rate</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APR</div>
+                    </div>
+                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
+                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Confidential Factored Balance</div>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
+                        {isDecrypted ? "$250,000.00" : "🔒 FHE Secured"}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CSS Donut Chart */}
                 <div
                   style={{
                     background: "rgba(10, 16, 38, 0.6)",
                     border: "1px solid rgba(255, 255, 255, 0.05)",
-                    borderRadius: "16px",
-                    padding: "16px",
-                    marginBottom: "16px",
-                    textAlign: "center"
+                    borderRadius: "12px",
+                    padding: "10px",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px"
                   }}
                 >
-                  <span style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Total Factored Volume
-                  </span>
                   <div
                     style={{
-                      fontSize: "24px",
-                      fontWeight: 700,
-                      color: "#EEF2FF",
-                      fontFamily: "Satoshi, sans-serif",
-                      marginTop: "4px",
-                      letterSpacing: "-0.02em"
+                      width: "48px",
+                      height: "48px",
+                      borderRadius: "50%",
+                      background: "conic-gradient(#00F0FF 0% 60%, #7B2FFF 60% 85%, #00FF88 85% 100%)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0
                     }}
                   >
-                    $849,200.00
+                    <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#060B18" }} />
                   </div>
-                  <div style={{ fontSize: "10px", color: "#00FF88", marginTop: "4px" }}>
-                    +14.2% factoring yield APR
-                  </div>
-                </div>
-
-                {/* Circular Capacity Wheel */}
-                <div
-                  style={{
-                    background: "rgba(10, 16, 38, 0.6)",
-                    border: "1px solid rgba(255, 255, 255, 0.05)",
-                    borderRadius: "16px",
-                    padding: "16px",
-                    marginBottom: "16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center"
-                  }}
-                >
-                  <div style={{ position: "relative", width: "100px", height: "100px" }}>
-                    {/* SVG ring */}
-                    <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="42"
-                        stroke="rgba(255, 255, 255, 0.05)"
-                        strokeWidth="8"
-                        fill="transparent"
-                      />
-                      <motion.circle
-                        cx="50"
-                        cy="50"
-                        r="42"
-                        stroke="#00FF88"
-                        strokeWidth="8"
-                        fill="transparent"
-                        strokeDasharray={263.89}
-                        initial={{ strokeDashoffset: 263.89 }}
-                        animate={{ strokeDashoffset: 263.89 * (1 - 0.84) }}
-                        transition={{ duration: 1.2, ease: "easeOut" }}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    {/* Central Lock Indicator */}
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center"
-                      }}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2.5" style={{ marginBottom: "2px" }}>
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                      <span style={{ fontSize: "14px", fontWeight: 800, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
-                        84%
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontSize: "9px", fontWeight: 700, color: "#EEF2FF" }}>Portfolio Distribution</div>
+                    <div style={{ display: "flex", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "7px", color: "#00F0FF", display: "flex", alignItems: "center", gap: "2px" }}>
+                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00F0FF" }} /> Factored
+                      </span>
+                      <span style={{ fontSize: "7px", color: "#7B2FFF", display: "flex", alignItems: "center", gap: "2px" }}>
+                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#7B2FFF" }} /> Available
+                      </span>
+                      <span style={{ fontSize: "7px", color: "#00FF88", display: "flex", alignItems: "center", gap: "2px" }}>
+                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} /> Repaid
                       </span>
                     </div>
                   </div>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "#8B9CC8", marginTop: "12px" }}>
-                    Factor Capacity
+                </div>
+
+                {/* Recent Invoices list */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "9px", fontWeight: 700, color: "#EEF2FF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Recent Invoices
                   </span>
                 </div>
 
-                {/* Invoices list title */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Factored Assets
-                  </span>
-                  <span style={{ fontSize: "9px", color: "#8B9CC8" }}>
-                    Active Invoices: 3
-                  </span>
-                </div>
-
-                {/* Transaction list of 3 invoices */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   {[
                     {
-                      id: "ARB-094",
+                      id: "Invoice #1",
                       status: "Verified",
                       color: "#00FF88",
                       clear: "$142,000",
                       cipher: "0x7f3a...b81e"
                     },
                     {
-                      id: "ARB-112",
+                      id: "Invoice #2",
                       status: "Pending",
                       color: "#FFC400",
                       clear: "$89,500",
                       cipher: "0x0f8c...4b12"
                     },
                     {
-                      id: "ARB-304",
+                      id: "Invoice #3",
                       status: "Settled",
                       color: "#00F0FF",
                       clear: "$210,000",
@@ -415,24 +466,24 @@ export function PhoneMockup() {
                       style={{
                         background: "rgba(255, 255, 255, 0.02)",
                         border: "1px solid rgba(255, 255, 255, 0.04)",
-                        borderRadius: "12px",
-                        padding: "10px 12px",
+                        borderRadius: "10px",
+                        padding: "8px 10px",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center"
                       }}
                     >
                       <div style={{ textAlign: "left" }}>
-                        <div style={{ fontSize: "11px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</div>
-                        <span style={{ fontSize: "8px", color: inv.color, textTransform: "uppercase", fontWeight: 600 }}>
+                        <div style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</div>
+                        <span style={{ fontSize: "7px", color: inv.color, textTransform: "uppercase", fontWeight: 600 }}>
                           {inv.status}
                         </span>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "11px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
+                        <div style={{ fontSize: "10px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
                           {isDecrypted ? inv.clear : inv.cipher}
                         </div>
-                        <div style={{ fontSize: "8px", color: "#8B9CC8" }}>
+                        <div style={{ fontSize: "7px", color: "#8B9CC8" }}>
                           cUSDT
                         </div>
                       </div>
@@ -449,11 +500,11 @@ export function PhoneMockup() {
                   style={{
                     background: isDecrypted ? "rgba(123, 47, 255, 0.12)" : "rgba(0, 240, 255, 0.12)",
                     border: isDecrypted ? "1px solid rgba(123, 47, 255, 0.3)" : "1px solid rgba(0, 240, 255, 0.3)",
-                    borderRadius: "12px",
-                    padding: "10px",
+                    borderRadius: "10px",
+                    padding: "8px",
                     color: isDecrypted ? "#A87FFF" : "#00F0FF",
                     fontFamily: "Satoshi, sans-serif",
-                    fontSize: "11px",
+                    fontSize: "10px",
                     fontWeight: 700,
                     cursor: isScanning ? "not-allowed" : "pointer",
                     display: "flex",
@@ -464,7 +515,7 @@ export function PhoneMockup() {
                     transition: "all 0.2s"
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     {isDecrypted ? (
                       <>
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -508,13 +559,13 @@ export function PhoneMockup() {
                   <span style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", fontWeight: 600 }}>
                     Gemini Risk
                   </span>
-                  <span style={{ fontSize: "10px", color: "#00FF88", fontWeight: 700 }}>HIGH CONF</span>
+                  <span style={{ fontSize: "10px", color: "#00FF88", fontWeight: 700 }}>LOW RISK</span>
                 </div>
                 <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginBottom: "6px" }}>
-                  Score: 4 / 10
+                  Score: 12 / 100
                 </div>
                 <div style={{ display: "inline-flex", padding: "4px 8px", borderRadius: "100px", background: "rgba(0, 240, 255, 0.1)", border: "1px solid rgba(0,240,255,0.2)", fontSize: "10px", color: "#00F0FF", fontWeight: 600 }}>
-                  Recommendation: BUY
+                  Recommendation: FACTOR
                 </div>
               </motion.div>
 
@@ -544,7 +595,7 @@ export function PhoneMockup() {
                   cUSDT Transferred
                 </div>
                 <div style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
-                  - $933.97
+                  - $1,250.00
                 </div>
                 <div style={{ fontSize: "10px", color: "#8B9CC8", marginTop: "4px" }}>
                   Settlement verified on chain

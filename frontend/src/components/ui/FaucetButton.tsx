@@ -230,7 +230,7 @@ export function FaucetButton() {
                       </p>
                       <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                         <a
-                          href="https://faucet.zama.ai"
+                          href="https://faucet.testnet.zama.org"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="neon-btn-secondary text-[11px] px-3 py-1.5 rounded-lg text-decoration-none"
@@ -273,7 +273,7 @@ export function FaucetButton() {
                       </p>
                       <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                         <a
-                          href="https://portfolio.zama.ai"
+                          href="https://portfolio.zama.ai/"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="neon-btn-primary text-[11px] px-4 py-1.5 rounded-lg text-decoration-none"

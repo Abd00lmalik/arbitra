@@ -1,6 +1,6 @@
 "use client";
 
-import { useReadContract, useWriteContract, useWatchContractEvent, useAccount } from "wagmi";
+import { useReadContract, useWriteContract, useWatchContractEvent, useAccount, useReadContracts } from "wagmi";
 import { useCallback, useState } from "react";
 import {
   ARBITRA_REGISTRY_ADDRESS,
@@ -241,6 +241,54 @@ export function useSetOperator() {
   );
 
   return { setOperator, isPending, error, txHash: data };
+}
+
+/**
+ * Hook: read all real invoices from the registry.
+ */
+export function useRealInvoiceList() {
+  const { data: idData, isLoading: isLoadingIds } = useAllInvoiceIds();
+  const ids = (idData as bigint[]) || [];
+
+  const contracts = ids.map((id) => ({
+    address: ARBITRA_REGISTRY_ADDRESS,
+    abi: ARBITRA_REGISTRY_ABI,
+    functionName: "invoices",
+    args: [id],
+  }));
+
+  const { data: results, isLoading: isLoadingInvoices, refetch } = useReadContracts({
+    contracts,
+    query: { enabled: ids.length > 0 },
+  });
+
+  const invoices: InvoiceOnChain[] = [];
+  if (results && ids.length > 0) {
+    results.forEach((res, index) => {
+      if (res.status === "success" && res.result) {
+        const r = res.result as any;
+        invoices.push({
+          invoiceId: ids[index],
+          faceValue: r[0],
+          dueDate: r[1],
+          purchasePrice: r[2],
+          discountRate: r[3],
+          supplier: r[4],
+          investor: r[5],
+          buyer: r[6],
+          isFactored: r[7],
+          isRepaid: r[8],
+          uploadTimestamp: r[9],
+        });
+      }
+    });
+  }
+
+  return {
+    data: invoices,
+    isLoading: isLoadingIds || isLoadingInvoices,
+    refetch,
+  };
 }
 
 /**
