@@ -15,7 +15,6 @@ import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { InvoiceMiniCard } from "@/components/invoice/InvoiceMiniCard";
 import { InvoiceDetailModal } from "@/components/shared/InvoiceDetailModal";
 import {
-  useMockInvoiceList,
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
@@ -27,15 +26,10 @@ type FilterTab = "all" | "available" | "factored" | "repaid";
 export default function MarketplaceClient() {
   const { isConnected } = useAccount();
   const { role } = useRole();
-  const mockInvoices = useMockInvoiceList();
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
-
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
-
-  const hasRealInvoices = realInvoices && realInvoices.length > 0;
-  const invoices = hasRealInvoices ? realInvoices : mockInvoices;
-  const isDemoMode = !hasRealInvoices;
+  const invoices = realInvoices ?? [];
 
   const filtered = invoices.filter((inv) => {
     const isFactored = inv.status >= InvoiceStatus.Factored;
@@ -148,33 +142,7 @@ export default function MarketplaceClient() {
           </div>
         </div>
 
-        /* Demo Mode Banner */
-        {isDemoMode && !isLoadingInvoices && (
-          <div
-            style={{
-              padding: "16px 20px",
-              borderRadius: "16px",
-              background: "rgba(0, 240, 255, 0.05)",
-              border: "1px solid rgba(0, 240, 255, 0.2)",
-              color: "#EEF2FF",
-              fontSize: "13px",
-              fontFamily: "Satoshi, sans-serif",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              textAlign: "left"
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="2" style={{ flexShrink: 0 }}>
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-            <span>
-              <strong>Demo Mode Active:</strong> Showing simulated invoice assets on Sepolia testnet. Connect your wallet and verify operator approvals to test the factoring workflow.
-            </span>
-          </div>
-        )}
+
 
         /* Dynamic State Rendering */
         {isLoadingInvoices ? (

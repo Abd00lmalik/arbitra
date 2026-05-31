@@ -71,13 +71,20 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
         /* Deploy EscrowReceiver */
         const EscrowFactory = await ethers.getContractFactory("ArbitraEscrowReceiver", deployer);
-        escrowReceiver = await EscrowFactory.deploy(mockCUSDCAddr);
+        escrowReceiver = await EscrowFactory.deploy(mockUSDCAddr);
         await escrowReceiver.waitForDeployment();
         escrowReceiverAddr = await escrowReceiver.getAddress();
 
         /* Deploy main Registry */
         const RegistryFactory = await ethers.getContractFactory("ArbitraInvoiceRegistry", deployer);
-        registry = await RegistryFactory.deploy(mockCUSDCAddr, platformVerifier.address);
+        registry = await RegistryFactory.deploy(
+            mockUSDCAddr,
+            fpRegistryAddr,
+            riskCalcAddr,
+            collateralVaultAddr,
+            escrowReceiverAddr,
+            platformVerifier.address
+        );
         await registry.waitForDeployment();
         registryAddr = await registry.getAddress();
 
@@ -85,16 +92,14 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
         await (await fpRegistry.connect(deployer).setRegistry(registryAddr)).wait();
         await (await collateralVault.connect(deployer).setRegistry(registryAddr)).wait();
         await (await escrowReceiver.connect(deployer).setRegistry(registryAddr)).wait();
-        await (await registry.connect(deployer).setContracts(fpRegistryAddr, riskCalcAddr, collateralVaultAddr, escrowReceiverAddr)).wait();
 
         /* Mint assets to participants */
         await (await mockUSDC.mint(supplier.address, 10_000_000_000n)).wait(); /* 10k USDC */
-        await (await mockCUSDC.mint(investor.address, 10_000_000_000n)).wait(); /* 10k cUSDC */
-        await (await mockCUSDC.mint(debtor.address, 10_000_000_000n)).wait(); /* 10k cUSDC */
+        await (await mockUSDC.mint(investor.address, 10_000_000_000n)).wait(); /* 10k USDC */
+        await (await mockUSDC.mint(debtor.address, 10_000_000_000n)).wait(); /* 10k USDC */
 
         /* Investor approvals */
-        const expiry = 9999999999n;
-        await (await mockCUSDC.connect(investor).setOperator(registryAddr, expiry)).wait();
+        await (await mockUSDC.connect(investor).approve(registryAddr, 10_000_000_000n)).wait();
     });
 
     describe("Full factoring lifecycle", function () {
@@ -131,7 +136,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                     enc.handles[3], enc.inputProof,
                     enc.handles[4], enc.inputProof,
                     debtor.address,
-                    true
+                    true,
+                    faceValue
                 )
             ).to.emit(registry, "InvoiceUploaded").withArgs(nextInvoiceId, supplier.address, debtor.address, (val: bigint) => val > 0n);
 
@@ -190,15 +196,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             await ethers.provider.send("evm_mine", []);
 
             /* Step 6: Simulate maturity payment by Debtor */
-            const dataBytes = ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [nextInvoiceId]);
-
-            /* In the mock, we simulate calling transfer with callback data */
-            const transferTx = await mockCUSDC.connect(debtor).confidentialTransferAndCall(
-                escrowReceiverAddr,
-                mockCUSDC.confidentialBalanceOf(debtor.address), /* using exact amount for simplicity in mock */
-                dataBytes
-            );
-            await transferTx.wait();
+            await (await mockUSDC.connect(debtor).approve(escrowReceiverAddr, faceValue)).wait();
+            await (await escrowReceiver.connect(debtor).settleInvoice(nextInvoiceId)).wait();
 
             /* Check that escrow status is settled and supplier collateral released */
             const invAfterRepay = await registry.invoices(nextInvoiceId);
@@ -232,7 +231,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc1.handles[3], enc1.inputProof,
                 enc1.handles[4], enc1.inputProof,
                 debtor.address,
-                true
+                true,
+                faceValue
             )).wait();
 
             /* Stake for second invoice */
@@ -286,7 +286,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc.handles[3], enc.inputProof,
                 enc.handles[4], enc.inputProof,
                 debtor.address,
-                true
+                true,
+                faceValue
             )).wait();
 
             /* Attest and factor */
@@ -353,7 +354,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc.handles[3], enc.inputProof,
                 enc.handles[4], enc.inputProof,
                 debtor.address,
-                true
+                true,
+                faceValue
             )).wait();
 
             /* Platform-signed email attestation flow */

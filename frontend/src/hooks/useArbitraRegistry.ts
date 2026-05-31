@@ -10,8 +10,6 @@ import { useCallback } from "react";
 import {
   ARBITRA_REGISTRY_ADDRESS,
   ARBITRA_REGISTRY_ABI,
-  CUSDC_ADDRESS,
-  CUSDC_ABI,
   USDC_ADDRESS,
   USDC_ABI,
   COLLATERAL_VAULT_ADDRESS,
@@ -147,7 +145,8 @@ export function useUploadInvoice() {
       encRepMultiplier: `0x${string}`,
       proofRepMultiplier: `0x${string}`,
       debtor: `0x${string}`,
-      enableGemini: boolean
+      enableGemini: boolean,
+      faceValuePlaintext: bigint
     ) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
@@ -160,7 +159,8 @@ export function useUploadInvoice() {
           encBaseRate, proofBaseRate,
           encRepMultiplier, proofRepMultiplier,
           debtor,
-          enableGemini
+          enableGemini,
+          faceValuePlaintext
         ],
       });
     },
@@ -315,7 +315,7 @@ export function useIsInvestorApproved(investor: `0x${string}` | undefined) {
 }
 
 /*
- * Hook: set registry as approved operator on cUSDC.
+ * Hook: set registry as approved operator on USDC.
  */
 export function useSetOperator() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
@@ -323,10 +323,10 @@ export function useSetOperator() {
   const setOperator = useCallback(
     async (operator: `0x${string}`, until: number) => {
       return writeContractAsync({
-        address: CUSDC_ADDRESS,
-        abi: CUSDC_ABI,
-        functionName: "setOperator",
-        args: [operator, BigInt(until)],
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [operator, 115792089237316195423570985008687907853269984665640564039457584007913129639935n],
       });
     },
     [writeContractAsync]
@@ -366,15 +366,18 @@ export function useRealInvoiceList() {
           purchasePrice: r[2],
           discountRateBps: r[3],
           fingerprintHash: r[4],
-          supplier: r[5],
-          investor: r[6],
-          debtor: r[7],
-          uploadTimestamp: r[8],
-          maturityTimestamp: r[9],
-          status: Number(r[10]) as InvoiceStatus,
-          geminiUnderwritingEnabled: r[11],
-          debtorAttestationHash: r[12],
-          collateralStaked: r[13],
+          faceValuePlaintext: r[5],
+          supplier: r[6],
+          investor: r[7],
+          debtor: r[8],
+          uploadTimestamp: r[9],
+          maturityTimestamp: r[10],
+          status: Number(r[11]) as InvoiceStatus,
+          geminiUnderwritingEnabled: r[12],
+          debtorAttestationHash: r[13],
+          debtorEmailHash: r[14],
+          isEmailVerified: r[15],
+          collateralStaked: r[16],
         });
       }
     });

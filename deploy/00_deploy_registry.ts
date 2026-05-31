@@ -90,7 +90,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   /* 4. Deploy EscrowReceiver */
   const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
-    from: deployer, args: [cUSDCAddress], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
+    from: deployer, args: [usdcAddress], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
   /* 5. Deploy main InvoiceRegistry */
@@ -106,7 +106,17 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
 
   const registryDeployment = await deploy("ArbitraInvoiceRegistry", {
-    from: deployer, args: [cUSDCAddress, platformVerifier], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
+    from: deployer,
+    args: [
+      usdcAddress,
+      fpRegistryDeployment.address,
+      riskCalcDeployment.address,
+      vaultDeployment.address,
+      escrowDeployment.address,
+      platformVerifier
+    ],
+    log: true,
+    waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
   /* Wire up contracts if not done already */

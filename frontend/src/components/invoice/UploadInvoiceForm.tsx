@@ -268,7 +268,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         h4, proofHex,
         h5, proofHex,
         invoice.debtor as `0x${string}`,
-        true
+        true,
+        invoice.faceValue
       );
 
       setTxHash(hash || null);

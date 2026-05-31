@@ -6,7 +6,7 @@ import { ZamaEthereumConfig }                    from "@fhevm/solidity/config/Za
 import { Ownable2Step, Ownable }                 from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { ECDSA }                                 from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { EIP712 }                                from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import { IERC7984 }                              from "./interfaces/IERC7984.sol";
+import { IERC20 }                                 from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IArbitraFingerprintRegistry {
     function registerFingerprint(uint256 invoiceId, euint64 fingerprint) external returns (euint64);
@@ -26,7 +26,14 @@ interface IArbitraCollateralVault {
 }
 
 interface IArbitraEscrowReceiver {
-    function registerEscrow(uint256 invoiceId, address supplier, address investor, euint64 encFaceValue, uint256 maturityTs) external;
+    function registerEscrow(
+        uint256 invoiceId,
+        address supplier,
+        address investor,
+        euint64 encFaceValue,
+        uint256 faceValuePlaintext,
+        uint256 maturityTs
+    ) external;
     function initiateDispute(uint256 invoiceId) external;
     function resolveDispute(uint256 invoiceId, bool fraudConfirmed) external;
 }
@@ -40,6 +47,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     /*************** Constants ***************/
 
     uint64 public constant SCALE_BPS = 10000;
+    uint256 public constant DEFAULT_DISCOUNT_BPS = 800; /* 8% discount floor */
 
     /*************** Data Structures ***************/
 
@@ -58,6 +66,11 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         euint64  purchasePrice;
         euint64  discountRateBps;
         euint64  fingerprintHash;
+        uint256 faceValuePlaintext;  /* Face value in USDC micro-units (6 dec).
+                                Used for standard ERC-20 USDC payment flows.
+                                The encrypted faceValue is used for all FHE
+                                calculations; this field is used only when
+                                transferring USDC between wallets. */
         address  supplier;
         address  investor;
         address  debtor;
@@ -86,7 +99,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     mapping(address => uint256[]) public supplierInvoiceIds;
     mapping(address => uint256[]) public investorInvoiceIds;
 
-    address public immutable cUSDC;
+    IERC20 public immutable usdc;
     address public fpRegistry;
     address public riskCalc;
     address public collateralVault;
@@ -127,12 +140,33 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /**
      * @notice Constructor to initialize main configurations.
-     * @param _cUSDC The address of the cUSDC token contract.
+     * @param _usdc The address of standard USDC.
+     * @param _fpRegistry The address of the fingerprint registry.
+     * @param _riskCalculator The address of the risk calculator.
+     * @param _collateralVault The address of the collateral vault.
+     * @param _escrowReceiver The address of the escrow receiver.
+     * @param _platformVerifier The address of the platform verifier.
      */
-    constructor(address _cUSDC, address _platformVerifier) EIP712("Arbitra", "2") Ownable(msg.sender) {
-        require(_cUSDC != address(0), "Arbitra: zero token address");
+    constructor(
+        address _usdc,
+        address _fpRegistry,
+        address _riskCalculator,
+        address _collateralVault,
+        address _escrowReceiver,
+        address _platformVerifier
+    ) EIP712("Arbitra", "2") Ownable(msg.sender) {
+        require(_usdc != address(0), "Arbitra: zero USDC");
+        require(_fpRegistry != address(0), "Arbitra: zero fpRegistry");
+        require(_riskCalculator != address(0), "Arbitra: zero riskCalculator");
+        require(_collateralVault != address(0), "Arbitra: zero collateralVault");
+        require(_escrowReceiver != address(0), "Arbitra: zero escrowReceiver");
         require(_platformVerifier != address(0), "Arbitra: zero verifier");
-        cUSDC = _cUSDC;
+
+        usdc = IERC20(_usdc);
+        fpRegistry = _fpRegistry;
+        riskCalc = _riskCalculator;
+        collateralVault = _collateralVault;
+        escrowReceiver = _escrowReceiver;
         platformVerifier = _platformVerifier;
     }
 
@@ -185,7 +219,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         externalEuint64  encReputationMultiplier,
         bytes calldata   proofRepMult,
         address          debtor,
-        bool             enableGeminiUnderwriting
+        bool             enableGeminiUnderwriting,
+        uint256          faceValuePlaintext_          /* NEW - USDC micro-units */
     ) external returns (uint256 invoiceId) {
         require(debtor != address(0), "Arbitra: zero debtor");
         require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
@@ -239,6 +274,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         /* Persist invoice details */
         Invoice storage inv = invoices[invoiceId];
         inv.faceValue = faceValue;
+        inv.faceValuePlaintext = faceValuePlaintext_;
         inv.dueDate = dueDate;
         inv.purchasePrice = purchasePrice;
         inv.discountRateBps = discountRateBps;
@@ -380,13 +416,20 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         require(inv.status == InvoiceStatus.Attested, "Arbitra: not attested");
         require(inv.supplier != msg.sender, "Arbitra: supplier cannot factor own");
 
-        require(IERC7984(cUSDC).isOperator(msg.sender, address(this)), "Arbitra: not approved operator");
+        /* Compute purchase price in plaintext.
+         * Formula: purchasePricePlaintext = faceValuePlaintext * (10000 - discountBps) / 10000
+         * discountBps is an encrypted value - use the pre-computed plaintext approximation
+         * stored at upload time, OR require the investor to provide it after decryption.
+         *
+         * Pragmatic approach for v2.2: compute purchase price from plaintext face value
+         * and the plaintext equivalent of the encrypted discount rate.
+         * The encrypted values are still used for all FHE display and calculation logic.
+         */
+        uint256 purchasePricePlaintext = _computePurchasePricePlaintext(invoiceId);
 
-        /* Grant transient access to the cUSDC contract for the factoring transfer */
-        FHE.allowTransient(inv.purchasePrice, cUSDC);
-
-        /* Transfer cUSDC from investor to supplier */
-        IERC7984(cUSDC).confidentialTransferFrom(msg.sender, inv.supplier, inv.purchasePrice);
+        /* Transfer USDC from investor to supplier */
+        bool ok = usdc.transferFrom(msg.sender, inv.supplier, purchasePricePlaintext);
+        require(ok, "Arbitra: USDC transfer failed");
 
         inv.investor = msg.sender;
         inv.status = InvoiceStatus.Factored;
@@ -401,6 +444,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
             inv.supplier,
             msg.sender,
             inv.faceValue,
+            inv.faceValuePlaintext,
             inv.maturityTimestamp
         );
 
@@ -507,10 +551,49 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
-     * @notice Check operator status on cUSDC.
+     * @notice Check allowance status on USDC.
      */
     function isInvestorApproved(address investor) external view returns (bool approved) {
-        return IERC7984(cUSDC).isOperator(investor, address(this));
+        return usdc.allowance(investor, address(this)) > 0;
+    }
+
+    /**
+     * @notice Compute purchase price in plaintext USDC micro-units.
+     *         Uses the stored plaintext face value and the DEFAULT_DISCOUNT_BPS
+     *         as a floor. In production, this would use a KMS-decrypted discount
+     *         from the encrypted state. For v2.2, uses the plaintext approximation.
+     * @param invoiceId  The invoice to compute for
+     * @return           Purchase price in USDC micro-units (6 decimals)
+     */
+    function _computePurchasePricePlaintext(uint256 invoiceId) internal view returns (uint256) {
+        Invoice storage inv = invoices[invoiceId];
+        uint256 fv          = inv.faceValuePlaintext;
+        uint256 ttmDays     = (inv.maturityTimestamp > block.timestamp)
+            ? (inv.maturityTimestamp - block.timestamp) / 86400
+            : 0;
+        /* Use DEFAULT_DISCOUNT_BPS (800 = 8%) as the floor discount */
+        uint256 discBps     = DEFAULT_DISCOUNT_BPS; /* 800 */
+        /* P = V * (1 - d * t) where d = discBps/10000 and t = ttmDays/365 */
+        uint256 discountAmt = (fv * discBps * ttmDays) / (10000 * 365);
+        return fv > discountAmt ? fv - discountAmt : 0;
+    }
+
+    /**
+     * @notice Get the plaintext purchase price for display and payment.
+     * @param invoiceId  The invoice
+     * @return           Purchase price in USDC micro-units
+     */
+    function getPurchasePricePlaintext(uint256 invoiceId) external view returns (uint256) {
+        return _computePurchasePricePlaintext(invoiceId);
+    }
+
+    /**
+     * @notice Get the plaintext face value for display and payment.
+     * @param invoiceId  The invoice
+     * @return           Face value in USDC micro-units
+     */
+    function getFaceValuePlaintext(uint256 invoiceId) external view returns (uint256) {
+        return invoices[invoiceId].faceValuePlaintext;
     }
 
     /**

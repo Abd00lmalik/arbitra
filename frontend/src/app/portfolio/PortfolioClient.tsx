@@ -18,7 +18,6 @@ import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { InvoiceMiniCard } from "@/components/invoice/InvoiceMiniCard";
 import { InvoiceDetailModal } from "@/components/shared/InvoiceDetailModal";
 import {
-  useMockInvoiceList,
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
@@ -28,14 +27,9 @@ import Link from "next/link";
 export default function PortfolioClient() {
   const { address, isConnected } = useAccount();
   const { role } = useRole();
-  const mockInvoices = useMockInvoiceList();
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
-
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
-
-  const hasRealInvoices = realInvoices && realInvoices.length > 0;
-  const allInvoices = hasRealInvoices ? realInvoices : mockInvoices;
-  const isDemoMode = !hasRealInvoices;
+  const allInvoices = realInvoices ?? [];
 
   /* Filter invoices for the connected user */
   const mySupplierInvoices = allInvoices.filter(
@@ -121,34 +115,7 @@ export default function PortfolioClient() {
           </div>
         </motion.div>
 
-        {/* Demo Mode Banner */}
-        {isDemoMode && !isLoadingInvoices && (
-          <motion.div variants={itemVariants}>
-            <div
-              style={{
-                padding: "16px 20px",
-                borderRadius: "16px",
-                background: "rgba(0, 240, 255, 0.05)",
-                border: "1px solid rgba(0, 240, 255, 0.2)",
-                color: "#EEF2FF",
-                fontSize: "13px",
-                fontFamily: "Satoshi, sans-serif",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px"
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-              <span>
-                <strong>Demo Mode Active:</strong> No on-chain invoices detected for your wallet on Sepolia. Showing simulated portfolio. Go to the <strong>Upload</strong> page to create a real encrypted invoice.
-              </span>
-            </div>
-          </motion.div>
-        )}
+
 
         {/* Header stats grid */}
         <motion.div variants={itemVariants} className="grid grid-cols-3 gap-4">
