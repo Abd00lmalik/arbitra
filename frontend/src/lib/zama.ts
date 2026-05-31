@@ -1,4 +1,4 @@
-/**
+/*
  * @file zama.ts
  * @description Zama FHEVM SDK initialization and encryption/decryption helpers.
  *              Uses @zama-fhe/relayer-sdk/web (v0.4.1) for web environment.
@@ -27,7 +27,7 @@ export async function getZamaSDK() {
   }
 }
 
-/**
+/*
  * Encrypt a uint64 value for on-chain submission.
  * Returns the externalEuint64 handle and ZKPoK proof bytes as hex strings.
  */
@@ -55,7 +55,7 @@ export async function encryptUint64(
   };
 }
 
-/**
+/*
  * Encrypt two uint64 values in a single input (shared proof).
  * Used for uploadInvoice (faceValue + dueDate).
  */
@@ -90,7 +90,54 @@ export async function encryptTwoUint64(
   };
 }
 
-/**
+/*
+ * Encrypt five uint64 values in a single input (shared proof).
+ * Used for uploadInvoice (faceValue + dueDate + fingerprint + baseRate + reputationMultiplier).
+ */
+export async function encryptFiveUint64(
+  instance: any,
+  val1: bigint,
+  val2: bigint,
+  val3: bigint,
+  val4: bigint,
+  val5: bigint,
+  contractAddress: string,
+  userAddress: string
+): Promise<{
+  handle1: `0x${string}`;
+  handle2: `0x${string}`;
+  handle3: `0x${string}`;
+  handle4: `0x${string}`;
+  handle5: `0x${string}`;
+  inputProof: `0x${string}`;
+}> {
+  const activeInstance = instance || (await getZamaSDK());
+  if (!activeInstance) throw new Error("FHEVM SDK not initialized");
+
+  const input = activeInstance.createEncryptedInput(contractAddress, userAddress);
+  input.add64(val1);
+  input.add64(val2);
+  input.add64(val3);
+  input.add64(val4);
+  input.add64(val5);
+  const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
+  return {
+    handle1: toHex(encrypted.handles[0]),
+    handle2: toHex(encrypted.handles[1]),
+    handle3: toHex(encrypted.handles[2]),
+    handle4: toHex(encrypted.handles[3]),
+    handle5: toHex(encrypted.handles[4]),
+    inputProof: toHex(encrypted.inputProof),
+  };
+}
+
+/*
  * EIP-712 userDecrypt for a set of encrypted handles.
  * Triggers a MetaMask signature prompt.
  * Compatible with useInvoiceDecrypt hook.
@@ -120,7 +167,7 @@ export async function userDecryptHandles(
     durationDays
   );
 
-  /* Drop EIP712Domain from types — ethers v6 derives it from domain */
+  /* Drop EIP712Domain from types - ethers v6 derives it from domain */
   const { EIP712Domain: _omit, ...typesWithoutDomain } = eip712.types;
 
   const signature = await signer.signTypedData(

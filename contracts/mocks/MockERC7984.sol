@@ -1,32 +1,20 @@
 /* SPDX-License-Identifier: MIT */
-/**
- * @file MockERC7984.sol
- * @description Minimal ERC-7984 shim for local Hardhat testing.
- *              Implements the subset of IERC7984 used by ArbitraInvoiceRegistry:
- *                - setOperator / isOperator  (time-bounded operator approval)
- *                - confidentialTransferFrom(from, to, euint64) (handle overload)
- *                - confidentialBalanceOf(address)
- *              Additionally provides a test-only plaintext mint for fast setup.
- *              Does NOT implement wrap/unwrap/finalizeUnwrap (not needed for tests).
- * @dev    Not for production use. No access control on mint.
- */
 pragma solidity ^0.8.27;
 
-import { FHE, euint64, externalEuint64 } from "@fhevm/solidity/lib/FHE.sol";
+import { FHE, euint64, externalEuint64, ebool } from "@fhevm/solidity/lib/FHE.sol";
 import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
-import { IERC7984 } from "@openzeppelin/confidential-contracts/interfaces/IERC7984.sol";
+import { IERC7984 } from "../interfaces/IERC7984.sol";
+import { IERC7984Receiver } from "@openzeppelin/confidential-contracts/interfaces/IERC7984Receiver.sol";
 import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
 
-/**
- * @title  MockERC7984
- * @notice Test-only ERC-7984 shim for local Hardhat environment.
- *         Replaces MockCUSDC. Implements operator approval and encrypted transfers
- *         using the same interface as the real Zama cUSDC wrapper on Sepolia.
- * @custom:security-contact security@arbitra.finance
+/*
+ * @file MockERC7984.sol
+ * @description Test-only ERC-7984 mock implementation for local Hardhat environment.
+ *              Implements operator approvals, transfers, and receiver callbacks.
  */
 contract MockERC7984 is ZamaEthereumConfig {
 
-    /****** State ******/
+    /*************** State ***************/
 
     /** @notice Token name */
     string public name = "Mock Confidential USDC";
@@ -34,42 +22,42 @@ contract MockERC7984 is ZamaEthereumConfig {
     /** @notice Token symbol */
     string public symbol = "cUSDC";
 
-    /** @notice Token decimals (6 for USDC compatibility) */
+    /** @notice Token decimals */
     uint8 public decimals = 6;
 
     /** @notice Encrypted balances per address */
     mapping(address => euint64) private _balances;
 
     /**
-     * @notice ERC-7984 operator approvals: holder => operator => expiry (Unix seconds).
-     *         isOperator returns true iff expiry > block.timestamp.
+     * @notice ERC-7984 operator approvals: holder => operator => expiry.
      */
     mapping(address => mapping(address => uint48)) private _operators;
 
-    /****** Events ******/
+    /*************** Events ***************/
 
-    /** @notice Emitted on operator set (ERC-7984) */
+    /** @notice Emitted on operator set */
     event OperatorSet(address indexed holder, address indexed operator, uint48 until);
 
-    /** @notice Emitted on any confidential transfer (no amount for privacy) */
+    /** @notice Emitted on confidential transfer */
     event ConfidentialTransfer(address indexed from, address indexed to, euint64 indexed amount);
 
-    /****** ERC-165 ******/
+    /*************** ERC-165 ***************/
 
     /**
      * @notice ERC-165 interface support.
+     * @param interfaceId Interface ID being queried.
+     * @return True if interface is supported.
      */
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(IERC7984).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
-    /****** Test Helper ******/
+    /*************** Test Helpers ***************/
 
     /**
      * @notice Mint plaintext amount of encrypted tokens to an address.
-     *         Test-only. No access control.
-     * @param to     Recipient
-     * @param amount Plaintext amount in micro-units
+     * @param to Recipient address.
+     * @param amount Plaintext amount.
      */
     function mint(address to, uint64 amount) external {
         euint64 enc = FHE.asEuint64(amount);
@@ -85,13 +73,12 @@ contract MockERC7984 is ZamaEthereumConfig {
         FHE.allow(_balances[to], to);
     }
 
-    /****** ERC-7984 Operator Model ******/
+    /*************** ERC-7984 Operators ***************/
 
     /**
-     * @notice Set `operator` as an approved operator for `msg.sender` until `until`.
-     *         Passes ERC-7984's time-bounded approval model.
-     * @param operator  The address to approve as operator
-     * @param until     Unix timestamp expiry (must be in the future)
+     * @notice Set operator.
+     * @param operator Spender address.
+     * @param until Expiration timestamp.
      */
     function setOperator(address operator, uint48 until) external {
         _operators[msg.sender][operator] = until;
@@ -99,46 +86,37 @@ contract MockERC7984 is ZamaEthereumConfig {
     }
 
     /**
-     * @notice Returns true if `spender` is currently an operator for `holder`.
-     * @param holder   The token holder
-     * @param spender  The potential operator
-     * @return         True if operator expiry > block.timestamp
+     * @notice Check operator status.
+     * @param holder Token holder address.
+     * @param spender Spender address.
+     * @return True if spender is an operator.
      */
     function isOperator(address holder, address spender) external view returns (bool) {
         return _operators[holder][spender] > uint48(block.timestamp);
     }
 
-    /****** ERC-7984 Transfer ******/
+    /*************** Internal Transfers ***************/
 
     /**
-     * @notice Transfer using an existing encrypted handle — handle-only overload.
-     *         msg.sender must be an approved operator for `from`.
-     *         Caller must have ACL on the `amount` handle (granted via FHE.allowTransient).
-     * @param from    Source address
-     * @param to      Destination address
-     * @param amount  Encrypted amount handle (caller must have ACL on this handle)
-     * @return        The transferred amount handle
+     * @notice Internal helper to execute transfer.
+     * @param from Source address.
+     * @param to Destination address.
+     * @param amount Encrypted amount handle.
+     * @return The transferred handle.
      */
-    function confidentialTransferFrom(
+    function _transfer(
         address from,
         address to,
         euint64 amount
-    ) external returns (euint64) {
-        require(
-            _operators[from][msg.sender] > uint48(block.timestamp),
-            "MockERC7984: not approved operator"
-        );
-
+    ) internal returns (euint64) {
         euint64 fromBal = _balances[from];
-        require(euint64.unwrap(fromBal) != bytes32(0), "MockERC7984: zero balance handle");
+        require(euint64.unwrap(fromBal) != bytes32(0), "MockERC7984: zero balance");
 
-        /* Subtract from sender */
         euint64 newFromBal = FHE.sub(fromBal, amount);
         FHE.allowThis(newFromBal);
         FHE.allow(newFromBal, from);
         _balances[from] = newFromBal;
 
-        /* Add to receiver */
         euint64 toBal = _balances[to];
         if (euint64.unwrap(toBal) == bytes32(0)) {
             _balances[to] = amount;
@@ -156,8 +134,33 @@ contract MockERC7984 is ZamaEthereumConfig {
         return amount;
     }
 
+    /*************** ERC-7984 Transfers ***************/
+
     /**
-     * @notice confidentialTransfer with external proof (required by IERC7984, not used in registry).
+     * @notice Transfer using an existing encrypted handle.
+     * @param from Source address.
+     * @param to Destination address.
+     * @param amount Encrypted amount handle.
+     * @return The transferred handle.
+     */
+    function confidentialTransferFrom(
+        address from,
+        address to,
+        euint64 amount
+    ) external returns (euint64) {
+        require(
+            from == msg.sender || _operators[from][msg.sender] > uint48(block.timestamp),
+            "MockERC7984: not approved operator"
+        );
+        return _transfer(from, to, amount);
+    }
+
+    /**
+     * @notice confidentialTransfer with external proof.
+     * @param to Destination address.
+     * @param encryptedAmount External encrypted amount.
+     * @param inputProof Zero knowledge proof.
+     * @return The transferred handle.
      */
     function confidentialTransfer(
         address to,
@@ -165,44 +168,26 @@ contract MockERC7984 is ZamaEthereumConfig {
         bytes calldata inputProof
     ) external returns (euint64) {
         euint64 amount = FHE.fromExternal(encryptedAmount, inputProof);
-        euint64 fromBal = _balances[msg.sender];
-        require(euint64.unwrap(fromBal) != bytes32(0), "MockERC7984: zero balance handle");
-
-        euint64 newFromBal = FHE.sub(fromBal, amount);
-        FHE.allowThis(newFromBal);
-        FHE.allow(newFromBal, msg.sender);
-        _balances[msg.sender] = newFromBal;
-
-        euint64 toBal = _balances[to];
-        euint64 newToBal = euint64.unwrap(toBal) == bytes32(0)
-            ? amount
-            : FHE.add(toBal, amount);
-        FHE.allowThis(newToBal);
-        FHE.allow(newToBal, to);
-        _balances[to] = newToBal;
-
-        emit ConfidentialTransfer(msg.sender, to, amount);
-        return amount;
-    }
-
-    /** @notice Handle-only self-transfer (required by IERC7984) */
-    function confidentialTransfer(address to, euint64 amount) external returns (euint64) {
-        euint64 fromBal = _balances[msg.sender];
-        euint64 newFromBal = FHE.sub(fromBal, amount);
-        FHE.allowThis(newFromBal);
-        _balances[msg.sender] = newFromBal;
-
-        euint64 newToBal = FHE.add(_balances[to], amount);
-        FHE.allowThis(newToBal);
-        FHE.allow(newToBal, to);
-        _balances[to] = newToBal;
-
-        emit ConfidentialTransfer(msg.sender, to, amount);
-        return amount;
+        return _transfer(msg.sender, to, amount);
     }
 
     /**
-     * @notice confidentialTransferFrom with external proof (required by IERC7984).
+     * @notice Transfer using handle directly.
+     * @param to Destination address.
+     * @param amount Encrypted amount handle.
+     * @return The transferred handle.
+     */
+    function confidentialTransfer(address to, euint64 amount) external returns (euint64) {
+        return _transfer(msg.sender, to, amount);
+    }
+
+    /**
+     * @notice confidentialTransferFrom with external proof.
+     * @param from Source address.
+     * @param to Destination address.
+     * @param encryptedAmount External encrypted amount.
+     * @param inputProof Zero knowledge proof.
+     * @return The transferred handle.
      */
     function confidentialTransferFrom(
         address from,
@@ -210,28 +195,85 @@ contract MockERC7984 is ZamaEthereumConfig {
         externalEuint64 encryptedAmount,
         bytes calldata inputProof
     ) external returns (euint64) {
-        require(_operators[from][msg.sender] > uint48(block.timestamp), "MockERC7984: not operator");
+        require(
+            from == msg.sender || _operators[from][msg.sender] > uint48(block.timestamp),
+            "MockERC7984: not operator"
+        );
         euint64 amount = FHE.fromExternal(encryptedAmount, inputProof);
-        return this.confidentialTransferFrom(from, to, amount);
+        return _transfer(from, to, amount);
     }
 
-    /****** ERC-7984 Read ******/
+    /*************** ERC-7984 Transfer & Call (Callbacks) ***************/
+
+    /**
+     * @notice confidentialTransferAndCall with data parameter, triggering callback.
+     * @param to Destination address.
+     * @param amount Encrypted amount handle.
+     * @param data Additional data bytes.
+     * @return The transferred handle.
+     */
+    function confidentialTransferAndCall(
+        address to,
+        euint64 amount,
+        bytes calldata data
+    ) external returns (euint64) {
+        euint64 transferred = _transfer(msg.sender, to, amount);
+        if (to.code.length > 0) {
+            ebool success = IERC7984Receiver(to).onConfidentialTransferReceived(msg.sender, msg.sender, transferred, data);
+            FHE.allowThis(success);
+        }
+        return transferred;
+    }
+
+    /**
+     * @notice confidentialTransferFromAndCall with data parameter, triggering callback.
+     * @param from Source address.
+     * @param to Destination address.
+     * @param amount Encrypted amount handle.
+     * @param data Additional data bytes.
+     * @return The transferred handle.
+     */
+    function confidentialTransferFromAndCall(
+        address from,
+        address to,
+        euint64 amount,
+        bytes calldata data
+    ) external returns (euint64) {
+        require(
+            from == msg.sender || _operators[from][msg.sender] > uint48(block.timestamp),
+            "MockERC7984: not operator"
+        );
+        euint64 transferred = _transfer(from, to, amount);
+        if (to.code.length > 0) {
+            ebool success = IERC7984Receiver(to).onConfidentialTransferReceived(msg.sender, from, transferred, data);
+            FHE.allowThis(success);
+        }
+        return transferred;
+    }
+
+    /*************** ERC-7984 Reads ***************/
 
     /**
      * @notice Get encrypted balance handle.
-     * @param account  The account
-     * @return         Encrypted balance handle
+     * @param account The account address.
+     * @return The encrypted balance handle.
      */
     function confidentialBalanceOf(address account) external view returns (euint64) {
         return _balances[account];
     }
 
-    /** @notice Encrypted total supply (not tracked in mock, returns zero handle) */
+    /**
+     * @notice Get total supply.
+     * @return Zero handle.
+     */
     function confidentialTotalSupply() external pure returns (euint64) {
         return euint64.wrap(bytes32(0));
     }
 
-    /** @notice contractURI (stub) */
+    /**
+     * @notice Get contract URI.
+     * @return Empty string.
+     */
     function contractURI() external pure returns (string memory) {
         return "";
     }

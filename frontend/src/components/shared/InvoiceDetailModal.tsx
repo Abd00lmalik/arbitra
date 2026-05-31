@@ -1,4 +1,4 @@
-/**
+/*
  * @file InvoiceDetailModal.tsx
  * @description Shared details modal for invoices featuring smooth slide-up animation,
  *              role-based viewing tabs, decryption hooks, and AI-powered risk assessment.
@@ -6,17 +6,16 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useWalletClient, useAccount } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRole } from "@/providers/RoleProvider";
 import {
   useInvoice,
-  useInvoiceHandles,
   useIsInvestorApproved,
   useSetOperator,
   useFactorInvoice,
-  useTriggerRepayment
+  useGrantRiskAccess
 } from "@/hooks/useArbitraRegistry";
 import { useInvoiceDecrypt } from "@/hooks/useInvoiceDecrypt";
 import { useRiskAssessment } from "@/hooks/useRiskAssessment";
@@ -32,7 +31,8 @@ import {
   daysUntilDue,
   shortAddress,
   ARBITRA_REGISTRY_ADDRESS,
-  DEFAULT_OPERATOR_EXPIRY_SECONDS
+  DEFAULT_OPERATOR_EXPIRY_SECONDS,
+  InvoiceStatus
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -58,7 +58,6 @@ export function InvoiceDetailModal({
 
   /* Fetch core data */
   const { data: invoiceData, refetch: refetchInvoice } = useInvoice(invoiceId);
-  const { data: handles } = useInvoiceHandles(invoiceId);
 
   /* Decryption hook */
   const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
@@ -68,7 +67,7 @@ export function InvoiceDetailModal({
 
   /* Action hooks */
   const { factorInvoice, isPending: isFactoringPending } = useFactorInvoice();
-  const { triggerRepayment, isPending: isRepayPending } = useTriggerRepayment();
+  const { grantAccess, isPending: isGrantPending } = useGrantRiskAccess();
 
   /* Operator check for factoring */
   const { data: isApprovedRefetch, refetch: refetchApproval } = useIsInvestorApproved(
@@ -87,28 +86,39 @@ export function InvoiceDetailModal({
 
   if (!isOpen || invoiceId === undefined || !invoiceData) return null;
 
-  /* Reconstruct structured invoice details */
+  /* Reconstruct structured invoice details from v2.0 contract struct mapping */
   const invoice = {
     invoiceId,
     faceValue: invoiceData[0] as `0x${string}`,
     dueDate: invoiceData[1] as `0x${string}`,
     purchasePrice: invoiceData[2] as `0x${string}`,
-    discountRate: invoiceData[3] as `0x${string}`,
-    supplier: invoiceData[4] as string,
-    investor: invoiceData[5] as string,
-    buyer: invoiceData[6] as string,
-    isFactored: invoiceData[7] as boolean,
-    isRepaid: invoiceData[8] as boolean,
-    uploadTimestamp: BigInt(invoiceData[9] as bigint)
+    discountRateBps: invoiceData[3] as `0x${string}`,
+    fingerprintHash: invoiceData[4] as `0x${string}`,
+    supplier: invoiceData[5] as string,
+    investor: invoiceData[6] as string,
+    debtor: invoiceData[7] as string,
+    uploadTimestamp: BigInt(invoiceData[8] as bigint),
+    maturityTimestamp: BigInt(invoiceData[9] as bigint),
+    status: Number(invoiceData[10]) as InvoiceStatus,
+    geminiUnderwritingEnabled: invoiceData[11] as boolean,
+    debtorAttestationHash: invoiceData[12] as `0x${string}`,
+    collateralStaked: invoiceData[13] as boolean,
   };
+
+  const isFactored = invoice.status >= InvoiceStatus.Factored;
+  const isRepaid = invoice.status === InvoiceStatus.Settled;
+  const isDisputed = invoice.status === InvoiceStatus.Disputed;
 
   const isSupplier = currentUserAddress?.toLowerCase() === invoice.supplier?.toLowerCase();
   const isInvestor = currentUserAddress?.toLowerCase() === invoice.investor?.toLowerCase();
-  const canDecrypt = isSupplier || isInvestor || (viewRole === "investor" && invoice.investor === "0x0000000000000000000000000000000000000000");
+  const isDebtor = currentUserAddress?.toLowerCase() === invoice.debtor?.toLowerCase();
+  
+  /* Supplier and factored Investor can always decrypt, or any investor if granted access */
+  const canDecrypt = isSupplier || isInvestor || (viewRole === "investor" && !isFactored);
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
-    if (!handles || !walletClient) return;
+    if (!walletClient) return;
 
     const signer = {
       getAddress: async () => (await walletClient.getAddresses())[0] as string,
@@ -125,10 +135,10 @@ export function InvoiceDetailModal({
 
     await decrypt(
       {
-        faceValueHandle: handles.faceValueHandle as `0x${string}`,
-        dueDateHandle: handles.dueDateHandle as `0x${string}`,
-        purchasePriceHandle: handles.purchasePriceHandle as `0x${string}`,
-        discountRateHandle: handles.discountRateHandle as `0x${string}`
+        faceValueHandle: invoice.faceValue,
+        dueDateHandle: invoice.dueDate,
+        purchasePriceHandle: invoice.purchasePrice,
+        discountRateHandle: invoice.discountRateBps
       },
       signer
     );
@@ -143,15 +153,29 @@ export function InvoiceDetailModal({
     await fetchAssessment({
       invoiceId: Number(invoice.invoiceId),
       supplierAddress: invoice.supplier,
-      buyerAddress: invoice.buyer,
+      buyerAddress: invoice.debtor,
       uploadTimestamp: Number(invoice.uploadTimestamp),
-      isFactored: invoice.isFactored,
-      isRepaid: invoice.isRepaid,
+      isFactored: isFactored,
+      isRepaid: isRepaid,
       faceValueHint: faceValueStr,
       dueDaysHint: dueDays,
       discountRateBpsHint: discountRateBps,
       repaymentRatioBpsHint: 9500 /* Default mock supplier reputation ratio */
     });
+  };
+
+  /* Grant transient assessment access */
+  const handleGrantAccess = async () => {
+    setLocalBusy(true);
+    try {
+      await grantAccess(invoice.invoiceId);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await refetchInvoice();
+    } catch (err) {
+      console.error("Granting risk access failed:", err);
+    } finally {
+      setLocalBusy(false);
+    }
   };
 
   /* Factor action sequence */
@@ -161,27 +185,16 @@ export function InvoiceDetailModal({
       if (!isApproved) {
         const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
         await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         await refetchApproval();
       }
       await factorInvoice(invoice.invoiceId);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await refetchInvoice();
       if (onActionSuccess) onActionSuccess();
+      onClose();
     } catch (err) {
       console.error("Factoring failed:", err);
-    } finally {
-      setLocalBusy(false);
-    }
-  };
-
-  /* Repay action sequence */
-  const handleRepayClick = async () => {
-    setLocalBusy(true);
-    try {
-      await triggerRepayment(invoice.invoiceId);
-      await refetchInvoice();
-      if (onActionSuccess) onActionSuccess();
-    } catch (err) {
-      console.error("Repayment failed:", err);
     } finally {
       setLocalBusy(false);
     }
@@ -220,7 +233,7 @@ export function InvoiceDetailModal({
               </div>
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 Stable Invoice Registry
-                <FHEBadge size="sm" />
+                <FHEBadge />
               </h3>
             </div>
             <button
@@ -257,10 +270,10 @@ export function InvoiceDetailModal({
             </button>
           </div>
 
-          {/* Scrollable Modal Content */}
+          {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto space-y-5 pr-1 -mr-2 scrollbar-thin">
             
-            {/* Wallet status information banner */}
+            {/* Wallet Info Banner */}
             <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-white/2 border border-white/5 text-xs text-slate-400">
               <div className="flex justify-between items-center">
                 <span>Active Wallet Context:</span>
@@ -269,18 +282,22 @@ export function InvoiceDetailModal({
               <div className="flex justify-between items-center">
                 <span>Registry Verified Role:</span>
                 <span className="capitalize font-bold text-white">
-                  {isSupplier ? "Supplier (Creator)" : isInvestor ? "Investor (Lender)" : "Viewer"}
+                  {isSupplier ? "Supplier (Creator)" : isInvestor ? "Investor (Lender)" : isDebtor ? "Debtor (Buyer)" : "Viewer"}
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span>Invoice Status:</span>
                 <span className="font-semibold text-white">
-                  {invoice.isRepaid ? (
-                    <span className="text-neon-green">● Repaid</span>
-                  ) : invoice.isFactored ? (
-                    <span className="text-neon-purple">● Factored (Awaiting Due Date)</span>
+                  {isRepaid ? (
+                    <span className="text-neon-green">● Settled</span>
+                  ) : isDisputed ? (
+                    <span className="text-neon-pink">● Disputed</span>
+                  ) : isFactored ? (
+                    <span className="text-neon-purple">● Factored (Awaiting Maturity)</span>
+                  ) : invoice.status === InvoiceStatus.Attested ? (
+                    <span className="text-neon-cyan">● Attested (Ready to Factor)</span>
                   ) : (
-                    <span className="text-yellow-400">● Unfactored (Available)</span>
+                    <span className="text-yellow-400">● Pending Debtor Attestation</span>
                   )}
                 </span>
               </div>
@@ -336,7 +353,7 @@ export function InvoiceDetailModal({
                 <div className="flex-1">
                   <h4 className="text-xs font-bold text-white mb-0.5">Encrypted Under FHE</h4>
                   <p className="text-[11px] text-slate-500 leading-normal">
-                    This invoice's exact parameters are encrypted on-chain. Only authorized roles (Supplier / Investor) can request decryption.
+                    This invoice's parameters are homomorphically encrypted. Only the supplier, debtor, and factored investor can decrypt them.
                   </p>
                 </div>
                 {zamaReady && canDecrypt && (
@@ -353,7 +370,7 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* Error alerts */}
+            {/* Decrypt Error Alert */}
             {decryptError && (
               <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
                 {decryptError}
@@ -374,7 +391,7 @@ export function InvoiceDetailModal({
                 {!assessment ? (
                   <div className="text-center py-2.5">
                     <p className="text-xs text-slate-400 mb-3">
-                      Run AI analysis of the counterparty risk using metadata and available decrypted parameters.
+                      Run AI counterparty risk analysis using metadata and available decrypted parameters.
                     </p>
                     <NeonButton
                       variant="primary"
@@ -435,7 +452,7 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* Contextual counterparty Addresses */}
+            {/* Addresses Block */}
             <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Supplier:</span>
@@ -443,18 +460,18 @@ export function InvoiceDetailModal({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Buyer (Debtor):</span>
-                <span className="font-mono text-slate-300">{shortAddress(invoice.buyer)}</span>
+                <span className="font-mono text-slate-300">{shortAddress(invoice.debtor)}</span>
               </div>
-              {invoice.isFactored && (
+              {isFactored && (
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Purchasing Investor:</span>
+                  <span className="text-slate-500">Investor:</span>
                   <span className="font-mono text-slate-300">{shortAddress(invoice.investor)}</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Contextual Modal Action Buttons Footer */}
+          {/* Footer Action Buttons */}
           <div className="mt-6 pt-4 border-t border-white/5 flex gap-3">
             <NeonButton
               variant="secondary"
@@ -465,21 +482,21 @@ export function InvoiceDetailModal({
               Close Panel
             </NeonButton>
 
-            {/* Action for Supplier (Repayment) */}
-            {viewRole === "supplier" && invoice.isFactored && !invoice.isRepaid && isSupplier && (
+            {/* Action for Supplier (Repay is handled by Debtor via Escrow, but Supplier can grant risk access to investors) */}
+            {viewRole === "supplier" && invoice.status === InvoiceStatus.Attested && isSupplier && (
               <NeonButton
                 variant="primary"
                 size="md"
-                loading={isRepayPending || localBusy}
-                onClick={handleRepayClick}
-                className="flex-1"
+                loading={isGrantPending || localBusy}
+                onClick={handleGrantAccess}
+                className="flex-1 text-xs"
               >
-                Repay Factored Invoice
+                {isGrantPending ? "Granting..." : "🔑 Grant Risk Assessment Access"}
               </NeonButton>
             )}
 
             {/* Action for Investor (Factoring) */}
-            {viewRole === "investor" && !invoice.isFactored && !isSupplier && (
+            {viewRole === "investor" && invoice.status === InvoiceStatus.Attested && !isSupplier && (
               <NeonButton
                 variant="primary"
                 size="md"

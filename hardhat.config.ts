@@ -1,3 +1,8 @@
+/*
+ * @file hardhat.config.ts
+ * @description Hardhat configuration for Arbitra v2.0 smart contract compilation and deployment.
+ */
+
 import "@fhevm/hardhat-plugin";
 import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-chai-matchers";
@@ -14,6 +19,7 @@ const config = {
     settings: {
       optimizer: { enabled: true, runs: 200 },
       evmVersion: "cancun",
+      viaIR: true,
     },
   },
   networks: {

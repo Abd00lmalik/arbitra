@@ -1,6 +1,7 @@
-/**
+/*
  * @file UploadInvoiceForm.tsx
- * @description Progressive multi-step wizard form for encrypting and submitting invoices using Zama FHEVM.
+ * @description progressive 4-step wizard form for PDF drag-and-drop, detail review,
+ *              collateral vault locking, and local ZK proof FHE encryption submission.
  */
 
 "use client";
@@ -11,22 +12,45 @@ import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
-import { useUploadInvoice } from "@/hooks/useArbitraRegistry";
+import {
+  useUploadInvoice,
+  useInvoiceCount,
+  useApproveUSDC,
+  useStakeCollateral,
+  useUSDCBalance,
+  useUSDCAllowance
+} from "@/hooks/useArbitraRegistry";
 import { useZama } from "@/providers/ZamaProvider";
-import { ARBITRA_REGISTRY_ADDRESS } from "@/lib/contracts";
-import { encryptTwoUint64 } from "@/lib/zama";
+import {
+  ARBITRA_REGISTRY_ADDRESS,
+  COLLATERAL_VAULT_ADDRESS,
+  toMicroUnits,
+  fromMicroUnits,
+} from "@/lib/contracts";
+import { encryptFiveUint64 } from "@/lib/zama";
 
 interface UploadInvoiceFormProps {
   onSuccess?: (invoiceId: bigint) => void;
 }
 
-interface FormState {
-  faceValueCUSDC: string;
-  dueDateISO: string;
-  buyerAddress: string;
+interface ParsedInvoiceDetails {
+  faceValue: bigint;
+  dueDate: bigint;
+  fingerprint: bigint;
+  baseRate: bigint;
+  reputationMultiplier: bigint;
+  debtor: string;
 }
 
-type WizardStep = 1 | 2 | 3 | 4; /* 1: Details, 2: Buyer, 3: Confirm, 4: Processing/Success/Error */
+type WizardStep = 1 | 2 | 3 | 4 | 5; 
+/*
+ * 1: PDF Upload (Drag & Drop)
+ * 2: Details Review & Adjust
+ * 3: Collateral Staking & Lock (5% USDC)
+ * 4: FHE Encryption & Submission
+ * 5: Success / Error Display
+ */
+
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
@@ -34,136 +58,218 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { data: walletClient } = useWalletClient();
   const { instance, isReady: zamaReady } = useZama();
   const { uploadInvoice } = useUploadInvoice();
+  
+  const { approveUSDC, isPending: approvePending } = useApproveUSDC();
+  const { stakeCollateral, isPending: stakePending } = useStakeCollateral();
+  const { data: rawCount } = useInvoiceCount();
+  const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(address);
+  const nextInvoiceId = rawCount !== undefined ? BigInt(rawCount) + 1n : 1n;
 
   const [wizardStep, setWizardStep] = useState<WizardStep>(1);
   const [encryptionSubstep, setEncryptionSubstep] = useState<EncryptionSubstep>("idle");
-  const [form, setForm] = useState<FormState>({
-    faceValueCUSDC: "",
-    dueDateISO: "",
-    buyerAddress: "",
-  });
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isDragActive, setIsDragActive] = useState<boolean>(false);
+  const [isParsing, setIsParsing] = useState<boolean>(false);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-    },
-    []
-  );
+  const [invoice, setInvoice] = useState<ParsedInvoiceDetails>({
+    faceValue: 0n,
+    dueDate: 0n,
+    fingerprint: 0n,
+    baseRate: 0n,
+    reputationMultiplier: 0n,
+    debtor: "",
+  });
 
-  const validateStep1 = (): string | null => {
-    const faceValue = parseFloat(form.faceValueCUSDC);
-    if (!form.faceValueCUSDC || isNaN(faceValue) || faceValue <= 0) {
-      return "Face value must be a positive number.";
-    }
-    if (faceValue > 3356) {
-      return "Max demo invoice is $3,356 cUSDC due to euint64 overflow limits.";
-    }
-    if (!form.dueDateISO) {
-      return "Due date is required.";
-    }
-    const dueTs = new Date(form.dueDateISO).getTime() / 1000;
-    if (dueTs <= Date.now() / 1000) {
-      return "Due date must be in the future.";
-    }
-    return null;
-  };
+  const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
+  const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
+  const isApproved = allowance !== undefined ? BigInt(allowance) >= requiredCollateral : false;
 
-  const validateStep2 = (): string | null => {
-    if (!form.buyerAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
-      return "Buyer address must be a valid Ethereum address (0x...).";
+  /* Handle Drag Events */
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setIsDragActive(false);
     }
-    return null;
-  };
+  }, []);
 
-  const handleNextStep1 = () => {
-    setErrorMsg(null);
-    const err = validateStep1();
-    if (err) {
-      setErrorMsg(err);
+  /* Process PDF File and Call AI parsing API */
+  const processFile = async (file: File) => {
+    if (file.type !== "application/pdf") {
+      setErrorMsg("Please upload a valid PDF invoice document.");
       return;
     }
-    setWizardStep(2);
+
+    setIsParsing(true);
+    setErrorMsg(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(",")[1];
+        
+        const res = await fetch("/api/parse-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pdf: base64 }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to parse invoice via Gemini AI.");
+        }
+
+        const data = await res.json();
+        
+        setInvoice({
+          faceValue: BigInt(data.faceValue),
+          dueDate: BigInt(data.dueDate),
+          fingerprint: BigInt(data.fingerprint),
+          baseRate: BigInt(data.baseRate),
+          reputationMultiplier: BigInt(data.reputationMultiplier),
+          debtor: data.debtor,
+        });
+
+        setWizardStep(2);
+        setIsParsing(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e.message || "An error occurred during invoice parsing.");
+      setIsParsing(false);
+    }
+  };
+
+  /* Drop Event handler */
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  }, []);
+
+  /* Input File Change handler */
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  /* Step 2 Form Updates */
+  const handleDebtorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInvoice(prev => ({ ...prev, debtor: e.target.value }));
   };
 
   const handleNextStep2 = () => {
     setErrorMsg(null);
-    const err = validateStep2();
-    if (err) {
-      setErrorMsg(err);
+    if (!invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
+      setErrorMsg("Buyer address must be a valid Ethereum address.");
       return;
     }
     setWizardStep(3);
+    refetchUSDC();
+    refetchAllowance();
   };
 
-  const handleBack = () => {
+  /* Step 3 Collateral lock execution */
+  const handleApproveCollateral = async () => {
     setErrorMsg(null);
-    if (wizardStep === 2) setWizardStep(1);
-    if (wizardStep === 3) setWizardStep(2);
+    try {
+      await approveUSDC(COLLATERAL_VAULT_ADDRESS, requiredCollateral);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      refetchAllowance();
+    } catch (e: any) {
+      setErrorMsg(e.message || "Approval failed.");
+    }
   };
 
-  /* Progressive loading states simulator */
-  const runProgressiveEncryption = async () => {
-    if (!instance || !address || !walletClient) {
-      setErrorMsg("Connect your wallet and wait for FHEVM to initialize.");
-      setWizardStep(3);
+  const handleStakeCollateral = async () => {
+    setErrorMsg(null);
+    if (usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral) {
+      setErrorMsg("Insufficient USDC balance to cover the 5% collateral requirement.");
       return;
     }
 
     try {
+      await stakeCollateral(nextInvoiceId, invoice.faceValue);
+      await new Promise(resolve => setTimeout(resolve, 1500));
       setWizardStep(4);
+      runProgressiveEncryption();
+    } catch (e: any) {
+      setErrorMsg(e.message || "Collateral staking failed.");
+    }
+  };
+
+  /* Step 4 Progressive local encryption and submit */
+  const runProgressiveEncryption = async () => {
+    if (!instance || !address || !walletClient) {
+      setErrorMsg("FHEVM SDK or Wallet signer not available.");
+      setWizardStep(5);
+      return;
+    }
+
+    try {
       setErrorMsg(null);
       setTxHash(null);
 
-      /* Substep 1: Verifying parameters */
+      /* Substep 1: Verifying params */
       setEncryptionSubstep("params");
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
-      /* Substep 2: Generating ZK proofs */
+      /* Substep 2: ZK proof generation */
       setEncryptionSubstep("zkp");
-      const faceValueMicro = BigInt(Math.round(parseFloat(form.faceValueCUSDC) * 1_000_000));
-      const dueTimestamp = BigInt(Math.floor(new Date(form.dueDateISO).getTime() / 1000));
-      
-      const { handle1, handle2, inputProof } = await encryptTwoUint64(
+      const { handle1, handle2, handle3, handle4, handle5, inputProof } = await encryptFiveUint64(
         instance,
-        faceValueMicro,
-        dueTimestamp,
+        invoice.faceValue,
+        invoice.dueDate,
+        invoice.fingerprint,
+        invoice.baseRate,
+        invoice.reputationMultiplier,
         ARBITRA_REGISTRY_ADDRESS,
         address
       );
 
-      /* Substep 3: Requesting EIP-712 signatures */
+      /* Substep 3: Permitting signatures */
       setEncryptionSubstep("sign");
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const toHex = (b: Uint8Array): `0x${string}` =>
         ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
 
-      const handle1Hex = toHex(handle1);
+      const h1 = toHex(handle1);
+      const h2 = toHex(handle2);
+      const h3 = toHex(handle3);
+      const h4 = toHex(handle4);
+      const h5 = toHex(handle5);
       const proofHex = toHex(inputProof);
-      const handle2Hex = toHex(handle2);
 
       /* Substep 4: Submitting to Sepolia */
       setEncryptionSubstep("blockchain");
       const hash = await uploadInvoice(
-        handle1Hex,
-        proofHex,
-        handle2Hex,
-        proofHex,
-        form.buyerAddress as `0x${string}`
+        h1, proofHex,
+        h2, proofHex,
+        h3, proofHex,
+        h4, proofHex,
+        h5, proofHex,
+        invoice.debtor as `0x${string}`,
+        true
       );
 
       setTxHash(hash || null);
-      setForm({ faceValueCUSDC: "", dueDateISO: "", buyerAddress: "" });
+      setWizardStep(5);
       if (onSuccess && hash) {
-        /* Optional success callback */
+        onSuccess(nextInvoiceId);
       }
     } catch (err) {
-      console.error("[UploadInvoiceForm] Error:", err);
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setErrorMsg(`Transaction failed: ${msg}`);
-      setEncryptionSubstep("idle");
+      console.error(err);
+      setErrorMsg(err instanceof Error ? err.message : "Encryption transaction failed.");
+      setWizardStep(5);
     }
   };
 
@@ -172,11 +278,18 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setEncryptionSubstep("idle");
     setErrorMsg(null);
     setTxHash(null);
+    setInvoice({
+      faceValue: 0n,
+      dueDate: 0n,
+      fingerprint: 0n,
+      baseRate: 0n,
+      reputationMultiplier: 0n,
+      debtor: "",
+    });
   };
 
   return (
     <GlassCard className="p-6 max-w-lg relative overflow-hidden">
-      {/* Top background glow line */}
       <div
         style={{
           position: "absolute",
@@ -192,27 +305,26 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-white font-heading" style={{ fontFamily: "Satoshi, sans-serif" }}>
-            Tokenize Invoice
+            Factor Invoice Wizard
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Step {wizardStep === 4 ? 3 : wizardStep} of 3
+            Step {wizardStep === 5 ? 4 : wizardStep} of 4
           </p>
         </div>
         <FHEBadge />
       </div>
 
-      {/* Progressive Step Progress Bar */}
-      {wizardStep < 4 && (
+      {/* Progress Bar */}
+      {wizardStep < 5 && (
         <div className="w-full bg-white/5 h-1 rounded-full mb-6 overflow-hidden">
           <motion.div
             className="h-full bg-gradient-to-r from-neon-cyan to-neon-purple"
-            animate={{ width: `${(wizardStep / 3) * 100}%` }}
+            animate={{ width: `${(wizardStep / 4) * 100}%` }}
             transition={{ duration: 0.3 }}
           />
         </div>
       )}
 
-      {/* Form Wizard Pages */}
       <AnimatePresence mode="wait">
         {wizardStep === 1 && (
           <motion.div
@@ -220,55 +332,49 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
             className="space-y-4"
           >
-            <div>
-              <label htmlFor="faceValueCUSDC" className="block text-sm text-slate-400 mb-1.5 font-medium">
-                Face Value (cUSDC)
-                <span className="ml-1.5 text-xs text-slate-600">• max $3,356 limit</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm font-semibold" aria-hidden="true">$</span>
-                <input
-                  id="faceValueCUSDC"
-                  name="faceValueCUSDC"
-                  type="number"
-                  min="0.01"
-                  max="3356"
-                  step="0.01"
-                  value={form.faceValueCUSDC}
-                  onChange={handleChange}
-                  className="glass-input pl-8 pr-24 font-mono"
-                  placeholder="1000.00"
-                  required
-                />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                    <FHEBadge size="sm" animated={false} label="Encrypted" />
-                  </div>
-              </div>
+            <div className="text-center">
+              <h3 className="text-sm font-semibold text-white mb-1">Upload Invoice PDF</h3>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                Upload your trade invoice document. Our Gemini Flash model will securely extract parameters in real-time.
+              </p>
             </div>
 
-            <div>
-              <label htmlFor="dueDateISO" className="block text-sm text-slate-400 mb-1.5 font-medium">
-                Maturity Due Date
-              </label>
-              <div className="relative">
-                <input
-                  id="dueDateISO"
-                  name="dueDateISO"
-                  type="date"
-                  value={form.dueDateISO}
-                  onChange={handleChange}
-                  className="glass-input pr-24"
-                  style={{ colorScheme: "dark" }}
-                  min={new Date(Date.now() + 86400000).toISOString().split("T")[0]}
-                  required
-                />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                    <FHEBadge size="sm" animated={false} label="Encrypted" />
-                  </div>
-              </div>
+            <div
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              className={`border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center transition-all cursor-pointer ${
+                isDragActive
+                  ? "border-neon-cyan bg-neon-cyan/5"
+                  : "border-slate-800 hover:border-slate-700 bg-white/2 hover:bg-white/3"
+              }`}
+              onClick={() => document.getElementById("file-input")?.click()}
+            >
+              <input
+                id="file-input"
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              
+              {isParsing ? (
+                <div className="space-y-3 flex flex-col items-center">
+                  <div className="w-8 h-8 rounded-full border-2 border-neon-cyan/20 border-t-neon-cyan animate-spin" />
+                  <span className="text-xs text-slate-400">Gemini AI parsing document...</span>
+                </div>
+              ) : (
+                <div className="space-y-2 flex flex-col items-center text-center">
+                  <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="text-xs text-white font-medium">Drag & drop your invoice PDF</span>
+                  <span className="text-[10px] text-slate-600">or click to browse from device</span>
+                </div>
+              )}
             </div>
 
             {errorMsg && (
@@ -276,18 +382,6 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 {errorMsg}
               </div>
             )}
-
-            <div className="pt-2">
-              <NeonButton
-                type="button"
-                variant="primary"
-                onClick={handleNextStep1}
-                disabled={!zamaReady}
-                className="w-full"
-              >
-                Continue to Counterparty &rarr;
-              </NeonButton>
-            </div>
           </motion.div>
         )}
 
@@ -297,24 +391,47 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
             className="space-y-4"
           >
-            <div>
-              <label htmlFor="buyerAddress" className="block text-sm text-slate-400 mb-1.5 font-medium">
-                Buyer Wallet Address
-                <span className="ml-1.5 text-xs text-slate-600">• plaintext routing</span>
-              </label>
-              <input
-                id="buyerAddress"
-                name="buyerAddress"
-                type="text"
-                value={form.buyerAddress}
-                onChange={handleChange}
-                className="glass-input font-mono"
-                placeholder="0x..."
-                required
-              />
+            <div className="text-center">
+              <h3 className="text-sm font-semibold text-white mb-1">Verify Extracted Details</h3>
+              <p className="text-xs text-slate-500">
+                Confirm underwriting parameters processed by Gemini AI.
+              </p>
+            </div>
+
+            <div className="space-y-3 p-4 rounded-xl bg-white/2 border border-white/5 text-xs">
+              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                <span className="text-slate-500">Invoice Amount</span>
+                <span className="text-white font-mono font-semibold">${fromMicroUnits(invoice.faceValue)} USDC</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                <span className="text-slate-500">Maturity Date</span>
+                <span className="text-white font-mono">{new Date(Number(invoice.dueDate) * 1000).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                <span className="text-slate-500">AI Fingerprint</span>
+                <span className="text-slate-400 font-mono truncate max-w-[150px]">0x{invoice.fingerprint.toString(16)}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                <span className="text-slate-500">Suggested Base Rate</span>
+                <span className="text-white font-mono">{(Number(invoice.baseRate) / 100).toFixed(2)}%</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                <span className="text-slate-500">Reputation Multiplier</span>
+                <span className="text-white font-mono">x{invoice.reputationMultiplier.toString()}</span>
+              </div>
+              
+              <div className="pt-2">
+                <label htmlFor="debtor-address" className="block text-slate-500 mb-1">Debtor Wallet Address</label>
+                <input
+                  id="debtor-address"
+                  type="text"
+                  value={invoice.debtor}
+                  onChange={handleDebtorChange}
+                  className="glass-input font-mono w-full px-2.5 py-1.5"
+                />
+              </div>
             </div>
 
             {errorMsg && (
@@ -323,21 +440,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
             )}
 
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleBack}
-                className="flex-1 neon-btn-ghost rounded-xl text-sm"
-              >
-                Back
+            <div className="flex gap-3">
+              <button onClick={() => setWizardStep(1)} className="flex-1 neon-btn-ghost text-xs rounded-xl py-2.5">
+                Re-upload
               </button>
-              <NeonButton
-                type="button"
-                variant="primary"
-                onClick={handleNextStep2}
-                className="flex-[2]"
-              >
-                Confirm Submission &rarr;
+              <NeonButton variant="primary" onClick={handleNextStep2} className="flex-[2] text-xs">
+                Confirm Details &rarr;
               </NeonButton>
             </div>
           </motion.div>
@@ -349,35 +457,38 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
             className="space-y-4"
           >
-            <div className="p-4 rounded-xl bg-white/2 border border-white/5 space-y-3">
-              <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2">
-                <span className="text-slate-500">Asset Type</span>
-                <span className="text-white font-mono">Confidential Invoice</span>
+            <div className="text-center">
+              <h3 className="text-sm font-semibold text-white mb-1">Collateral Vault Staking</h3>
+              <p className="text-xs text-slate-500">
+                To prevent invoice double-financing fraud, suppliers must lock a 5% USDC security stake.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/2 border border-white/5 space-y-3 text-xs">
+              <div className="flex justify-between items-center pb-1 border-b border-white/5">
+                <span className="text-slate-500">Required Collateral (5%)</span>
+                <span className="text-neon-cyan font-mono font-semibold">${fromMicroUnits(requiredCollateral)} USDC</span>
               </div>
-              <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2">
-                <span className="text-slate-500">Face Value</span>
-                <span className="text-neon-cyan font-mono font-semibold">${parseFloat(form.faceValueCUSDC).toFixed(2)} cUSDC</span>
+              <div className="flex justify-between items-center pb-1 border-b border-white/5">
+                <span className="text-slate-500">Your USDC Balance</span>
+                <span className="text-white font-mono">
+                  {usdcBalance !== undefined ? `$${fromMicroUnits(BigInt(usdcBalance))} USDC` : "Loading..."}
+                </span>
               </div>
-              <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2">
-                <span className="text-slate-500">Maturity Date</span>
-                <span className="text-neon-purple font-mono">{form.dueDateISO}</span>
-              </div>
-              <div className="flex justify-between items-start text-xs">
-                <span className="text-slate-500">Buyer Wallet</span>
-                <span className="text-white font-mono truncate max-w-[180px]">{form.buyerAddress}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Vault Target ID</span>
+                <span className="text-white font-mono font-semibold">#{nextInvoiceId.toString()}</span>
               </div>
             </div>
 
-            <div className="p-3 rounded-xl flex gap-3 items-start" style={{ background: "rgba(0,240,255,0.04)", border: "1px solid rgba(0,240,255,0.08)" }}>
-              <svg className="w-4 h-4 text-neon-cyan mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            <div className="p-3 rounded-xl flex gap-3 items-start bg-amber-400/5 border border-amber-400/10">
+              <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <div className="text-[11px] text-slate-400 leading-relaxed">
-                Confirming execution will initiate the client-side FHE encryption pipeline. Face values are parsed into cryptographically secure ciphertexts before broadcasting.
+              <div className="text-[10px] text-slate-400 leading-relaxed">
+                Staked collateral will be fully released automatically upon successful debtor maturity repayment. If fraud or duplicate financing is confirmed, collateral is slashed.
               </div>
             </div>
 
@@ -387,21 +498,28 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
             )}
 
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleBack}
-                className="flex-1 neon-btn-ghost rounded-xl text-sm"
-              >
+            <div className="flex gap-3">
+              <button onClick={() => setWizardStep(2)} className="flex-1 neon-btn-ghost text-xs rounded-xl">
                 Back
               </button>
-              <button
-                type="button"
-                onClick={runProgressiveEncryption}
-                className="flex-[2] neon-btn-primary rounded-xl text-sm"
-              >
-                🔒 Encrypt & Submit
-              </button>
+              
+              {!isApproved ? (
+                <button
+                  onClick={handleApproveCollateral}
+                  disabled={approvePending}
+                  className="flex-[2] neon-btn-secondary py-2.5 rounded-xl text-xs"
+                >
+                  {approvePending ? "Approving..." : "Approve 5% USDC"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleStakeCollateral}
+                  disabled={stakePending}
+                  className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
+                >
+                  {stakePending ? "Staking..." : "🔒 Lock Stake & Proceed"}
+                </button>
+              )}
             </div>
           </motion.div>
         )}
@@ -409,14 +527,77 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         {wizardStep === 4 && (
           <motion.div
             key="step4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-6 space-y-6"
+          >
+            <div className="space-y-6">
+              <div className="relative mx-auto w-16 h-16">
+                <div className="absolute inset-0 rounded-full border-2 border-neon-cyan/10 border-t-neon-cyan animate-spin" />
+                <div className="absolute inset-2 rounded-full border border-dashed border-neon-purple/30 animate-reverse-spin" />
+                <div className="absolute inset-0 flex items-center justify-center text-neon-cyan">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="text-left max-w-xs mx-auto space-y-3">
+                <div className="text-xs font-semibold text-slate-400 mb-2 border-b border-white/5 pb-1 text-center">
+                  FHE ENCRYPTION PROCESS
+                </div>
+                
+                {[
+                  { key: "params", label: "Verifying invoice constraints" },
+                  { key: "zkp", label: "Generating local ZK proofs" },
+                  { key: "sign", label: "Requesting keypair permit signatures" },
+                  { key: "blockchain", label: "Broadcasting encrypted payload" },
+                ].map((sub) => {
+                  const stepsOrder = ["params", "zkp", "sign", "blockchain"];
+                  const currentIdx = stepsOrder.indexOf(encryptionSubstep);
+                  const itemIdx = stepsOrder.indexOf(sub.key);
+                  
+                  const isCompleted = itemIdx < currentIdx;
+                  const isActive = itemIdx === currentIdx;
+
+                  return (
+                    <div key={sub.key} className="flex items-center gap-3">
+                      <div className="flex-shrink-0">
+                        {isCompleted ? (
+                          <div className="w-4 h-4 rounded-full bg-neon-green/20 border border-neon-green/40 flex items-center justify-center text-neon-green">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </div>
+                        ) : isActive ? (
+                          <div className="w-4 h-4 rounded-full border border-neon-cyan animate-pulse flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-neon-cyan" />
+                          </div>
+                        ) : (
+                          <div className="w-4 h-4 rounded-full border border-slate-700" />
+                        )}
+                      </div>
+                      <span className={`text-xs ${isActive ? "text-white font-medium" : isCompleted ? "text-slate-400" : "text-slate-600"}`}>
+                        {sub.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {wizardStep === 5 && (
+          <motion.div
+            key="step5"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.25 }}
             className="text-center py-6 space-y-6"
           >
             {errorMsg ? (
-              /* Failure state */
               <div className="space-y-4">
                 <div className="mx-auto w-12 h-12 rounded-full bg-neon-pink/10 border border-neon-pink/30 flex items-center justify-center text-neon-pink">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -425,96 +606,36 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Encryption Pipeline Failed</h3>
+                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Factoring Submission Failed</h3>
                   <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">{errorMsg}</p>
                 </div>
                 <button onClick={handleReset} className="neon-btn-secondary px-6 py-2 rounded-xl text-xs">
                   Reset Wizard
                 </button>
               </div>
-            ) : txHash ? (
-              /* Success state */
+            ) : (
               <div className="space-y-4">
                 <div className="mx-auto w-12 h-12 rounded-full bg-neon-green/10 border border-neon-green/30 flex items-center justify-center text-neon-green">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+                  <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" fill="none" />
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Invoice Tokenized Successfully</h3>
+                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Invoice Staked & Uploaded</h3>
                   <p className="text-xs text-slate-500 mt-2">
-                    Face values are encrypted and stored on Sepolia at:
+                    USDC collateral has been locked and the FHE ciphertexts published:
                   </p>
-                  <p className="text-[11px] font-mono text-neon-cyan mt-1 bg-white/3 border border-white/5 rounded-lg p-2 max-w-xs mx-auto break-all">
+                  <p className="text-[10px] font-mono text-neon-cyan mt-1 bg-white/3 border border-white/5 rounded-lg p-2 max-w-xs mx-auto break-all">
                     {txHash}
                   </p>
                 </div>
                 <button onClick={handleReset} className="neon-btn-primary px-6 py-2.5 rounded-xl text-xs">
-                  Tokenize Another Invoice
+                  Upload Another Invoice
                 </button>
-              </div>
-            ) : (
-              /* Loading wizard stages visualizer */
-              <div className="space-y-6">
-                <div className="relative mx-auto w-16 h-16">
-                  {/* Outer spinning glow ring */}
-                  <div className="absolute inset-0 rounded-full border-2 border-neon-cyan/10 border-t-neon-cyan animate-spin" />
-                  <div className="absolute inset-2 rounded-full border border-dashed border-neon-purple/30 animate-reverse-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center text-neon-cyan">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                  </div>
-                </div>
-
-                <div className="text-left max-w-xs mx-auto space-y-3">
-                  <div className="text-xs font-semibold text-slate-400 mb-2 border-b border-white/5 pb-1">
-                    FHE PIPELINE ACTIVE
-                  </div>
-                  
-                  {[
-                    { key: "params", label: "Verifying invoice constraints" },
-                    { key: "zkp", label: "Generating local ZK proofs" },
-                    { key: "sign", label: "Requesting keypair permit signatures" },
-                    { key: "blockchain", label: "Broadcasting encrypted payload" },
-                  ].map((sub, idx) => {
-                    const stepsOrder = ["params", "zkp", "sign", "blockchain"];
-                    const currentIdx = stepsOrder.indexOf(encryptionSubstep);
-                    const itemIdx = stepsOrder.indexOf(sub.key);
-                    
-                    const isCompleted = itemIdx < currentIdx;
-                    const isActive = itemIdx === currentIdx;
-
-                    return (
-                      <div key={sub.key} className="flex items-center gap-3">
-                        <div className="flex-shrink-0">
-                          {isCompleted ? (
-                            <div className="w-4 h-4 rounded-full bg-neon-green/20 border border-neon-green/40 flex items-center justify-center text-neon-green">
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                            </div>
-                          ) : isActive ? (
-                            <div className="w-4 h-4 rounded-full border border-neon-cyan animate-pulse flex items-center justify-center">
-                              <div className="w-1.5 h-1.5 rounded-full bg-neon-cyan" />
-                            </div>
-                          ) : (
-                            <div className="w-4 h-4 rounded-full border border-slate-700" />
-                          )}
-                        </div>
-                        <span className={`text-xs ${isActive ? "text-white font-medium" : isCompleted ? "text-slate-400" : "text-slate-600"}`}>
-                          {sub.label}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             )}
           </motion.div>
         )}
       </AnimatePresence>
+
       <style>{`
         .animate-reverse-spin {
           animation: reverse-spin 3s linear infinite;

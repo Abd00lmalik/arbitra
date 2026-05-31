@@ -1,4 +1,4 @@
-/**
+/*
  * @file PortfolioClient.tsx
  * @description User portfolio dashboard displaying on-chain invoices owned or funded by the connected address,
  *              supporting compact card lists, role tabs, and integrated details modal.
@@ -22,6 +22,7 @@ import {
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
+import { InvoiceStatus } from "@/lib/contracts";
 import Link from "next/link";
 
 export default function PortfolioClient() {
@@ -47,10 +48,10 @@ export default function PortfolioClient() {
   );
 
   const factored = [...mySupplierInvoices, ...myInvestorInvoices].filter(
-    (i) => i.isFactored && !i.isRepaid
+    (i) => i.status >= InvoiceStatus.Factored && i.status !== InvoiceStatus.Settled
   ).length;
-  const available = mySupplierInvoices.filter((i) => !i.isFactored).length;
-  const repaid = mySupplierInvoices.filter((i) => i.isRepaid).length;
+  const available = mySupplierInvoices.filter((i) => i.status < InvoiceStatus.Factored).length;
+  const repaid = mySupplierInvoices.filter((i) => i.status === InvoiceStatus.Settled).length;
 
   const currentDisplayInvoices = role === "supplier" ? mySupplierInvoices : myInvestorInvoices;
 
@@ -167,7 +168,7 @@ export default function PortfolioClient() {
 
         {/* Distribution & List Content */}
         {isLoadingInvoices ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "260px" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifycontent: "center", minHeight: "260px" }}>
             <div
               style={{
                 width: "48px",

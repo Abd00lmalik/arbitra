@@ -1,6 +1,7 @@
-/**
- * Gemini Flash client for AI-powered risk assessment.
- * Only used server-side in the API route — never called from the browser.
+/*
+ * @file gemini.ts
+ * @description Gemini Flash client for AI-powered risk assessment and invoice PDF parsing.
+ *              Only used server-side in the API route — never called from the browser.
  */
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -29,7 +30,7 @@ export interface RiskAssessmentResult {
   recommendation: string;
 }
 
-/**
+/*
  * Generate AI risk assessment for an invoice using Gemini Flash.
  * Falls back to a deterministic mock when GEMINI_API_KEY is not set.
  */
@@ -73,8 +74,106 @@ export async function generateRiskAssessment(
       factors: Array.isArray(parsed.factors) ? parsed.factors : [],
       recommendation: parsed.recommendation || "Review before investing.",
     };
-  } catch {
+  } catch (e) {
+    console.error("[Gemini] Parse error:", e);
     return getMockRiskAssessment(input);
+  }
+}
+
+/*
+ * Parse invoice PDF bytes via Gemini Flash multimodal input.
+ * Extracts face value, due date, debtor, and generates a unique fingerprint.
+ */
+export async function parseInvoicePDF(
+  pdfBase64: string
+): Promise<{
+  faceValue: bigint;
+  dueDate: bigint;
+  fingerprint: bigint;
+  baseRate: bigint;
+  reputationMultiplier: bigint;
+  debtor: string;
+}> {
+  if (!GEMINI_API_KEY) {
+    return getMockParsedInvoice();
+  }
+
+  const prompt = `You are an institutional trade finance underwriting agent.
+Analyze this invoice PDF and extract the following details for trade finance factoring.
+Return ONLY valid JSON in this exact structure:
+{
+  "amount": <number, the invoice total amount in USD, e.g., 1250.50>,
+  "dueDate": "<YYYY-MM-DD, the maturity date of the invoice>",
+  "invoiceNumber": "<string, the unique invoice identifier>",
+  "debtorAddress": "<string, a valid Ethereum address for the buyer/debtor, or '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as default>",
+  "suggestedBaseRateBps": <integer, suggested base rate in basis points, default 300 (3%)>,
+  "suggestedReputationMultiplier": <integer, multiplier based on company size/risk, default 5>
+}`;
+
+  try {
+    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "application/pdf",
+                  data: pdfBase64,
+                },
+              },
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 256,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("[Gemini PDF] API error:", response.status);
+      return getMockParsedInvoice();
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(text);
+
+    const amount = Number(parsed.amount) || 1000.0;
+    const dueDateStr = parsed.dueDate || new Date(Date.now() + 30 * 86400 * 1000).toISOString().split("T")[0];
+    const invoiceNumber = parsed.invoiceNumber || `INV-${Date.now()}`;
+    const debtorAddress = parsed.debtorAddress || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+    const baseRateBps = Number(parsed.suggestedBaseRateBps) || 300;
+    const repMultiplier = Number(parsed.suggestedReputationMultiplier) || 5;
+
+    /* Hash the invoice number string into a positive 63-bit integer for the FHE fingerprint */
+    let hash = 5381n;
+    for (let i = 0; i < invoiceNumber.length; i++) {
+      hash = (hash * 33n) + BigInt(invoiceNumber.charCodeAt(i));
+    }
+    const fingerprint = hash & 0x7fffffffffffffffn;
+
+    const dueDateTimestamp = Math.floor(new Date(dueDateStr).getTime() / 1000);
+
+    return {
+      faceValue: BigInt(Math.round(amount * 1_000_000)), /* 6 decimals for USDC */
+      dueDate: BigInt(dueDateTimestamp),
+      fingerprint,
+      baseRate: BigInt(baseRateBps),
+      reputationMultiplier: BigInt(repMultiplier),
+      debtor: debtorAddress,
+    };
+  } catch (e) {
+    console.error("[Gemini PDF] Failed to parse PDF, returning mock:", e);
+    return getMockParsedInvoice();
   }
 }
 
@@ -117,8 +216,29 @@ Return ONLY valid JSON in this exact format:
 }`;
 }
 
+function getMockParsedInvoice() {
+  const randomAmount = 1000 + Math.floor(Math.random() * 9000);
+  const futureDays = 15 + Math.floor(Math.random() * 45);
+  const dueDateSec = Math.floor(Date.now() / 1000) + futureDays * 86400;
+  const invNum = `INV-2026-${1000 + Math.floor(Math.random() * 9000)}`;
+
+  let hash = 5381n;
+  for (let i = 0; i < invNum.length; i++) {
+    hash = (hash * 33n) + BigInt(invNum.charCodeAt(i));
+  }
+  const fingerprint = hash & 0x7fffffffffffffffn;
+
+  return {
+    faceValue: BigInt(randomAmount) * 1000000n,
+    dueDate: BigInt(dueDateSec),
+    fingerprint,
+    baseRate: 300n,
+    reputationMultiplier: 5n,
+    debtor: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as string,
+  };
+}
+
 function getMockRiskAssessment(input: RiskAssessmentInput): RiskAssessmentResult {
-  /* Deterministic mock based on available data */
   const hasHistory = input.repaymentRatioBpsHint !== undefined;
   const ratioPct = hasHistory ? input.repaymentRatioBpsHint! / 100 : 70;
   const dueDays = input.dueDaysHint ?? 30;

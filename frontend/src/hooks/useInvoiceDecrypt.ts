@@ -1,3 +1,10 @@
+/*
+ * @file useInvoiceDecrypt.ts
+ * @description Hook to perform EIP-712 userDecrypt on invoice handles.
+ *              The caller must have ACL permission on each handle (via FHE.allow in the contract).
+ *              Supplier always has permission; investor gets permission after factoring.
+ */
+
 "use client";
 
 import { useState, useCallback } from "react";
@@ -30,11 +37,6 @@ interface UseInvoiceDecryptResult {
   ) => Promise<void>;
 }
 
-/**
- * Hook to perform EIP-712 userDecrypt on invoice handles.
- * The caller must have ACL permission on each handle (via FHE.allow in the contract).
- * Supplier always has permission; investor gets permission after factoring.
- */
 export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
   const { instance } = useZama();
   const [decrypted, setDecrypted] = useState<DecryptedValues | null>(null);

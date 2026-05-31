@@ -1,4 +1,4 @@
-/**
+/*
  * @file MarketplaceClient.tsx
  * @description Browse and factor on-chain invoices on Arbitra, featuring clean tab filters,
  *              a loading state, and integration with the shared details modal.
@@ -19,7 +19,7 @@ import {
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
-import { type InvoiceOnChain } from "@/lib/contracts";
+import { InvoiceStatus, type InvoiceOnChain } from "@/lib/contracts";
 import Link from "next/link";
 
 type FilterTab = "all" | "available" | "factored" | "repaid";
@@ -38,9 +38,11 @@ export default function MarketplaceClient() {
   const isDemoMode = !hasRealInvoices;
 
   const filtered = invoices.filter((inv) => {
-    if (activeTab === "available") return !inv.isFactored;
-    if (activeTab === "factored") return inv.isFactored && !inv.isRepaid;
-    if (activeTab === "repaid") return inv.isRepaid;
+    const isFactored = inv.status >= InvoiceStatus.Factored;
+    const isRepaid = inv.status === InvoiceStatus.Settled;
+    if (activeTab === "available") return inv.status === InvoiceStatus.Attested;
+    if (activeTab === "factored") return isFactored && !isRepaid;
+    if (activeTab === "repaid") return isRepaid;
     return true;
   });
 
@@ -49,17 +51,17 @@ export default function MarketplaceClient() {
     {
       id: "available",
       label: "Available",
-      count: invoices.filter((i) => !i.isFactored).length
+      count: invoices.filter((i) => i.status === InvoiceStatus.Attested).length
     },
     {
       id: "factored",
       label: "Factored",
-      count: invoices.filter((i) => i.isFactored && !i.isRepaid).length
+      count: invoices.filter((i) => i.status >= InvoiceStatus.Factored && i.status !== InvoiceStatus.Settled).length
     },
     {
       id: "repaid",
       label: "Repaid",
-      count: invoices.filter((i) => i.isRepaid).length
+      count: invoices.filter((i) => i.status === InvoiceStatus.Settled).length
     }
   ];
 
@@ -86,9 +88,9 @@ export default function MarketplaceClient() {
       description="Browse and purchase confidential real-world invoices protected by Full Homomorphic Encryption."
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-        {/* Toolbar Header */}
+        /* Toolbar Header */
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-          {/* Filter Categories */}
+          /* Filter Categories */
           <div
             style={{
               display: "flex",
@@ -146,7 +148,7 @@ export default function MarketplaceClient() {
           </div>
         </div>
 
-        {/* Demo Mode Banner */}
+        /* Demo Mode Banner */
         {isDemoMode && !isLoadingInvoices && (
           <div
             style={{
@@ -174,10 +176,10 @@ export default function MarketplaceClient() {
           </div>
         )}
 
-        {/* Dynamic State Rendering */}
+        /* Dynamic State Rendering */
         {isLoadingInvoices ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "260px" }}>
-            {/* Custom Neon Loader Spinner */}
+            /* Custom Neon Loader Spinner */
             <div
               style={{
                 width: "48px",
@@ -244,7 +246,7 @@ export default function MarketplaceClient() {
         )}
       </div>
 
-      {/* Slide-Up details Modal */}
+      /* Slide-Up details Modal */
       <InvoiceDetailModal
         invoiceId={selectedInvoiceId}
         isOpen={selectedInvoiceId !== undefined}

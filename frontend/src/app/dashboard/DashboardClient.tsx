@@ -26,6 +26,7 @@ import {
 import { useZama } from "@/providers/ZamaProvider";
 import { useRole } from "@/providers/RoleProvider";
 import Link from "next/link";
+import { InvoiceStatus } from "@/lib/contracts";
 
 interface StatCardProps {
   label: string;
@@ -96,9 +97,9 @@ export default function DashboardClient() {
   const mySupplierInvoices = isConnected ? (supplierIds?.length ?? 0) : (isDemoMode ? 1 : 0);
   const myInvestorInvoices = isConnected ? (investorIds?.length ?? 0) : (isDemoMode ? 1 : 0);
 
-  const factored = invoices.filter((i) => i.isFactored && !i.isRepaid).length;
-  const available = invoices.filter((i) => !i.isFactored).length;
-  const repaid = invoices.filter((i) => i.isRepaid).length;
+  const factored = invoices.filter((i) => i.status === InvoiceStatus.Factored).length;
+  const available = invoices.filter((i) => i.status === InvoiceStatus.Pending || i.status === InvoiceStatus.Attested).length;
+  const repaid = invoices.filter((i) => i.status === InvoiceStatus.Settled).length;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -219,7 +220,7 @@ export default function DashboardClient() {
                 }}
               />
               <span style={{ fontSize: "13px", color: "#8B9CC8", fontFamily: "Satoshi, sans-serif", fontWeight: 600 }}>
-                FHE Cryptographic Protocol Active (Sepolia Network)
+                Privacy Protection Protocol Active (Sepolia Network)
               </span>
               <div style={{ marginLeft: "auto" }}>
                 <FHEBadge />
@@ -303,8 +304,8 @@ export default function DashboardClient() {
                     }
                   />
                   <StatCard
-                    label="Confidential Factored State"
-                    value="Shielded"
+                    label="Portfolio Security Status"
+                    value="Secured"
                     color="#00FF88"
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -377,7 +378,7 @@ export default function DashboardClient() {
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <FHEBadge size="sm" label="FHE Protected" animated={false} />
-                      {inv.isRepaid ? (
+                      {inv.status === InvoiceStatus.Settled ? (
                         <span
                           style={{
                             fontSize: "11px",
@@ -391,7 +392,7 @@ export default function DashboardClient() {
                         >
                           Repaid
                         </span>
-                      ) : inv.isFactored ? (
+                      ) : inv.status === InvoiceStatus.Factored ? (
                         <span
                           style={{
                             fontSize: "11px",
@@ -405,6 +406,20 @@ export default function DashboardClient() {
                         >
                           Factored
                         </span>
+                      ) : inv.status === InvoiceStatus.Attested ? (
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            padding: "4px 10px",
+                            borderRadius: "100px",
+                            background: "rgba(0, 255, 136, 0.1)",
+                            color: "#00FF88",
+                            border: "1px solid rgba(0, 255, 136, 0.2)"
+                          }}
+                        >
+                          Available
+                        </span>
                       ) : (
                         <span
                           style={{
@@ -417,7 +432,7 @@ export default function DashboardClient() {
                             border: "1px solid rgba(255, 196, 0, 0.2)"
                           }}
                         >
-                          Available
+                          Pending
                         </span>
                       )}
                     </div>
@@ -450,7 +465,7 @@ export default function DashboardClient() {
                 Wrapping Utility
               </h3>
               <p style={{ fontSize: "12px", color: "#8B9CC8", lineHeight: "1.5", marginBottom: "16px" }}>
-                Wrap your standard Sepolia USDC to Confidential USDC (cUSDC) using Zama's official wrappers registry before factoring.
+                Convert standard USDC to Private USDC (cUSDC) to enable secure encrypted factoring.
               </p>
               
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -495,8 +510,8 @@ export default function DashboardClient() {
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {[
                   {
-                    label: "Privacy Protocol",
-                    value: "Fully Homomorphic Encryption (FHE)",
+                    label: "Cryptography Status",
+                    value: "Fully Private Calculations",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="1.5">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -505,8 +520,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Confidential Asset",
-                    value: "Confidential USDC (cUSDC)",
+                    label: "Shielded Asset",
+                    value: "cUSDC Token",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7B2FFF" strokeWidth="1.5">
                         <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -515,8 +530,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Access Control Permit",
-                    value: "Secure Wallet Auth Permit",
+                    label: "Authentication",
+                    value: "Wallet Authorization",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="1.5">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -524,8 +539,8 @@ export default function DashboardClient() {
                     )
                   },
                   {
-                    label: "Status Monitor",
-                    value: "Active Transaction Verification",
+                    label: "Integrity Monitor",
+                    value: "Continuous Verification",
                     icon: (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF2D6B" strokeWidth="1.5">
                         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />

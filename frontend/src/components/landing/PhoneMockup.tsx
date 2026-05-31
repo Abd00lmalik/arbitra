@@ -276,7 +276,7 @@ export function PhoneMockup() {
                 {/* Active Wallet Connected Display */}
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "9px", color: "#00F0FF", fontWeight: 600 }}>
                   <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
-                  0x7b2f...e00f
+                  0x7b2f...e00f ({activeRole === "supplier" ? "Supplier" : "Investor"})
                 </div>
               </div>
 
@@ -441,22 +441,22 @@ export function PhoneMockup() {
                   {[
                     {
                       id: "Invoice #1",
-                      status: "Verified",
-                      color: "#00FF88",
+                      status: "Factored",
+                      color: "#7B2FFF",
                       clear: "$142,000 cUSDC",
                       cipher: "0x7f3a...b81e"
                     },
                     {
                       id: "Invoice #2",
-                      status: "Pending",
+                      status: "Pending Attestation",
                       color: "#FFC400",
                       clear: "$89,500 cUSDC",
                       cipher: "0x0f8c...4b12"
                     },
                     {
                       id: "Invoice #3",
-                      status: "Settled",
-                      color: "#00F0FF",
+                      status: "Repaid",
+                      color: "#00FF88",
                       clear: "$210,000 cUSDC",
                       cipher: "0x8e5f...c9d4"
                     }

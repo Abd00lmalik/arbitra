@@ -1,4 +1,4 @@
-/**
+/*
  * @file UploadClient.tsx
  * @description Upload page client-side wrapper. Displays the invoice submission wizard and explaining sidebars.
  */
@@ -19,14 +19,14 @@ export default function UploadClient() {
       description="Encrypt and tokenize an invoice for factoring — face values are never exposed publicly on-chain"
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl">
-        {/* Form column */}
+        /* Form column */
         <div>
           <UploadInvoiceForm />
         </div>
 
-        {/* Explainer column */}
+        /* Explainer column */
         <div className="space-y-4">
-          {/* Faucet callout */}
+          /* Faucet callout */
           <GlassCard className="p-4 flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <span className="text-neon-cyan flex-shrink-0" aria-hidden="true">
@@ -95,7 +95,7 @@ export default function UploadClient() {
             </ol>
           </GlassCard>
 
-          {/* Demo limit callout */}
+          /* Demo limit callout */
           <GlassCard className="p-4">
             <div className="flex items-start gap-3">
               <span className="text-amber-400 mt-0.5 flex-shrink-0" aria-hidden="true">

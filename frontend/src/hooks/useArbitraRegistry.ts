@@ -1,16 +1,26 @@
+/*
+ * @file useArbitraRegistry.ts
+ * @description React hooks for connecting the frontend to Arbitra v2.0 Smart Contracts.
+ */
+
 "use client";
 
 import { useReadContract, useWriteContract, useWatchContractEvent, useAccount, useReadContracts } from "wagmi";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import {
   ARBITRA_REGISTRY_ADDRESS,
   ARBITRA_REGISTRY_ABI,
-  CUSDT_ADDRESS,
-  CUSDT_ABI,
+  CUSDC_ADDRESS,
+  CUSDC_ABI,
+  USDC_ADDRESS,
+  USDC_ABI,
+  COLLATERAL_VAULT_ADDRESS,
+  COLLATERAL_VAULT_ABI,
+  InvoiceStatus,
   type InvoiceOnChain,
 } from "@/lib/contracts";
 
-/**
+/*
  * Hook: read all invoice IDs from the registry.
  */
 export function useAllInvoiceIds() {
@@ -21,7 +31,7 @@ export function useAllInvoiceIds() {
   });
 }
 
-/**
+/*
  * Hook: read a single invoice's data.
  */
 export function useInvoice(invoiceId: bigint | number | undefined) {
@@ -34,7 +44,7 @@ export function useInvoice(invoiceId: bigint | number | undefined) {
   });
 }
 
-/**
+/*
  * Hook: read all invoices for a supplier.
  */
 export function useSupplierInvoices(supplier: `0x${string}` | undefined) {
@@ -47,7 +57,7 @@ export function useSupplierInvoices(supplier: `0x${string}` | undefined) {
   });
 }
 
-/**
+/*
  * Hook: read all invoices purchased by an investor.
  */
 export function useInvestorInvoices(investor: `0x${string}` | undefined) {
@@ -60,7 +70,7 @@ export function useInvestorInvoices(investor: `0x${string}` | undefined) {
   });
 }
 
-/**
+/*
  * Hook: read encrypted handles for an invoice.
  */
 export function useInvoiceHandles(invoiceId: bigint | undefined) {
@@ -73,7 +83,7 @@ export function useInvoiceHandles(invoiceId: bigint | undefined) {
   });
 }
 
-/**
+/*
  * Hook: read supplier credit stats.
  */
 export function useSupplierStats(supplier: `0x${string}` | undefined) {
@@ -86,7 +96,7 @@ export function useSupplierStats(supplier: `0x${string}` | undefined) {
   });
 }
 
-/**
+/*
  * Hook: read total invoice count.
  */
 export function useInvoiceCount() {
@@ -97,7 +107,7 @@ export function useInvoiceCount() {
   });
 }
 
-/**
+/*
  * Hook: factor (purchase) an invoice.
  */
 export function useFactorInvoice() {
@@ -118,30 +128,8 @@ export function useFactorInvoice() {
   return { factorInvoice, isPending, error, txHash: data };
 }
 
-/**
- * Hook: trigger repayment for a factored invoice.
- */
-export function useTriggerRepayment() {
-  const { writeContractAsync, isPending, error, data } = useWriteContract();
-
-  const triggerRepayment = useCallback(
-    async (invoiceId: bigint) => {
-      return writeContractAsync({
-        address: ARBITRA_REGISTRY_ADDRESS,
-        abi: ARBITRA_REGISTRY_ABI,
-        functionName: "triggerRepayment",
-        args: [invoiceId],
-      });
-    },
-    [writeContractAsync]
-  );
-
-  return { triggerRepayment, isPending, error, txHash: data };
-}
-
-/**
- * Hook: upload a new invoice.
- * Returns the write function that accepts encrypted handles and proof.
+/*
+ * Hook: upload a new invoice (takes 5 encrypted handles and proofs, debtor, and gemini config).
  */
 export function useUploadInvoice() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
@@ -152,13 +140,28 @@ export function useUploadInvoice() {
       proofFaceValue: `0x${string}`,
       encDueDate: `0x${string}`,
       proofDueDate: `0x${string}`,
-      buyer: `0x${string}`
+      encFingerprint: `0x${string}`,
+      proofFingerprint: `0x${string}`,
+      encBaseRate: `0x${string}`,
+      proofBaseRate: `0x${string}`,
+      encRepMultiplier: `0x${string}`,
+      proofRepMultiplier: `0x${string}`,
+      debtor: `0x${string}`,
+      enableGemini: boolean
     ) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "uploadInvoice",
-        args: [encFaceValue, proofFaceValue, encDueDate, proofDueDate, buyer],
+        args: [
+          encFaceValue, proofFaceValue,
+          encDueDate, proofDueDate,
+          encFingerprint, proofFingerprint,
+          encBaseRate, proofBaseRate,
+          encRepMultiplier, proofRepMultiplier,
+          debtor,
+          enableGemini
+        ],
       });
     },
     [writeContractAsync]
@@ -167,7 +170,96 @@ export function useUploadInvoice() {
   return { uploadInvoice, isPending, error, txHash: data };
 }
 
-/**
+/*
+ * Hook: debtor attestation confirmation.
+ */
+export function useConfirmInvoice() {
+  const { writeContractAsync, isPending, error, data } = useWriteContract();
+
+  const confirmInvoice = useCallback(
+    async (invoiceId: bigint, signature: `0x${string}`, commitment: `0x${string}`) => {
+      return writeContractAsync({
+        address: ARBITRA_REGISTRY_ADDRESS,
+        abi: ARBITRA_REGISTRY_ABI,
+        functionName: "confirmInvoice",
+        args: [invoiceId, signature, commitment],
+      });
+    },
+    [writeContractAsync]
+  );
+
+  return { confirmInvoice, isPending, error, txHash: data };
+}
+
+/*
+ * Hook: approve plain USDC spending.
+ */
+export function useApproveUSDC() {
+  const { writeContractAsync, isPending, error, data } = useWriteContract();
+
+  const approveUSDC = useCallback(
+    async (spender: `0x${string}`, amount: bigint) => {
+      return writeContractAsync({
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [spender, amount],
+      });
+    },
+    [writeContractAsync]
+  );
+
+  return { approveUSDC, isPending, error, txHash: data };
+}
+
+/*
+ * Hook: stake collateral for an invoice on the vault.
+ */
+export function useStakeCollateral() {
+  const { writeContractAsync, isPending, error, data } = useWriteContract();
+
+  const stakeCollateral = useCallback(
+    async (invoiceId: bigint, faceValue: bigint) => {
+      return writeContractAsync({
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "stakeCollateral",
+        args: [invoiceId, faceValue],
+      });
+    },
+    [writeContractAsync]
+  );
+
+  return { stakeCollateral, isPending, error, txHash: data };
+}
+
+/*
+ * Hook: fetch USDC balance of an account.
+ */
+export function useUSDCBalance(account: `0x${string}` | undefined) {
+  return useReadContract({
+    address: USDC_ADDRESS,
+    abi: USDC_ABI,
+    functionName: "balanceOf",
+    args: account ? [account] : undefined,
+    query: { enabled: !!account },
+  });
+}
+
+/*
+ * Hook: read USDC allowance for a spender.
+ */
+export function useUSDCAllowance(owner: `0x${string}` | undefined, spender: `0x${string}` | undefined) {
+  return useReadContract({
+    address: USDC_ADDRESS,
+    abi: USDC_ABI,
+    functionName: "allowance",
+    args: owner && spender ? [owner, spender] : undefined,
+    query: { enabled: !!owner && !!spender },
+  });
+}
+
+/*
  * Hook: grant risk assessment access for an invoice (transient ACL).
  */
 export function useGrantRiskAccess() {
@@ -188,7 +280,7 @@ export function useGrantRiskAccess() {
   return { grantAccess, isPending, error };
 }
 
-/**
+/*
  * Hook: watch for new InvoiceUploaded events.
  */
 export function useInvoiceUploadedEvents(
@@ -209,8 +301,8 @@ export function useInvoiceUploadedEvents(
   });
 }
 
-/**
- * Hook: check if investor is approved on registry as a operator.
+/*
+ * Hook: check if investor is approved on registry as an operator.
  */
 export function useIsInvestorApproved(investor: `0x${string}` | undefined) {
   return useReadContract({
@@ -222,8 +314,8 @@ export function useIsInvestorApproved(investor: `0x${string}` | undefined) {
   });
 }
 
-/**
- * Hook: set registry as approved operator on cUSDT.
+/*
+ * Hook: set registry as approved operator on cUSDC.
  */
 export function useSetOperator() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
@@ -231,8 +323,8 @@ export function useSetOperator() {
   const setOperator = useCallback(
     async (operator: `0x${string}`, until: number) => {
       return writeContractAsync({
-        address: CUSDT_ADDRESS,
-        abi: CUSDT_ABI,
+        address: CUSDC_ADDRESS,
+        abi: CUSDC_ABI,
         functionName: "setOperator",
         args: [operator, BigInt(until)],
       });
@@ -243,7 +335,7 @@ export function useSetOperator() {
   return { setOperator, isPending, error, txHash: data };
 }
 
-/**
+/*
  * Hook: read all real invoices from the registry.
  */
 export function useRealInvoiceList() {
@@ -272,13 +364,17 @@ export function useRealInvoiceList() {
           faceValue: r[0],
           dueDate: r[1],
           purchasePrice: r[2],
-          discountRate: r[3],
-          supplier: r[4],
-          investor: r[5],
-          buyer: r[6],
-          isFactored: r[7],
-          isRepaid: r[8],
-          uploadTimestamp: r[9],
+          discountRateBps: r[3],
+          fingerprintHash: r[4],
+          supplier: r[5],
+          investor: r[6],
+          debtor: r[7],
+          uploadTimestamp: r[8],
+          maturityTimestamp: r[9],
+          status: Number(r[10]) as InvoiceStatus,
+          geminiUnderwritingEnabled: r[11],
+          debtorAttestationHash: r[12],
+          collateralStaked: r[13],
         });
       }
     });
@@ -291,7 +387,7 @@ export function useRealInvoiceList() {
   };
 }
 
-/**
+/*
  * Compose multiple invoices into a list by fetching each by ID.
  * Returns mock data for display when the registry is not yet deployed.
  */
@@ -304,26 +400,34 @@ export function useMockInvoiceList(): InvoiceOnChain[] {
       faceValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
       dueDate: "0x0000000000000000000000000000000000000000000000000000000000000002",
       purchasePrice: "0x0000000000000000000000000000000000000000000000000000000000000003",
-      discountRate: "0x0000000000000000000000000000000000000000000000000000000000000004",
+      discountRateBps: "0x0000000000000000000000000000000000000000000000000000000000000004",
+      fingerprintHash: "0x0000000000000000000000000000000000000000000000000000000000000005",
       supplier: address || "0x1111111111111111111111111111111111111111",
       investor: "0x0000000000000000000000000000000000000000",
-      buyer: "0x2222222222222222222222222222222222222222",
-      isFactored: false,
-      isRepaid: false,
+      debtor: "0x2222222222222222222222222222222222222222",
       uploadTimestamp: BigInt(Math.floor(Date.now() / 1000) - 86400),
+      maturityTimestamp: BigInt(Math.floor(Date.now() / 1000) + 30 * 86400),
+      status: InvoiceStatus.Pending,
+      geminiUnderwritingEnabled: true,
+      debtorAttestationHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      collateralStaked: true,
     },
     {
       invoiceId: 2n,
       faceValue: "0x0000000000000000000000000000000000000000000000000000000000000011",
       dueDate: "0x0000000000000000000000000000000000000000000000000000000000000012",
       purchasePrice: "0x0000000000000000000000000000000000000000000000000000000000000013",
-      discountRate: "0x0000000000000000000000000000000000000000000000000000000000000014",
+      discountRateBps: "0x0000000000000000000000000000000000000000000000000000000000000014",
+      fingerprintHash: "0x0000000000000000000000000000000000000000000000000000000000000015",
       supplier: "0x3333333333333333333333333333333333333333",
       investor: address || "0x4444444444444444444444444444444444444444",
-      buyer: "0x5555555555555555555555555555555555555555",
-      isFactored: true,
-      isRepaid: false,
+      debtor: "0x5555555555555555555555555555555555555555",
       uploadTimestamp: BigInt(Math.floor(Date.now() / 1000) - 2 * 86400),
+      maturityTimestamp: BigInt(Math.floor(Date.now() / 1000) + 15 * 86400),
+      status: InvoiceStatus.Factored,
+      geminiUnderwritingEnabled: true,
+      debtorAttestationHash: "0x6666666666666666666666666666666666666666666666666666666666666666",
+      collateralStaked: true,
     },
   ];
 }

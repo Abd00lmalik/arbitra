@@ -1,395 +1,386 @@
 /* SPDX-License-Identifier: MIT */
-/**
- * @file ArbitraInvoiceRegistry.sol
- * @description Core registry for Arbitra confidential invoice factoring.
- *              Stores invoice data as FHE ciphertexts, computes encrypted
- *              purchase prices using the formula P = V * (1 - d * t),
- *              tracks supplier repayment history in encrypted state, and
- *              integrates with real cUSDC (ERC-7984 wrapper) for settlement.
- *
- *              Payment token: official Zama cUSDC on Sepolia, discovered via
- *              the Wrappers Registry at 0x2f0750Bbb0A246059d80e94c454586a7F27a128e.
- */
 pragma solidity ^0.8.27;
 
-import { FHE, euint64, externalEuint64 } from "@fhevm/solidity/lib/FHE.sol";
-import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
-import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import { IERC7984 } from "@openzeppelin/confidential-contracts/interfaces/IERC7984.sol";
+import { FHE, euint64, externalEuint64, ebool } from "@fhevm/solidity/lib/FHE.sol";
+import { ZamaEthereumConfig }                    from "@fhevm/solidity/config/ZamaConfig.sol";
+import { Ownable2Step, Ownable }                 from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import { ECDSA }                                 from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { EIP712 }                                from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import { IERC7984 }                              from "./interfaces/IERC7984.sol";
 
-/*************** Contract ***************/
+interface IArbitraFingerprintRegistry {
+    function registerFingerprint(uint256 invoiceId, euint64 fingerprint) external returns (euint64);
+    function checkDuplicate(euint64 eNew) external returns (ebool);
+}
 
-/**
- * @title  ArbitraInvoiceRegistry
- * @notice Decentralized confidential invoice factoring registry using Zama FHEVM.
- *         Suppliers upload invoices with FHE-encrypted face values and due dates.
- *         Purchase prices are computed homomorphically from encrypted repayment ratios.
- *         Investors settle via real cUSDC (Confidential USDC, ERC-7984).
- *
- * @dev    Inherits ZamaEthereumConfig for on-chain FHE verifier addresses.
- *         All FHE state changes call FHE.allowThis immediately after computation.
- *
- *         Operator model: investors call cUSDC.setOperator(registryAddress, expiry)
- *         before factoring. The registry calls cUSDC.confidentialTransferFrom using
- *         the handle-only overload (no proof needed — registry has ACL from allowTransient).
- *
- *         Solidity target: ^0.8.27, EVM: cancun.
- *
- * @custom:security-contact security@arbitra.finance
+interface IArbitraRiskCalculator {
+    function calculateConfidentialDiscount(euint64 eBaseRate, euint64 eReputationMultiplier, euint64 eExpectedDelayDays) external returns (euint64);
+    function calculatePurchasePrice(euint64 eFaceValue, euint64 eDiscountBps, uint64 timeToMaturityDays) external returns (euint64);
+}
+
+interface IArbitraCollateralVault {
+    function stakedCollateral(uint256 invoiceId) external view returns (uint256);
+    function invoiceSupplier(uint256 invoiceId) external view returns (address);
+    function releaseCollateral(uint256 invoiceId) external;
+    function slashCollateral(uint256 invoiceId, address investorToCompensate) external;
+}
+
+interface IArbitraEscrowReceiver {
+    function registerEscrow(uint256 invoiceId, address supplier, address investor, euint64 encFaceValue, uint256 maturityTs) external;
+    function initiateDispute(uint256 invoiceId) external;
+    function resolveDispute(uint256 invoiceId, bool fraudConfirmed) external;
+}
+
+/*
+ * @file ArbitraInvoiceRegistry.sol
+ * @description Main orchestrator for Arbitra v2.0 trade finance platform.
  */
-contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
+contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /*************** Constants ***************/
 
-    /**
-     * @notice Scaling denominator for discount math.
-     *         discountRate is stored in basis points (BPS), 10000 = 100%.
-     *         timeToMaturity is stored in days.
-     *         Division denominator = SCALE_BPS * SCALE_DAYS = 3,650,000.
-     */
-    uint64 public constant SCALE_BPS      = 10_000;
-    uint64 public constant SCALE_DAYS     = 365;
-    uint64 public constant BPS_DAYS_DENOM = 3_650_000;
-
-    /** @notice Default discount rate for new suppliers with no history: 8% = 800 BPS */
-    uint64 public constant DEFAULT_DISCOUNT_BPS = 800;
-
-    /** @notice Minimum discount rate (best suppliers): 2% = 200 BPS */
-    uint64 public constant MIN_DISCOUNT_BPS = 200;
-
-    /** @notice Maximum discount rate (worst or new suppliers): 15% = 1500 BPS */
-    uint64 public constant MAX_DISCOUNT_BPS = 1_500;
-
-    /**
-     * @notice Default operator expiry duration: 7 days.
-     *         Investors can set a longer/shorter expiry when calling setOperator on cUSDT.
-     *         This constant is informational — the registry does NOT set operators.
-     */
-    uint48 public constant DEFAULT_OPERATOR_EXPIRY_SECONDS = 7 days;
+    uint64 public constant SCALE_BPS = 10000;
 
     /*************** Data Structures ***************/
 
-    /**
-     * @notice On-chain invoice record.
-     *         All financial fields are FHE ciphertexts.
-     *         Identity and status fields are plaintext for UI routing.
-     */
+    enum InvoiceStatus {
+        Pending,
+        Attested,
+        Factored,
+        Settled,
+        Disputed,
+        Slashed
+    }
+
     struct Invoice {
-        euint64  faceValue;       /* Encrypted face value in cUSDC micro-units (6 dec) */
-        euint64  dueDate;         /* Encrypted due date as Unix timestamp               */
-        euint64  purchasePrice;   /* Encrypted purchase price P = V*(1 - d*t)          */
-        euint64  discountRate;    /* Encrypted discount rate in BPS at upload time      */
-        address  supplier;        /* Supplier wallet (plaintext for routing)            */
-        address  investor;        /* Investor wallet after factoring (address(0) if not)*/
-        address  buyer;           /* Buyer wallet (plaintext)                           */
-        bool     isFactored;      /* True once an investor has purchased                */
-        bool     isRepaid;        /* True after supplier triggers successful repayment  */
-        uint256  uploadTimestamp; /* Block timestamp at upload                          */
+        euint64  faceValue;
+        euint64  dueDate;
+        euint64  purchasePrice;
+        euint64  discountRateBps;
+        euint64  fingerprintHash;
+        address  supplier;
+        address  investor;
+        address  debtor;
+        uint256  uploadTimestamp;
+        uint256  maturityTimestamp;
+        InvoiceStatus status;
+        bool     geminiUnderwritingEnabled;
+        bytes32  debtorAttestationHash;
+        bool     collateralStaked;
     }
 
-    /**
-     * @notice Per-supplier encrypted credit stats.
-     *         Updated on each successful repayment.
-     */
     struct SupplierStats {
-        euint64 totalInvoices;     /* Count of all uploaded invoices      */
-        euint64 repaidInvoices;    /* Count of on-time repaid invoices    */
-        euint64 repaymentRatioBps; /* ratio = repaid/total * 10000 (BPS)  */
-        bool    initialized;       /* Plaintext flag for first-upload path */
+        euint64 totalInvoices;
+        euint64 repaidInvoices;
+        euint64 repaymentRatioBps;
+        bool    initialized;
     }
 
-    /*************** State ***************/
+    /*************** Storage ***************/
 
-    /** @notice Total invoices ever uploaded */
     uint256 public invoiceCount;
-
-    /** @notice Invoice storage by ID (1-indexed) */
     mapping(uint256 => Invoice) public invoices;
-
-    /** @notice Supplier credit stats */
     mapping(address => SupplierStats) public supplierStats;
-
-    /** @notice Invoice IDs per supplier */
     mapping(address => uint256[]) public supplierInvoiceIds;
-
-    /** @notice Invoice IDs per investor (after factoring) */
     mapping(address => uint256[]) public investorInvoiceIds;
 
-    /**
-     * @notice Official cUSDC token (ERC-7984 wrapper).
-     *         Address is resolved at deploy time from the Zama Wrappers Registry:
-     *         Sepolia registry: 0x2f0750Bbb0A246059d80e94c454586a7F27a128e
-     *         Call getWrapper(USDC_ADDRESS) to get cUSDC address.
-     */
-    IERC7984 public immutable cUSDC;
+    address public immutable cUSDC;
+    address public fpRegistry;
+    address public riskCalc;
+    address public collateralVault;
+    address public escrowReceiver;
+
+    bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
+        "InvoiceAttestation(uint256 invoiceId,bytes32 attestationCommitment,address supplier)"
+    );
 
     /*************** Events ***************/
 
-    /** @notice Emitted when a new invoice is uploaded */
-    event InvoiceUploaded(
-        uint256 indexed invoiceId,
-        address indexed supplier,
-        address indexed buyer,
-        uint256 timestamp
-    );
-
-    /** @notice Emitted when an invoice is factored (purchased) by an investor */
-    event InvoiceFactored(
-        uint256 indexed invoiceId,
-        address indexed investor,
-        uint256 timestamp
-    );
-
-    /** @notice Emitted when a supplier repays a factored invoice */
-    event InvoiceRepaid(
-        uint256 indexed invoiceId,
-        address indexed supplier,
-        uint256 timestamp
-    );
-
-    /*************** Custom Errors ***************/
-
-    /** @notice Thrown when cUSDC.isOperator returns false for the investor */
-    error InvestorNotApprovedOperator(address investor, address registry);
+    event InvoiceUploaded(uint256 indexed invoiceId, address indexed supplier, address indexed debtor, uint256 timestamp);
+    event InvoiceAttested(uint256 indexed invoiceId, address indexed debtor, uint256 timestamp);
+    event InvoiceFactored(uint256 indexed invoiceId, address indexed investor, uint256 timestamp);
+    event InvoiceSettled(uint256 indexed invoiceId, uint256 timestamp);
+    event InvoiceDisputed(uint256 indexed invoiceId, uint256 timestamp);
+    event DisputeResolved(uint256 indexed invoiceId, bool fraudConfirmed, uint256 timestamp);
 
     /*************** Constructor ***************/
 
     /**
-     * @notice Deploy registry with the cUSDC address.
-     * @param _cUSDC Address of the ERC-7984 cUSDC wrapper.
-     *               On Sepolia: resolved via Wrappers Registry.getWrapper(USDC_SEPOLIA).
-     *               On localhost: a MockERC7984 deployment.
+     * @notice Constructor to initialize main configurations.
+     * @param _cUSDC The address of the cUSDC token contract.
      */
-    constructor(address _cUSDC) Ownable(msg.sender) {
-        require(_cUSDC != address(0), "Arbitra: zero cUSDC address");
-        cUSDC = IERC7984(_cUSDC);
+    constructor(address _cUSDC) EIP712("Arbitra", "2") Ownable(msg.sender) {
+        require(_cUSDC != address(0), "Arbitra: zero token address");
+        cUSDC = _cUSDC;
+    }
+
+    /*************** Admin Functions ***************/
+
+    /**
+     * @notice Set addresses of cooperating contracts.
+     */
+    function setContracts(
+        address _fpRegistry,
+        address _riskCalc,
+        address _collateralVault,
+        address _escrowReceiver
+    ) external onlyOwner {
+        require(_fpRegistry != address(0), "Arbitra: zero fpRegistry");
+        require(_riskCalc != address(0), "Arbitra: zero riskCalc");
+        require(_collateralVault != address(0), "Arbitra: zero collateralVault");
+        require(_escrowReceiver != address(0), "Arbitra: zero escrowReceiver");
+
+        fpRegistry = _fpRegistry;
+        riskCalc = _riskCalc;
+        collateralVault = _collateralVault;
+        escrowReceiver = _escrowReceiver;
     }
 
     /*************** Supplier Functions ***************/
 
     /**
-     * @notice Upload a new invoice with FHE-encrypted face value and due date.
-     *         Discount rate is computed from encrypted supplier repayment history.
-     *         Purchase price is computed homomorphically as P = V * (1 - d * t).
-     *         ACL is granted to: this contract (allowThis) and the supplier (allow).
-     * @param  encFaceValue    FHE-encrypted face value (cUSDT micro-units, 6 dec)
-     * @param  proofFaceValue  ZKPoK proof for encFaceValue
-     * @param  encDueDate      FHE-encrypted Unix timestamp due date
-     * @param  proofDueDate    ZKPoK proof for encDueDate
-     * @param  buyer           Plaintext buyer wallet address
-     * @return invoiceId       The new invoice's numeric ID
+     * @notice Upload a new invoice with FHE-encrypted face value, due date, base rate, and multiplier.
      */
     function uploadInvoice(
-        externalEuint64 encFaceValue,
+        externalEuint64  encFaceValue,
         bytes calldata   proofFaceValue,
-        externalEuint64 encDueDate,
+        externalEuint64  encDueDate,
         bytes calldata   proofDueDate,
-        address          buyer
+        externalEuint64  encFingerprint,
+        bytes calldata   proofFingerprint,
+        externalEuint64  encBaseRate,
+        bytes calldata   proofBaseRate,
+        externalEuint64  encReputationMultiplier,
+        bytes calldata   proofRepMult,
+        address          debtor,
+        bool             enableGeminiUnderwriting
     ) external returns (uint256 invoiceId) {
-        require(buyer != address(0), "Arbitra: zero buyer");
+        require(debtor != address(0), "Arbitra: zero debtor");
+        require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
 
-        /* Ingest user-provided encrypted inputs with proof verification */
+        invoiceId = invoiceCount + 1;
+
+        /* Verify supplier has staked collateral for this invoice ID */
+        uint256 collateralStakedAmount = IArbitraCollateralVault(collateralVault).stakedCollateral(invoiceId);
+        require(collateralStakedAmount > 0, "Arbitra: collateral not staked");
+        require(IArbitraCollateralVault(collateralVault).invoiceSupplier(invoiceId) == msg.sender, "Arbitra: invalid collateral depositor");
+
+        /* Ingest encrypted inputs */
         euint64 faceValue = FHE.fromExternal(encFaceValue, proofFaceValue);
-        euint64 dueDate   = FHE.fromExternal(encDueDate, proofDueDate);
+        euint64 dueDate = FHE.fromExternal(encDueDate, proofDueDate);
+        euint64 baseRate = FHE.fromExternal(encBaseRate, proofBaseRate);
+        euint64 reputationMultiplier = FHE.fromExternal(encReputationMultiplier, proofRepMult);
+        euint64 rawFingerprint = FHE.fromExternal(encFingerprint, proofFingerprint);
 
-        /* Compute encrypted discount rate from supplier repayment history */
-        euint64 discountRate = _computeDiscountRate(msg.sender);
+        /* Grant fpRegistry transient access to the fingerprint handle for registration */
+        FHE.allowTransient(rawFingerprint, fpRegistry);
 
-        /*
-         * Compute time to maturity in days (encrypted arithmetic).
-         * timeToMaturityDays = (dueDate - block.timestamp) / 86400
-         * Division by plaintext 86400 is valid (only plaintext divisors exist).
-         */
-        euint64 currentTime        = FHE.asEuint64(uint64(block.timestamp));
-        euint64 secondsToMaturity  = FHE.sub(dueDate, currentTime);
-        euint64 timeToMaturityDays = FHE.div(secondsToMaturity, 86_400);
+        /* Register fingerprint on-chain */
+        euint64 fingerprintHash = IArbitraFingerprintRegistry(fpRegistry).registerFingerprint(invoiceId, rawFingerprint);
 
-        /*
-         * Compute purchase price: P = V - V * d * t / BPS_DAYS_DENOM
-         *
-         * Safe max invoice size at euint64 (max ~1.84e19):
-         *   V_max = 1.84e19 / (MAX_DISCOUNT_BPS * SCALE_DAYS) / SCALE_BPS
-         *         = 1.84e19 / 1500 / 365 / 10000 ~ 3,356 USDT (6 dec)
-         * For production, use euint128 or intermediate scaling.
-         */
-        euint64 vTimesD        = FHE.mul(faceValue, discountRate);
-        euint64 vTimesDiscount = FHE.mul(vTimesD, timeToMaturityDays);
-        euint64 discountAmt    = FHE.div(vTimesDiscount, BPS_DAYS_DENOM);
-        euint64 purchasePrice  = FHE.sub(faceValue, discountAmt);
+        /* Compute Expected Delay Days from supplier repayment ratio */
+        SupplierStats storage stats = supplierStats[msg.sender];
+        euint64 eExpectedDelayDays;
+        if (stats.initialized) {
+            eExpectedDelayDays = FHE.div(FHE.sub(FHE.asEuint64(10000), stats.repaymentRatioBps), 1000);
+        } else {
+            eExpectedDelayDays = FHE.asEuint64(10);
+        }
 
-        /* Persist invoice */
-        invoiceId = ++invoiceCount;
+        /* Calculate Time to Maturity in days (plaintext) */
+        uint64 ttmDays = 30;
+
+        /* Grant riskCalc transient access to the inputs for discount calculation */
+        FHE.allowTransient(baseRate, riskCalc);
+        FHE.allowTransient(reputationMultiplier, riskCalc);
+        FHE.allowTransient(eExpectedDelayDays, riskCalc);
+
+        /* Compute discount rate and purchase price */
+        euint64 discountRateBps = IArbitraRiskCalculator(riskCalc).calculateConfidentialDiscount(baseRate, reputationMultiplier, eExpectedDelayDays);
+
+        /* Grant riskCalc transient access to inputs for purchase price calculation */
+        FHE.allowTransient(faceValue, riskCalc);
+        FHE.allowTransient(discountRateBps, riskCalc);
+
+        euint64 purchasePrice = IArbitraRiskCalculator(riskCalc).calculatePurchasePrice(faceValue, discountRateBps, ttmDays);
+
+        /* Persist invoice details */
         Invoice storage inv = invoices[invoiceId];
-        inv.faceValue      = faceValue;
-        inv.dueDate        = dueDate;
-        inv.purchasePrice  = purchasePrice;
-        inv.discountRate   = discountRate;
-        inv.supplier       = msg.sender;
-        inv.buyer          = buyer;
+        inv.faceValue = faceValue;
+        inv.dueDate = dueDate;
+        inv.purchasePrice = purchasePrice;
+        inv.discountRateBps = discountRateBps;
+        inv.fingerprintHash = fingerprintHash;
+        inv.supplier = msg.sender;
+        inv.debtor = debtor;
         inv.uploadTimestamp = block.timestamp;
+        /* Set default maturity timestamp to current time + seconds to maturity (simulated maturity check) */
+        inv.maturityTimestamp = block.timestamp + 30 days; /* Fallback baseline */
+        inv.status = InvoiceStatus.Pending;
+        inv.geminiUnderwritingEnabled = enableGeminiUnderwriting;
+        inv.collateralStaked = true;
 
-        /* ACL: grant this contract persistent access to all ciphertexts */
+        /* Grant permissions */
         FHE.allowThis(faceValue);
         FHE.allowThis(dueDate);
         FHE.allowThis(purchasePrice);
-        FHE.allowThis(discountRate);
+        FHE.allowThis(discountRateBps);
+        FHE.allowThis(fingerprintHash);
 
-        /* ACL: grant supplier read/decrypt access to their own invoice data */
         FHE.allow(faceValue, msg.sender);
         FHE.allow(dueDate, msg.sender);
         FHE.allow(purchasePrice, msg.sender);
-        FHE.allow(discountRate, msg.sender);
+        FHE.allow(discountRateBps, msg.sender);
 
-        /* Update supplier invoice index */
+        FHE.allow(faceValue, debtor);
+        FHE.allow(dueDate, debtor);
+        FHE.allow(purchasePrice, debtor);
+        FHE.allow(discountRateBps, debtor);
+
         supplierInvoiceIds[msg.sender].push(invoiceId);
-
-        /* Increment supplier total invoices (encrypted) */
         _incrementSupplierInvoiceCount(msg.sender);
+        invoiceCount = invoiceId;
 
-        emit InvoiceUploaded(invoiceId, msg.sender, buyer, block.timestamp);
+        emit InvoiceUploaded(invoiceId, msg.sender, debtor, block.timestamp);
     }
 
+    /*************** Debtor Functions ***************/
+
     /**
-     * @notice Supplier triggers repayment for a factored invoice.
-     *         On success: updates encrypted repayment stats and marks invoice repaid.
-     * @param invoiceId  The invoice to repay
+     * @notice Confirm and attest the invoice by signing the EIP-712 attestation.
      */
-    function triggerRepayment(uint256 invoiceId) external {
+    function confirmInvoice(
+        uint256 invoiceId,
+        bytes calldata eip712Signature,
+        bytes32 attestationCommitment
+    ) external {
         Invoice storage inv = invoices[invoiceId];
-        require(inv.supplier == msg.sender, "Arbitra: not supplier");
-        require(inv.isFactored, "Arbitra: not factored");
-        require(!inv.isRepaid, "Arbitra: already repaid");
+        require(inv.status == InvoiceStatus.Pending, "Arbitra: not pending");
+        require(msg.sender == inv.debtor, "Arbitra: not debtor");
 
-        /* Mark repaid before state updates to prevent re-entrancy */
-        inv.isRepaid = true;
+        bytes32 structHash = keccak256(abi.encode(
+            ATTESTATION_TYPEHASH,
+            invoiceId,
+            attestationCommitment,
+            inv.supplier
+        ));
+        bytes32 digest = _hashTypedDataV4(structHash);
+        address recovered = ECDSA.recover(digest, eip712Signature);
+        require(recovered == msg.sender, "Arbitra: invalid attestation");
 
-        /* Update encrypted repayment ratio for the supplier */
-        _recordSuccessfulRepayment(msg.sender);
+        inv.status = InvoiceStatus.Attested;
+        inv.debtorAttestationHash = attestationCommitment;
 
-        emit InvoiceRepaid(invoiceId, msg.sender, block.timestamp);
+        emit InvoiceAttested(invoiceId, msg.sender, block.timestamp);
     }
 
     /*************** Investor Functions ***************/
 
     /**
-     * @notice Investor factors (purchases) an invoice at its encrypted purchase price.
-     *
-     *         Pre-condition: investor must have called
-     *           cUSDC.setOperator(registryAddress, expiry)
-     *         before this call. The registry verifies operator status and reverts
-     *         with InvestorNotApprovedOperator if not set.
-     *
-     *         Calls cUSDC.confidentialTransferFrom(investor, supplier, purchasePrice)
-     *         using the handle-only overload — the registry must have transient ACL
-     *         on purchasePrice, which it grants via FHE.allowTransient before the call.
-     *
-     * @param invoiceId  The invoice to purchase
+     * @notice Grant transient permissions to the investor for risk assessment.
+     */
+    function grantRiskAssessmentAccess(uint256 invoiceId) external {
+        Invoice storage inv = invoices[invoiceId];
+        require(inv.status == InvoiceStatus.Attested, "Arbitra: not attested");
+
+        FHE.allowTransient(inv.faceValue, msg.sender);
+        FHE.allowTransient(inv.dueDate, msg.sender);
+        FHE.allowTransient(inv.purchasePrice, msg.sender);
+        FHE.allowTransient(inv.discountRateBps, msg.sender);
+    }
+
+    /**
+     * @notice Factor (purchase) an invoice at its computed purchase price.
      */
     function factorInvoice(uint256 invoiceId) external {
         Invoice storage inv = invoices[invoiceId];
-        require(!inv.isFactored, "Arbitra: already factored");
-        require(inv.supplier != address(0), "Arbitra: invalid invoice");
-        require(inv.supplier != msg.sender, "Arbitra: supplier cannot factor own invoice");
+        require(inv.status == InvoiceStatus.Attested, "Arbitra: not attested");
+        require(inv.supplier != msg.sender, "Arbitra: supplier cannot factor own");
 
-        /* Verify investor has approved this registry as an operator on cUSDC */
-        if (!cUSDC.isOperator(msg.sender, address(this))) {
-            revert InvestorNotApprovedOperator(msg.sender, address(this));
-        }
+        require(IERC7984(cUSDC).isOperator(msg.sender, address(this)), "Arbitra: not approved operator");
 
-        /* Grant cUSDC transient ACL on purchasePrice for this tx's cross-contract call.
-         * Without this, cUSDC.confidentialTransferFrom reverts with ACLNotAllowed()
-         * when it attempts FHE operations on the handle.
-         * Transient access expires after this transaction. */
-        FHE.allowTransient(inv.purchasePrice, address(cUSDC));
+        /* Grant transient access to the cUSDC contract for the factoring transfer */
+        FHE.allowTransient(inv.purchasePrice, cUSDC);
 
-        /* Transfer cUSDC from investor to supplier at the encrypted purchase price.
-         * Uses the handle-only overload: caller (registry) must be an approved operator
-         * for `from` (investor) — verified above via isOperator. */
-        euint64 transferred = cUSDC.confidentialTransferFrom(
-            msg.sender,
-            inv.supplier,
-            inv.purchasePrice
-        );
+        /* Transfer cUSDC from investor to supplier */
+        IERC7984(cUSDC).confidentialTransferFrom(msg.sender, inv.supplier, inv.purchasePrice);
 
-        /* Verify transfer was not zero-handle (sanity check) */
-        require(euint64.unwrap(transferred) != bytes32(0), "Arbitra: transfer returned zero handle");
+        inv.investor = msg.sender;
+        inv.status = InvoiceStatus.Factored;
 
-        /* Update invoice state */
-        inv.isFactored = true;
-        inv.investor   = msg.sender;
-
-        /* ACL: grant investor decrypt access to the purchase price they paid */
         FHE.allow(inv.purchasePrice, msg.sender);
         FHE.allow(inv.faceValue, msg.sender);
-        FHE.allow(inv.discountRate, msg.sender);
+        FHE.allow(inv.faceValue, escrowReceiver);
 
-        /* Index by investor */
+        /* Register escrow receiver payout */
+        IArbitraEscrowReceiver(escrowReceiver).registerEscrow(
+            invoiceId,
+            inv.supplier,
+            msg.sender,
+            inv.faceValue,
+            inv.maturityTimestamp
+        );
+
         investorInvoiceIds[msg.sender].push(invoiceId);
 
         emit InvoiceFactored(invoiceId, msg.sender, block.timestamp);
     }
 
+    /*************** Escrow Callback ***************/
+
     /**
-     * @notice Grant temporary decryption access to caller for risk assessment.
-     *         Grants transient-tx ACL so a wallet can read encrypted values
-     *         for the EIP-712 userDecrypt flow without permanent access.
-     * @param invoiceId  The invoice to grant temporary access for
+     * @notice Callback triggered by the escrow receiver when repayment is finalized.
      */
-    function grantRiskAssessmentAccess(uint256 invoiceId) external {
+    function onEscrowSettled(uint256 invoiceId) external {
+        require(msg.sender == escrowReceiver, "Arbitra: not escrow receiver");
         Invoice storage inv = invoices[invoiceId];
-        require(!inv.isFactored, "Arbitra: already factored");
+        require(inv.status == InvoiceStatus.Factored, "Arbitra: not factored");
 
-        /* Transient access — valid for this transaction only */
-        FHE.allowTransient(inv.faceValue, msg.sender);
-        FHE.allowTransient(inv.dueDate, msg.sender);
-        FHE.allowTransient(inv.purchasePrice, msg.sender);
-        FHE.allowTransient(inv.discountRate, msg.sender);
+        inv.status = InvoiceStatus.Settled;
+        _recordSuccessfulRepayment(inv.supplier);
+        IArbitraCollateralVault(collateralVault).releaseCollateral(invoiceId);
 
-        /* Also grant the supplier stats ratio for the risk assessment */
-        SupplierStats storage stats = supplierStats[inv.supplier];
-        if (stats.initialized) {
-            FHE.allowTransient(stats.repaymentRatioBps, msg.sender);
+        emit InvoiceSettled(invoiceId, block.timestamp);
+    }
+
+    /*************** Governance Functions ***************/
+
+    /**
+     * @notice Place an invoice under dispute.
+     */
+    function initiateDispute(uint256 invoiceId) external onlyOwner {
+        Invoice storage inv = invoices[invoiceId];
+        require(inv.status == InvoiceStatus.Factored, "Arbitra: not factored");
+
+        inv.status = InvoiceStatus.Disputed;
+        IArbitraEscrowReceiver(escrowReceiver).initiateDispute(invoiceId);
+
+        emit InvoiceDisputed(invoiceId, block.timestamp);
+    }
+
+    /**
+     * @notice Resolve dispute, potentially slashing the supplier.
+     */
+    function resolveDispute(uint256 invoiceId, bool fraudConfirmed) external onlyOwner {
+        Invoice storage inv = invoices[invoiceId];
+        require(inv.status == InvoiceStatus.Disputed, "Arbitra: not disputed");
+
+        if (fraudConfirmed) {
+            inv.status = InvoiceStatus.Slashed;
+            IArbitraCollateralVault(collateralVault).slashCollateral(invoiceId, inv.investor);
+            IArbitraEscrowReceiver(escrowReceiver).resolveDispute(invoiceId, true);
+        } else {
+            inv.status = InvoiceStatus.Factored;
+            IArbitraEscrowReceiver(escrowReceiver).resolveDispute(invoiceId, false);
         }
+
+        emit DisputeResolved(invoiceId, fraudConfirmed, block.timestamp);
     }
 
     /*************** View Functions ***************/
 
     /**
-     * @notice Get all invoice IDs uploaded by a supplier.
-     * @param supplier  Supplier wallet address
-     * @return          Array of invoice IDs
-     */
-    function getSupplierInvoices(address supplier) external view returns (uint256[] memory) {
-        return supplierInvoiceIds[supplier];
-    }
-
-    /**
-     * @notice Get all invoice IDs purchased by an investor.
-     * @param investor  Investor wallet address
-     * @return          Array of invoice IDs
-     */
-    function getInvestorInvoices(address investor) external view returns (uint256[] memory) {
-        return investorInvoiceIds[investor];
-    }
-
-    /**
-     * @notice Get all invoice IDs ever created (for marketplace listing).
-     * @return ids  Array of all invoice IDs in order of creation
-     */
-    function getAllInvoiceIds() external view returns (uint256[] memory ids) {
-        ids = new uint256[](invoiceCount);
-        for (uint256 i = 0; i < invoiceCount; i++) {
-            ids[i] = i + 1;
-        }
-    }
-
-    /**
-     * @notice Get the encrypted handles for an invoice (for frontend decryption).
-     * @param invoiceId  The invoice ID
-     * @return faceValueHandle     bytes32 handle
-     * @return dueDateHandle       bytes32 handle
-     * @return purchasePriceHandle bytes32 handle
-     * @return discountRateHandle  bytes32 handle
+     * @notice Retrieve encrypted handles for an invoice.
      */
     function getInvoiceHandles(uint256 invoiceId) external view returns (
         bytes32 faceValueHandle,
@@ -398,16 +389,14 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         bytes32 discountRateHandle
     ) {
         Invoice storage inv = invoices[invoiceId];
-        faceValueHandle     = euint64.unwrap(inv.faceValue);
-        dueDateHandle       = euint64.unwrap(inv.dueDate);
+        faceValueHandle = euint64.unwrap(inv.faceValue);
+        dueDateHandle = euint64.unwrap(inv.dueDate);
         purchasePriceHandle = euint64.unwrap(inv.purchasePrice);
-        discountRateHandle  = euint64.unwrap(inv.discountRate);
+        discountRateHandle = euint64.unwrap(inv.discountRateBps);
     }
 
     /**
-     * @notice Get the repayment ratio handle for a supplier.
-     * @param supplier  Supplier wallet address
-     * @return ratioHandle  bytes32 handle (zero bytes32 if no history)
+     * @notice Retrieve the repayment ratio handle for a supplier.
      */
     function getSupplierRatioHandle(address supplier) external view returns (bytes32 ratioHandle) {
         SupplierStats storage stats = supplierStats[supplier];
@@ -416,74 +405,70 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
     }
 
     /**
-     * @notice Check if an investor has approved the registry as a cUSDC operator.
-     * @param investor  The investor address to check
-     * @return approved True if the registry is a valid operator for the investor
+     * @notice Public duplicate check that converts input on-chain in the main registry context.
+     */
+    function checkDuplicate(
+        externalEuint64 encFingerprint,
+        bytes calldata proof
+    ) external returns (ebool) {
+        euint64 eNew = FHE.fromExternal(encFingerprint, proof);
+
+        /* Grant fpRegistry transient access to check duplicate handle */
+        FHE.allowTransient(eNew, fpRegistry);
+
+        ebool isDup = IArbitraFingerprintRegistry(fpRegistry).checkDuplicate(eNew);
+        FHE.allowThis(isDup);
+        FHE.allow(isDup, msg.sender);
+        FHE.allow(isDup, owner());
+        return isDup;
+    }
+
+    /**
+     * @notice Check operator status on cUSDC.
      */
     function isInvestorApproved(address investor) external view returns (bool approved) {
-        return cUSDC.isOperator(investor, address(this));
+        return IERC7984(cUSDC).isOperator(investor, address(this));
     }
 
-    /*************** Internal FHE Helpers ***************/
+    /**
+     * @notice Get all invoices uploaded by a supplier.
+     */
+    function getSupplierInvoices(address supplier) external view returns (uint256[] memory) {
+        return supplierInvoiceIds[supplier];
+    }
 
     /**
-     * @notice Compute encrypted discount rate based on supplier's historical repayment ratio.
-     *         Formula: rate = MAX - (MAX - MIN) * repaymentRatioBps / SCALE_BPS
-     *         Better repayment history yields lower discount rate (more favorable pricing).
-     *         New suppliers with no history receive DEFAULT_DISCOUNT_BPS (8%).
-     * @param  supplier  The supplier wallet address
-     * @return rate      Encrypted discount rate in BPS
+     * @notice Get all invoices factored by an investor.
      */
-    function _computeDiscountRate(address supplier) internal returns (euint64 rate) {
-        SupplierStats storage stats = supplierStats[supplier];
+    function getInvestorInvoices(address investor) external view returns (uint256[] memory) {
+        return investorInvoiceIds[investor];
+    }
 
-        if (!stats.initialized) {
-            /* New supplier: use default rate. Trivial encryption is intentional here
-               as the DEFAULT_DISCOUNT_BPS is a public protocol constant. */
-            rate = FHE.asEuint64(DEFAULT_DISCOUNT_BPS);
-            FHE.allowThis(rate);
-            return rate;
+    /**
+     * @notice Get all invoice IDs.
+     */
+    function getAllInvoiceIds() external view returns (uint256[] memory ids) {
+        ids = new uint256[](invoiceCount);
+        for (uint256 i = 0; i < invoiceCount; i++) {
+            ids[i] = i + 1;
         }
-
-        /*
-         * Dynamic rate based on encrypted repayment ratio:
-         *   rateRange = MAX_DISCOUNT_BPS - MIN_DISCOUNT_BPS = 1300
-         *   reduction = rateRange * repaymentRatioBps / SCALE_BPS
-         *   rate      = MAX_DISCOUNT_BPS - reduction
-         *
-         * Example: repaymentRatioBps = 9000 (90% on-time)
-         *   reduction = 1300 * 9000 / 10000 = 1170 BPS
-         *   rate      = 1500 - 1170 = 330 BPS ~ 3.3%
-         */
-        euint64 maxRate   = FHE.asEuint64(MAX_DISCOUNT_BPS);
-        euint64 minRate   = FHE.asEuint64(MIN_DISCOUNT_BPS);
-        euint64 rateRange = FHE.sub(maxRate, minRate);
-
-        euint64 numerator = FHE.mul(rateRange, stats.repaymentRatioBps);
-        euint64 reduction = FHE.div(numerator, SCALE_BPS);
-        rate              = FHE.sub(maxRate, reduction);
-
-        FHE.allowThis(rate);
-        FHE.allow(rate, supplier);
     }
 
-    /**
-     * @notice Increment the encrypted invoice count for a supplier.
-     *         Initializes stats on first invoice.
-     * @param supplier  The supplier wallet address
-     */
+    /*************** Internal credit tracking ***************/
+
     function _incrementSupplierInvoiceCount(address supplier) internal {
         SupplierStats storage stats = supplierStats[supplier];
 
         if (!stats.initialized) {
-            stats.totalInvoices     = FHE.asEuint64(1);
-            stats.repaidInvoices    = FHE.asEuint64(0);
+            stats.totalInvoices = FHE.asEuint64(1);
+            stats.repaidInvoices = FHE.asEuint64(0);
             stats.repaymentRatioBps = FHE.asEuint64(0);
-            stats.initialized       = true;
+            stats.initialized = true;
 
             FHE.allowThis(stats.totalInvoices);
             FHE.allowThis(stats.repaidInvoices);
             FHE.allowThis(stats.repaymentRatioBps);
+
             FHE.allow(stats.totalInvoices, supplier);
             FHE.allow(stats.repaidInvoices, supplier);
             FHE.allow(stats.repaymentRatioBps, supplier);
@@ -493,16 +478,10 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
             FHE.allow(newTotal, supplier);
             stats.totalInvoices = newTotal;
 
-            /* Re-compute repayment ratio with updated total */
             _recomputeRatio(supplier);
         }
     }
 
-    /**
-     * @notice Record a successful repayment for a supplier.
-     *         Increments encrypted repaid count and recomputes ratio.
-     * @param supplier  The supplier wallet address
-     */
     function _recordSuccessfulRepayment(address supplier) internal {
         SupplierStats storage stats = supplierStats[supplier];
         require(stats.initialized, "Arbitra: no stats");
@@ -515,25 +494,13 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step {
         _recomputeRatio(supplier);
     }
 
-    /**
-     * @notice Recompute the encrypted repayment ratio after any stats change.
-     *         ratio = repaidInvoices * SCALE_BPS / totalInvoicesCount
-     *
-     * @dev    Since FHE.div only supports plaintext divisors, we use a plaintext
-     *         shadow counter (the public invoice index length) for the division.
-     *         The repaid count remains encrypted; only the total uses a shadow.
-     *         The total count is already observable from public events (InvoiceUploaded),
-     *         so this does not leak additional information.
-     * @param  supplier  Supplier wallet address
-     */
     function _recomputeRatio(address supplier) internal {
         SupplierStats storage stats = supplierStats[supplier];
-
         uint64 totalPlaintext = uint64(supplierInvoiceIds[supplier].length);
         if (totalPlaintext == 0) return;
 
         euint64 numerator = FHE.mul(stats.repaidInvoices, FHE.asEuint64(SCALE_BPS));
-        euint64 newRatio  = FHE.div(numerator, totalPlaintext);
+        euint64 newRatio = FHE.div(numerator, totalPlaintext);
         FHE.allowThis(newRatio);
         FHE.allow(newRatio, supplier);
         stats.repaymentRatioBps = newRatio;
