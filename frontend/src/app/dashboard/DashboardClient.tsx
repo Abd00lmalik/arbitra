@@ -7,7 +7,8 @@
 "use client";
 
 import React from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
+import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -25,7 +26,7 @@ import {
 import { useZama } from "@/providers/ZamaProvider";
 import { useRole } from "@/providers/RoleProvider";
 import Link from "next/link";
-import { InvoiceStatus, fromMicro, shortAddress, STATUS_LABEL, STATUS_COLOR } from "@/lib/contracts";
+import { InvoiceStatus, fromMicro, shortAddress, STATUS_LABEL, STATUS_COLOR, SBT_ADDRESS, SBT_ABI } from "@/lib/contracts";
 
 interface StatCardProps {
   label: string;
@@ -62,6 +63,7 @@ function StatCard({ label, value, sub, icon, color = "#00F0FF" }: StatCardProps)
 
 export default function DashboardClient() {
   const { address, isConnected } = useAccount();
+  const { wallet: web3authWallet, isLoggedIn } = useWeb3Auth();
   const { isReady: zamaReady } = useZama();
   const { role } = useRole();
   const { data: realInvoices, isLoading: isLoadingInvoices } = useRealInvoiceList();
@@ -78,6 +80,14 @@ export default function DashboardClient() {
   const { data: usdcBalance } = useUSDCBalance(
     isConnected ? address : undefined
   );
+
+  const { data: hasSBT } = useReadContract({
+    address: SBT_ADDRESS,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [web3authWallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!web3authWallet },
+  });
 
   const totalOnChain = invoiceCount ? Number(invoiceCount) : 0;
   const myUploaded = supplierIds ? (supplierIds as bigint[]).length : 0;
@@ -200,6 +210,53 @@ export default function DashboardClient() {
               }}
             >
               Please connect your Web3 wallet to authorize secure EIP-712 decryption requests and load your factoring dashboard.
+            </div>
+          </motion.div>
+        )}
+
+        {/* Warning notification when supplier is unverified (no SBT) */}
+        {isLoggedIn && hasSBT === false && (
+          <motion.div variants={itemVariants}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "16px 20px",
+                borderRadius: "16px",
+                background: "rgba(255, 186, 0, 0.06)",
+                border: "1px solid rgba(255, 186, 0, 0.25)",
+                color: "#EEF2FF",
+                fontSize: "14px",
+                fontFamily: "Satoshi, sans-serif",
+                flexWrap: "wrap",
+                gap: "12px"
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFBA00" strokeWidth="2" style={{ flexShrink: 0 }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>
+                  <strong>Unverified Business Profile:</strong> Marketplace actions and invoice uploads are locked until business verification is completed.
+                </span>
+              </div>
+              <Link
+                href="/register"
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  background: "#FFBA00",
+                  color: "#030814",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  textDecoration: "none",
+                  boxShadow: "0 2px 10px rgba(255, 186, 0, 0.25)"
+                }}
+              >
+                Complete Onboarding
+              </Link>
             </div>
           </motion.div>
         )}

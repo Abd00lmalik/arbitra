@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
+import { Web3AuthProvider } from "@/providers/Web3AuthProvider";
 import { WagmiProvider } from "@/providers/WagmiProvider";
 import { ZamaProvider } from "@/providers/ZamaProvider";
 import { RoleProvider } from "@/providers/RoleProvider";
@@ -38,13 +39,15 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.ico" />
       </head>
       <body className="bg-navy-900 text-white antialiased">
-        <WagmiProvider>
-          <ZamaProvider>
-            <RoleProvider>
-              {children}
-            </RoleProvider>
-          </ZamaProvider>
-        </WagmiProvider>
+        <Web3AuthProvider>
+          <WagmiProvider>
+            <ZamaProvider>
+              <RoleProvider>
+                {children}
+              </RoleProvider>
+            </ZamaProvider>
+          </WagmiProvider>
+        </Web3AuthProvider>
       </body>
     </html>
   );

@@ -4,6 +4,8 @@
  *              Uses @zama-fhe/relayer-sdk/web (v0.4.1) for web environment.
  */
 
+export type FhevmInstance = any;
+
 let sdkInstance: any | null = null;
 
 export async function getZamaSDK() {
@@ -26,6 +28,8 @@ export async function getZamaSDK() {
     return null;
   }
 }
+
+export const getFhevmInstance = getZamaSDK;
 
 /*
  * Encrypt a uint64 value for on-chain submission.
@@ -188,4 +192,79 @@ export async function userDecryptHandles(
   );
 
   return clearValues as Record<string, bigint | boolean | string>;
+}
+
+/**
+ * Encrypt a uint32 value (for taxID).
+ */
+export async function encryptUint32(
+  value:           bigint,
+  walletAddress:   `0x${string}`,
+  contractAddress: `0x${string}`
+): Promise<{ handle: `0x${string}`; proof: `0x${string}` }> {
+  const sdk = await getZamaSDK();
+  if (!sdk) throw new Error("FHEVM SDK not initialized");
+  const input = sdk.createEncryptedInput(contractAddress, walletAddress);
+  input.add32(value);
+  const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
+  return {
+    handle: toHex(encrypted.handles[0]),
+    proof:  toHex(encrypted.inputProof),
+  };
+}
+
+/**
+ * Encrypt a boolean value (for kybStatus).
+ */
+export async function encryptBool(
+  value:           boolean,
+  walletAddress:   `0x${string}`,
+  contractAddress: `0x${string}`
+): Promise<{ handle: `0x${string}`; proof: `0x${string}` }> {
+  const sdk = await getZamaSDK();
+  if (!sdk) throw new Error("FHEVM SDK not initialized");
+  const input = sdk.createEncryptedInput(contractAddress, walletAddress);
+  input.addBool(value);
+  const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
+  return {
+    handle: toHex(encrypted.handles[0]),
+    proof:  toHex(encrypted.inputProof),
+  };
+}
+
+/**
+ * Encrypt a uint8 value (for riskScore 0-100).
+ */
+export async function encryptUint8(
+  value:           bigint,
+  walletAddress:   `0x${string}`,
+  contractAddress: `0x${string}`
+): Promise<{ handle: `0x${string}`; proof: `0x${string}` }> {
+  const sdk = await getZamaSDK();
+  if (!sdk) throw new Error("FHEVM SDK not initialized");
+  const input = sdk.createEncryptedInput(contractAddress, walletAddress);
+  input.add8(value);
+  const encrypted = await input.encrypt();
+
+  const toHex = (b: Uint8Array | string): `0x${string}` => {
+    if (typeof b === "string") return b as `0x${string}`;
+    return ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+  };
+
+  return {
+    handle: toHex(encrypted.handles[0]),
+    proof:  toHex(encrypted.inputProof),
+  };
 }

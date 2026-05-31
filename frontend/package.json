@@ -12,6 +12,9 @@
     "@babel/runtime": "^7.29.7",
     "@tanstack/react-query": "^5.0.0",
     "@upstash/redis": "^1.38.0",
+    "@web3auth/base": "^9.7.0",
+    "@web3auth/ethereum-provider": "^9.7.0",
+    "@web3auth/modal": "^9.7.0",
     "@zama-fhe/relayer-sdk": "0.4.1",
     "framer-motion": "^11.0.0",
     "jose": "^6.2.3",
@@ -45,4 +48,3 @@
     "@zama-fhe/relayer-sdk": "0.4.1"
   }
 }
-

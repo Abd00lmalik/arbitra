@@ -32,6 +32,18 @@ export const FINGERPRINT_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS ??
    "0x0000000000000000000000000000000000000000") as `0x${string}`;
 
+export const SBT_ADDRESS =
+  (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
+   "0x0000000000000000000000000000000000000000") as `0x${string}`;
+
+export const KYB_ORACLE_ADDRESS =
+  (process.env.NEXT_PUBLIC_KYB_ORACLE_ADDRESS ??
+   "0x0000000000000000000000000000000000000000") as `0x${string}`;
+
+export const IDENTITY_ADDRESS =
+  (process.env.NEXT_PUBLIC_IDENTITY_ADDRESS ??
+   "0x0000000000000000000000000000000000000000") as `0x${string}`;
+
 /* ── Constants ── */
 export const TOKEN_DECIMALS  = 6;
 export const TOKEN_SYMBOL    = "USDC";
@@ -432,5 +444,124 @@ export const COLLATERAL_VAULT_ABI = [
     stateMutability: "view",
     inputs: [{ name: "invoiceId", type: "uint256" }],
     outputs: [{ type: "address" }],
+  },
+] as const;
+
+/* ── ArbitraSBT ABI ── */
+export const SBT_ABI = [
+  {
+    type: "function", name: "hasValidSBT",
+    stateMutability: "view",
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function", name: "walletToTokenId",
+    stateMutability: "view",
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function", name: "sbtRecords",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "wallet",            type: "address" },
+      { name: "kybVerificationId",  type: "bytes32" },
+      { name: "attestationHash",    type: "bytes32" },
+      { name: "riskScoreBucket",    type: "uint8"   },
+      { name: "mintTimestamp",      type: "uint256" },
+      { name: "isRevoked",          type: "bool"    },
+    ],
+  },
+  {
+    type: "event", name: "SBTMinted",
+    inputs: [
+      { name: "wallet",            type: "address", indexed: true },
+      { name: "tokenId",           type: "uint256", indexed: true },
+      { name: "kybVerificationId",  type: "bytes32" },
+      { name: "riskScore",         type: "uint8"   },
+      { name: "timestamp",         type: "uint256" },
+    ],
+  },
+  {
+    type: "event", name: "SBTRevoked",
+    inputs: [
+      { name: "wallet",    type: "address", indexed: true },
+      { name: "tokenId",   type: "uint256", indexed: true },
+      { name: "timestamp", type: "uint256" },
+    ],
+  },
+] as const;
+
+/* ── MockKYBOracle ABI ── */
+export const KYB_ORACLE_ABI = [
+  {
+    type: "function", name: "submitKYBAttestation",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "wallet",           type: "address" },
+      { name: "verificationId",   type: "bytes32" },
+      { name: "attestationHash",  type: "bytes32" },
+      { name: "riskScore",        type: "uint8"   },
+      { name: "timestamp",        type: "uint256" },
+      { name: "signature",        type: "bytes"   },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function", name: "nonces",
+    stateMutability: "view",
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "event", name: "KYBAttestationSubmitted",
+    inputs: [
+      { name: "wallet",           type: "address", indexed: true },
+      { name: "verificationId",   type: "bytes32", indexed: true },
+      { name: "riskScore",        type: "uint8"   },
+      { name: "timestamp",        type: "uint256" },
+    ],
+  },
+] as const;
+
+/* ── ArbitraIdentity ABI ── */
+export const IDENTITY_ABI = [
+  {
+    type: "function", name: "submitEncryptedCompliance",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "encTaxID",     type: "bytes32" },
+      { name: "proofTaxID",   type: "bytes"   },
+      { name: "encKybStatus", type: "bytes32" },
+      { name: "proofKyb",     type: "bytes"   },
+      { name: "encRisk",      type: "bytes32" },
+      { name: "proofRisk",    type: "bytes"   },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function", name: "hasEncryptedCompliance",
+    stateMutability: "view",
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function", name: "getEncryptedHandles",
+    stateMutability: "view",
+    inputs: [{ name: "wallet", type: "address" }],
+    outputs: [
+      { name: "taxIDHandle", type: "bytes32" },
+      { name: "kybHandle",   type: "bytes32" },
+      { name: "riskHandle",  type: "bytes32" },
+    ],
+  },
+  {
+    type: "event", name: "EncryptedComplianceSubmitted",
+    inputs: [
+      { name: "wallet",    type: "address", indexed: true },
+      { name: "timestamp", type: "uint256" },
+    ],
   },
 ] as const;
