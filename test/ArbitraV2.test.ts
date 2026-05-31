@@ -32,10 +32,11 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
     let investor: HardhatEthersSigner;
     let debtor: HardhatEthersSigner;
     let bystander: HardhatEthersSigner;
+    let platformVerifier: HardhatEthersSigner;
     let chainId: bigint;
 
     beforeEach(async function () {
-        [deployer, supplier, investor, debtor, bystander] = await ethers.getSigners();
+        [deployer, supplier, investor, debtor, bystander, platformVerifier] = await ethers.getSigners();
         chainId = (await ethers.provider.getNetwork()).chainId;
 
         /* Deploy MockUSDC */
@@ -76,7 +77,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
         /* Deploy main Registry */
         const RegistryFactory = await ethers.getContractFactory("ArbitraInvoiceRegistry", deployer);
-        registry = await RegistryFactory.deploy(mockCUSDCAddr);
+        registry = await RegistryFactory.deploy(mockCUSDCAddr, platformVerifier.address);
         await registry.waitForDeployment();
         registryAddr = await registry.getAddress();
 
@@ -323,6 +324,80 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             expect(finalInvestorUSDC - initialInvestorUSDC).to.equal(expectedSlashAmount);
             expect(await collateralVault.isSlashed(nextInvoiceId)).to.equal(true);
+        });
+
+        it("should allow platform-signed email attestation commitment", async function () {
+            const faceValue = 1_000_000_000n;
+            const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
+            const fingerprint = 999111222n;
+            const baseRate = 300n;
+            const reputationMultiplier = 5n;
+            const nextInvoiceId = 1n;
+
+            /* Stake and upload */
+            await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(nextInvoiceId, faceValue)).wait();
+
+            const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
+            input.add64(faceValue);
+            input.add64(dueDate);
+            input.add64(fingerprint);
+            input.add64(baseRate);
+            input.add64(reputationMultiplier);
+            const enc = await input.encrypt();
+
+            await (await registry.connect(supplier).uploadInvoice(
+                enc.handles[0], enc.inputProof,
+                enc.handles[1], enc.inputProof,
+                enc.handles[2], enc.inputProof,
+                enc.handles[3], enc.inputProof,
+                enc.handles[4], enc.inputProof,
+                debtor.address,
+                true
+            )).wait();
+
+            /* Platform-signed email attestation flow */
+            const debtorEmail = "debtor@company.com";
+            const emailHash = ethers.keccak256(ethers.toUtf8Bytes(debtorEmail));
+            const latestBlock = await ethers.provider.getBlock("latest");
+            const verifiedAt = BigInt(latestBlock!.timestamp);
+            const expiresAt = verifiedAt + (72n * 3600n);
+
+            const domain = { name: "Arbitra", version: "2", chainId, verifyingContract: registryAddr };
+            const types = {
+                EmailAttestation: [
+                    { name: "invoiceId",   type: "uint256" },
+                    { name: "emailHash",   type: "bytes32" },
+                    { name: "verifiedAt",  type: "uint256" },
+                    { name: "expiresAt",   type: "uint256" }
+                ]
+            };
+            const msgObj = {
+                invoiceId: nextInvoiceId,
+                emailHash,
+                verifiedAt,
+                expiresAt
+            };
+            const platformSignature = await platformVerifier.signTypedData(domain, types, msgObj);
+
+            /* Confirm email verified */
+            await expect(
+                registry.connect(platformVerifier).confirmInvoiceEmailVerified(
+                    nextInvoiceId,
+                    emailHash,
+                    verifiedAt,
+                    expiresAt,
+                    platformSignature
+                )
+            ).to.emit(registry, "InvoiceAttested")
+             .to.emit(registry, "InvoiceEmailVerified")
+             .withArgs(nextInvoiceId, emailHash, (val: bigint) => val > 0n);
+
+            /* Assert states */
+            const inv = await registry.invoices(nextInvoiceId);
+            expect(inv.status).to.equal(1); /* Attested = 1 */
+            expect(inv.debtorEmailHash).to.equal(emailHash);
+            expect(inv.isEmailVerified).to.equal(true);
         });
     });
 });

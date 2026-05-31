@@ -81,6 +81,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     debtor: "",
   });
 
+  const [debtorEmail, setDebtorEmail] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
   const isApproved = allowance !== undefined ? BigInt(allowance) >= requiredCollateral : false;
@@ -170,6 +175,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setErrorMsg(null);
     if (!invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
       setErrorMsg("Buyer address must be a valid Ethereum address.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(debtorEmail)) {
+      setErrorMsg("Please enter a valid debtor email address.");
       return;
     }
     setWizardStep(3);
@@ -265,6 +275,30 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setWizardStep(5);
       if (onSuccess && hash) {
         onSuccess(nextInvoiceId);
+      }
+
+      /* Auto-send verification email */
+      setSendingEmail(true);
+      try {
+        const emailRes = await fetch("/api/send-verify-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invoiceId: Number(nextInvoiceId),
+            debtorEmail,
+            supplierName: "A supplier",
+          }),
+        });
+        const emailData = await emailRes.json();
+        if (emailData.success) {
+          setEmailSentTo(emailData.message);
+        } else {
+          setEmailError(emailData.error);
+        }
+      } catch (e) {
+        setEmailError("Email delivery failed — share the link manually below.");
+      } finally {
+        setSendingEmail(false);
       }
     } catch (err) {
       console.error(err);
@@ -431,6 +465,38 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   onChange={handleDebtorChange}
                   className="glass-input font-mono w-full px-2.5 py-1.5"
                 />
+              </div>
+
+              <div className="pt-2">
+                <p style={{
+                  color: "#3D4E7A", fontSize: 11, fontWeight: 600,
+                  textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 7,
+                  fontFamily: "Satoshi, sans-serif",
+                }}>
+                  Debtor Email Address <span style={{ color: "#FF2D6B" }}>*</span>
+                </p>
+                <input
+                  type="email"
+                  value={debtorEmail}
+                  onChange={e => setDebtorEmail(e.target.value)}
+                  placeholder="debtor@company.com"
+                  required
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.04)",
+                    border: `1px solid ${debtorEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(debtorEmail)
+                      ? "rgba(255,45,107,0.5)"
+                      : "rgba(255,255,255,0.08)"}`,
+                    borderRadius: 12, padding: "12px 16px",
+                    color: "#EEF2FF",
+                    fontFamily: "Satoshi, sans-serif", fontSize: 15,
+                    outline: "none", transition: "border-color 0.2s",
+                  }}
+                />
+                <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 5 }}>
+                  A secure verification link will be sent to this address.
+                  The email contains zero financial data.
+                </p>
               </div>
             </div>
 
@@ -614,22 +680,93 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 </button>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="mx-auto w-12 h-12 rounded-full bg-neon-green/10 border border-neon-green/30 flex items-center justify-center text-neon-green">
-                  <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2.5" fill="none" />
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <div style={{
+                  width: 60, height: 60, borderRadius: "50%",
+                  background: "rgba(0,255,136,0.08)",
+                  border: "2px solid rgba(0,255,136,0.3)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 26, margin: "0 auto 20px",
+                  boxShadow: "0 0 24px rgba(0,255,136,0.2)",
+                }}>✓</div>
+
+                <h3 style={{
+                  color: "#EEF2FF", fontSize: 20, fontWeight: 800,
+                  fontFamily: "Satoshi, sans-serif", marginBottom: 8,
+                }}>Invoice Uploaded Successfully</h3>
+                <p style={{ color: "#8B9CC8", fontSize: 13, marginBottom: 24, lineHeight: 1.65 }}>
+                  Invoice <strong style={{ color: "#00F0FF" }}>INV-{nextInvoiceId.toString()}</strong> is now
+                  registered on Sepolia with all fields FHE-encrypted.
+                </p>
+
+                {/* Email status */}
+                <div style={{
+                  background: sendingEmail
+                    ? "rgba(0,240,255,0.06)"
+                    : emailSentTo
+                      ? "rgba(0,255,136,0.06)"
+                      : "rgba(255,45,107,0.06)",
+                  border: `1px solid ${sendingEmail
+                    ? "rgba(0,240,255,0.2)"
+                    : emailSentTo
+                      ? "rgba(0,255,136,0.2)"
+                      : "rgba(255,45,107,0.2)"}`,
+                  borderRadius: 14, padding: "14px 18px", marginBottom: 20,
+                }}>
+                  {sendingEmail ? (
+                    <p style={{ color: "#00F0FF", fontSize: 13, fontWeight: 600, margin: 0 }}>
+                      📧 Sending verification email to debtor…
+                    </p>
+                  ) : emailSentTo ? (
+                    <p style={{ color: "#00FF88", fontSize: 13, fontWeight: 600, margin: 0 }}>
+                      ✓ {emailSentTo}
+                    </p>
+                  ) : (
+                    <p style={{ color: "#FF2D6B", fontSize: 13, margin: 0 }}>
+                      ⚠ {emailError || "Email delivery failed"} — Share the link below manually.
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <h3 className="text-white font-bold text-base" style={{ fontFamily: "Satoshi, sans-serif" }}>Invoice Staked & Uploaded</h3>
-                  <p className="text-xs text-slate-500 mt-2">
-                    USDC collateral has been locked and the FHE ciphertexts published:
+
+                {/* Manual link fallback */}
+                <div style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  borderRadius: 12, padding: "14px 16px", marginBottom: 20,
+                  textAlign: "left"
+                }}>
+                  <p style={{ color: "#3D4E7A", fontSize: 11, marginBottom: 6, margin: 0 }}>
+                    Verification link (share with debtor if email fails):
                   </p>
-                  <p className="text-[10px] font-mono text-neon-cyan mt-1 bg-white/3 border border-white/5 rounded-lg p-2 max-w-xs mx-auto break-all">
-                    {txHash}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <p style={{
+                      color: "#00F0FF", fontSize: 11,
+                      fontFamily: "JetBrains Mono, monospace",
+                      wordBreak: "break-all", flex: 1, margin: 0,
+                    }}>
+                      {`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${nextInvoiceId.toString()}?token=[sent-via-email]`}
+                    </p>
+                  </div>
+                  <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 6, margin: 0 }}>
+                    The token in the URL is only valid for 72 hours and is only included in the email.
                   </p>
                 </div>
-                <button onClick={handleReset} className="neon-btn-primary px-6 py-2.5 rounded-xl text-xs">
-                  Upload Another Invoice
-                </button>
+
+                <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+                  <button onClick={handleReset} className="neon-btn-secondary px-6 py-2.5 rounded-xl text-xs">
+                    Upload Another
+                  </button>
+                  <a href="/portfolio" style={{
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                    background: "#00F0FF", color: "#020714",
+                    borderRadius: 12, padding: "11px 24px",
+                    fontSize: 13, fontWeight: 700,
+                    fontFamily: "Satoshi, sans-serif",
+                    textDecoration: "none",
+                  }}>
+                    View in Portfolio →
+                  </a>
+                </div>
               </div>
             )}
           </motion.div>

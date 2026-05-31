@@ -272,6 +272,8 @@ export const REGISTRY_ABI = [
       { name: "geminiUnderwritingEnabled", type: "bool"    },
       { name: "debtorAttestationHash",     type: "bytes32" },
       { name: "collateralStaked",          type: "bool"    },
+      { name: "debtorEmailHash",           type: "bytes32" },
+      { name: "isEmailVerified",           type: "bool"    },
     ],
   },
   /* getInvoiceHandles */
@@ -292,6 +294,26 @@ export const REGISTRY_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ type: "uint256" }],
+  },
+  /* confirmInvoiceEmailVerified */
+  {
+    type: "function", name: "confirmInvoiceEmailVerified",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "invoiceId",         type: "uint256" },
+      { name: "emailHash",         type: "bytes32" },
+      { name: "verifiedAt",        type: "uint256" },
+      { name: "expiresAt",         type: "uint256" },
+      { name: "platformSignature", type: "bytes"   },
+    ],
+    outputs: [],
+  },
+  /* platformVerifier */
+  {
+    type: "function", name: "platformVerifier",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
   },
   /* Events */
   {
@@ -323,6 +345,14 @@ export const REGISTRY_ABI = [
     type: "event", name: "InvoiceSettled",
     inputs: [
       { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "InvoiceEmailVerified",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "emailHash", type: "bytes32", indexed: true },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },

@@ -94,8 +94,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   });
 
   /* 5. Deploy main InvoiceRegistry */
+  let platformVerifier = process.env.PLATFORM_VERIFIER_ADDRESS;
+  if (!platformVerifier) {
+    if (network.name === "sepolia") {
+      throw new Error("PLATFORM_VERIFIER_ADDRESS not set in env");
+    } else {
+      /* For local testing, use a known account (e.g. signer 9 or deployer) */
+      const signers = await hEthers.getSigners();
+      platformVerifier = signers[9] ? signers[9].address : deployer;
+    }
+  }
+
   const registryDeployment = await deploy("ArbitraInvoiceRegistry", {
-    from: deployer, args: [cUSDCAddress], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
+    from: deployer, args: [cUSDCAddress, platformVerifier], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
   /* Wire up contracts if not done already */

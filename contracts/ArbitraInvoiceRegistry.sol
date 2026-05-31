@@ -67,6 +67,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         bool     geminiUnderwritingEnabled;
         bytes32  debtorAttestationHash;
         bool     collateralStaked;
+        bytes32  debtorEmailHash;      /* keccak256(debtorEmail) — email-verified path */
+        bool     isEmailVerified;      /* true if attested via platform email flow */
     }
 
     struct SupplierStats {
@@ -90,8 +92,20 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     address public collateralVault;
     address public escrowReceiver;
 
+    /**
+     * @notice Platform verifier wallet address.
+     *         Signs email-verified attestations on behalf of non-crypto debtors.
+     *         Set in constructor, updatable by owner.
+     */
+    address public platformVerifier;
+
     bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
         "InvoiceAttestation(uint256 invoiceId,bytes32 attestationCommitment,address supplier)"
+    );
+
+    /* Email-verified attestation type hash */
+    bytes32 private constant EMAIL_ATTESTATION_TYPEHASH = keccak256(
+        "EmailAttestation(uint256 invoiceId,bytes32 emailHash,uint256 verifiedAt,uint256 expiresAt)"
     );
 
     /*************** Events ***************/
@@ -102,6 +116,12 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     event InvoiceSettled(uint256 indexed invoiceId, uint256 timestamp);
     event InvoiceDisputed(uint256 indexed invoiceId, uint256 timestamp);
     event DisputeResolved(uint256 indexed invoiceId, bool fraudConfirmed, uint256 timestamp);
+    event InvoiceEmailVerified(
+        uint256 indexed invoiceId,
+        bytes32 indexed emailHash,
+        uint256 timestamp
+    );
+    event PlatformVerifierUpdated(address indexed newVerifier);
 
     /*************** Constructor ***************/
 
@@ -109,9 +129,11 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
      * @notice Constructor to initialize main configurations.
      * @param _cUSDC The address of the cUSDC token contract.
      */
-    constructor(address _cUSDC) EIP712("Arbitra", "2") Ownable(msg.sender) {
+    constructor(address _cUSDC, address _platformVerifier) EIP712("Arbitra", "2") Ownable(msg.sender) {
         require(_cUSDC != address(0), "Arbitra: zero token address");
+        require(_platformVerifier != address(0), "Arbitra: zero verifier");
         cUSDC = _cUSDC;
+        platformVerifier = _platformVerifier;
     }
 
     /*************** Admin Functions ***************/
@@ -134,6 +156,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         riskCalc = _riskCalc;
         collateralVault = _collateralVault;
         escrowReceiver = _escrowReceiver;
+    }
+
+    /**
+     * @notice Update the platform verifier address.
+     * @param _verifier New platform verifier wallet address
+     */
+    function setPlatformVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Arbitra: zero verifier");
+        platformVerifier = _verifier;
+        emit PlatformVerifierUpdated(_verifier);
     }
 
     /*************** Supplier Functions ***************/
@@ -272,6 +304,57 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         inv.debtorAttestationHash = attestationCommitment;
 
         emit InvoiceAttested(invoiceId, msg.sender, block.timestamp);
+    }
+
+    /**
+     * @notice Confirm an invoice via platform-signed email verification.
+     *         Called only by the platformVerifier address after the debtor
+     *         has verified their email and confirmed the invoice details
+     *         through the Arbitra web app. The debtor's identity is committed
+     *         as keccak256(email) — the raw email is never stored on-chain.
+     * @param invoiceId         The invoice to attest
+     * @param emailHash         keccak256 of the debtor's verified email address
+     * @param verifiedAt        Unix timestamp when email was verified
+     * @param expiresAt         Unix timestamp when the token expires (verifiedAt + 72h)
+     * @param platformSignature EIP-712 signature from platformVerifier wallet
+     */
+    function confirmInvoiceEmailVerified(
+        uint256 invoiceId,
+        bytes32 emailHash,
+        uint256 verifiedAt,
+        uint256 expiresAt,
+        bytes calldata platformSignature
+    ) external {
+        require(msg.sender == platformVerifier, "Arbitra: not platform verifier");
+        require(block.timestamp <= expiresAt,   "Arbitra: verification token expired");
+        require(emailHash != bytes32(0),        "Arbitra: empty email hash");
+
+        Invoice storage inv = invoices[invoiceId];
+        require(inv.status == InvoiceStatus.Pending, "Arbitra: not pending");
+        require(inv.supplier != address(0),          "Arbitra: invalid invoice");
+
+        /* Verify EIP-712 signature from platformVerifier */
+        bytes32 structHash = keccak256(abi.encode(
+            EMAIL_ATTESTATION_TYPEHASH,
+            invoiceId,
+            emailHash,
+            verifiedAt,
+            expiresAt
+        ));
+        bytes32 digest  = _hashTypedDataV4(structHash);
+        address signer  = ECDSA.recover(digest, platformSignature);
+        require(signer == platformVerifier, "Arbitra: invalid platform signature");
+
+        /* Update invoice state */
+        inv.status          = InvoiceStatus.Attested;
+        inv.debtorEmailHash = emailHash;
+        inv.isEmailVerified = true;
+
+        FHE.allow(inv.faceValue,     platformVerifier);
+        FHE.allow(inv.purchasePrice, platformVerifier);
+
+        emit InvoiceAttested(invoiceId, address(0), block.timestamp);
+        emit InvoiceEmailVerified(invoiceId, emailHash, block.timestamp);
     }
 
     /*************** Investor Functions ***************/
