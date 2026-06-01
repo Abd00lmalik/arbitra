@@ -20,10 +20,11 @@ interface Web3AuthContextType {
   email:           string | null;
   isLoggedIn:      boolean;
   isInitializing:  boolean;
-  login:           () => Promise<void>;
+  login:           (method?: "email" | "wallet") => Promise<void>;
   logout:          () => Promise<void>;
   getProvider:     () => any;
   getUserInfo:     () => Promise<{ email: string; name: string } | null>;
+  authError:       string | null;
 }
 
 const Web3AuthContext = createContext<Web3AuthContextType>({
@@ -35,6 +36,7 @@ const Web3AuthContext = createContext<Web3AuthContextType>({
   logout:          async () => {},
   getProvider:     () => null,
   getUserInfo:     async () => null,
+  authError:       null,
 });
 
 /* ── Cookie helpers (client-side only) ── */
@@ -55,6 +57,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn,     setIsLoggedIn]     = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [providerRef,    setProviderRef]    = useState<any>(null);
+  const [authError,      setAuthError]      = useState<string | null>(null);
 
   /* ── Restore session helper ── */
   const restoreSession = useCallback(async (instance: any) => {
@@ -62,6 +65,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       const prov = instance.provider;
       (window as any).web3authProvider = prov;
       setProviderRef(prov);
+      setAuthError(null);
 
       /* Get wallet address */
       const { ethers } = await import("ethers");
@@ -93,6 +97,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.error("[Web3Auth] session restore error:", e);
       clearSessionCookie();
+      setAuthError(e instanceof Error ? e.message : "Session restoration failed");
     }
   }, []);
 
@@ -123,8 +128,13 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           config: { chainConfig },
         });
 
+        const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
+        if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
+          throw new Error("NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is missing or invalid");
+        }
+
         const instance = new Web3Auth({
-          clientId:        process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID ?? "BPi5afRIN-3m9ABdJaZ-cGAChr5oH4p7F3xG3zB59-A1rW8K25b9-9z7y_57y-A1rW8K25b9-9z7y_57y",
+          clientId:        web3AuthClientId,
           web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
           privateKeyProvider,
           uiConfig: {
@@ -151,6 +161,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         console.error("[Web3Auth] init error:", e);
+        setAuthError(e instanceof Error ? e.message : "Web3Auth initialization failed");
       } finally {
         if (!cancelled) setIsInitializing(false);
       }
@@ -161,10 +172,15 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
   }, [restoreSession]);
 
   /* ── Login ── */
-  const login = useCallback(async () => {
+  const login = useCallback(async (method: "email" | "wallet" = "email") => {
     if (!web3auth) throw new Error("Web3Auth not initialized");
 
-    const prov = await web3auth.connect();
+    setAuthError(null);
+
+    const prov = method === "email"
+      ? await web3auth.connectTo("email_passwordless")
+      : await web3auth.connect();
+
     if (!prov) throw new Error("Login cancelled or failed");
 
     (window as any).web3authProvider = prov;
@@ -194,6 +210,8 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.error("[Web3Auth] Wagmi connect failed:", e);
     }
+
+    setAuthError(null);
   }, [web3auth]);
 
   /* ── Logout ── */
@@ -206,6 +224,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     setEmail(null);
     setIsLoggedIn(false);
     setProviderRef(null);
+    setAuthError(null);
     clearSessionCookie();
 
     /* Disconnect Wagmi */
@@ -238,6 +257,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       logout,
       getProvider,
       getUserInfo,
+      authError,
     }}>
       {children}
     </Web3AuthContext.Provider>

@@ -81,7 +81,7 @@ export function CTASection() {
             marginBottom: "80px"
           }}
         >
-          <Link href="/register" style={{ textDecoration: "none" }}>
+          <Link href="/dashboard" style={{ textDecoration: "none" }}>
             <motion.span
               whileHover={{ scale: 1.04, boxShadow: "0 0 30px rgba(0, 240, 255, 0.45)" }}
               whileTap={{ scale: 0.97 }}

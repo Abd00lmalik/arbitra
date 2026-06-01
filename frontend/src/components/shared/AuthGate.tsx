@@ -10,7 +10,7 @@ import { usePathname, useRouter }  from "next/navigation";
 import { useWeb3Auth }             from "@/providers/Web3AuthProvider";
 
 /* Public routes that do not require authentication */
-const PUBLIC_PATHS = ["/", "/register"];
+const PUBLIC_PATHS = ["/", "/register", "/dashboard"];
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { isLoggedIn, isInitializing } = useWeb3Auth();

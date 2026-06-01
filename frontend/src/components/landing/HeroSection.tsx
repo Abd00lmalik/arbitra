@@ -218,7 +218,7 @@ export function HeroSection() {
             fontFamily: "Satoshi, sans-serif",
             transition: "color 0.2s"
           }}>Marketplace</Link>
-          <Link href="/register" style={{
+          <Link href="/dashboard" style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             height: 40, padding: "0 20px",
             background: "rgba(0,240,255,0.08)",
@@ -228,7 +228,7 @@ export function HeroSection() {
             textDecoration: "none",
             fontFamily: "Satoshi, sans-serif",
             transition: "all 0.2s"
-          }}>Login with Email</Link>
+          }}>Login</Link>
         </div>
       </motion.nav>
 
@@ -340,7 +340,7 @@ export function HeroSection() {
             animate="visible"
             style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}
           >
-            <Link href="/register" style={{ textDecoration: "none" }}>
+            <Link href="/dashboard" style={{ textDecoration: "none" }}>
               <motion.span
                 whileHover={{ scale: 1.04, boxShadow: "0 0 34px rgba(0,240,255,0.45)" }}
                 whileTap={{ scale: 0.97 }}
@@ -364,7 +364,7 @@ export function HeroSection() {
                 Login with Email →
               </motion.span>
             </Link>
-            <Link href="/register?next=/marketplace" style={{ textDecoration: "none" }}>
+            <Link href="/dashboard" style={{ textDecoration: "none" }}>
               <motion.span
                 whileHover={{ scale: 1.03, background: "rgba(0,240,255,0.08)" }}
                 whileTap={{ scale: 0.97 }}

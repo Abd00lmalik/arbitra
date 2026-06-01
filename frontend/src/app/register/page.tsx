@@ -1,36 +1,33 @@
 /*
  * @file page.tsx
- * @description Onboarding and registration page for suppliers joining Arbitra.
- *              Guides the user through email login, KYB verification, SBT minting, and FHE compliance.
+ * @description Authentication and KYB onboarding entrypoint for Arbitra suppliers.
  */
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { useRouter, useSearchParams }            from "next/navigation";
-import { useAccount, useWriteContract,
-         usePublicClient }                        from "wagmi";
-import { motion, AnimatePresence }                from "framer-motion";
-import { useWeb3Auth }                            from "@/providers/Web3AuthProvider";
-import { useZama }                                from "@/providers/ZamaProvider";
-import { GlassCard }                              from "@/components/ui/GlassCard";
-import { Spinner }                                from "@/components/ui/Spinner";
-import { FHEBadge }                               from "@/components/ui/FHEBadge";
+import React, { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAccount, useConnect, usePublicClient, useWriteContract } from "wagmi";
+import { injected } from "wagmi/connectors";
+import { motion, AnimatePresence } from "framer-motion";
+import { useWeb3Auth } from "@/providers/Web3AuthProvider";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Spinner } from "@/components/ui/Spinner";
 import {
-  SBT_ADDRESS,
-  SBT_ABI,
-  KYB_ORACLE_ADDRESS,
-  KYB_ORACLE_ABI,
-  IDENTITY_ADDRESS,
   IDENTITY_ABI,
+  IDENTITY_ADDRESS,
+  KYB_ORACLE_ABI,
+  KYB_ORACLE_ADDRESS,
+  SBT_ABI,
+  SBT_ADDRESS,
   truncAddr,
 } from "@/lib/contracts";
-import { encryptUint32, encryptBool, encryptUint8 } from "@/lib/zama";
+import { encryptBool, encryptUint32, encryptUint8 } from "@/lib/zama";
 
-/* ─── Types ─── */
 type Stage =
-  | "LOGIN"
+  | "AUTH_CHOICE"
   | "WALLET_READY"
+  | "KYB_FORM"
   | "KYB_PENDING"
   | "KYB_APPROVED"
   | "SBT_MINTED"
@@ -44,14 +41,14 @@ interface KYBResult {
   risk_score: number;
   timestamp: number;
   signature: `0x${string}`;
+  oracle_signature?: string;
   verificationIdBytes32: `0x${string}`;
   attestationHashBytes32: `0x${string}`;
 }
 
-/* ─── Shared Style Constants ─── */
 const headingStyle: React.CSSProperties = {
   color: "#EEF2FF",
-  fontSize: 22,
+  fontSize: 24,
   fontWeight: 800,
   fontFamily: "Satoshi, sans-serif",
   letterSpacing: "-0.02em",
@@ -67,11 +64,11 @@ const bodyStyle: React.CSSProperties = {
 
 const primaryBtnStyle: React.CSSProperties = {
   width: "100%",
-  height: 52,
+  minHeight: 54,
   background: "#00F0FF",
   color: "#020714",
   border: "none",
-  borderRadius: 13,
+  borderRadius: 14,
   fontSize: 14,
   fontWeight: 700,
   fontFamily: "Satoshi, sans-serif",
@@ -83,17 +80,24 @@ const primaryBtnStyle: React.CSSProperties = {
   boxShadow: "0 0 20px rgba(0, 240, 255, 0.2)",
 };
 
+const secondaryBtnStyle: React.CSSProperties = {
+  ...primaryBtnStyle,
+  background: "rgba(255,255,255,0.03)",
+  color: "#EEF2FF",
+  border: "1px solid rgba(255,255,255,0.08)",
+  boxShadow: "none",
+};
+
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgba(255, 255, 255, 0.04)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 11,
   padding: "11px 14px",
   color: "#EEF2FF",
   fontFamily: "Satoshi, sans-serif",
   fontSize: 14,
   outline: "none",
-  transition: "border-color 0.2s",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -107,110 +111,124 @@ const labelStyle: React.CSSProperties = {
   display: "block",
 };
 
-/* ─── LockIcon ─── */
-function LockIcon({ size = 16 }: { size?: number }) {
+function StatusBanner({ children }: { children: React.ReactNode }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "12px 14px",
+        borderRadius: 12,
+        background: "rgba(255,186,0,0.06)",
+        border: "1px solid rgba(255,186,0,0.2)",
+      }}
     >
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFBA00" strokeWidth="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+      <span style={{ color: "#FFCF6B", fontSize: 12, fontWeight: 700 }}>{children}</span>
+    </div>
   );
 }
 
-/* ─── Main Onboarding Form ─── */
 export default function RegisterPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "/dashboard";
 
-  const { wallet, isLoggedIn, login, isInitializing } = useWeb3Auth();
+  const { wallet, isLoggedIn, isInitializing, login, authError } = useWeb3Auth();
+  const { connectAsync } = useConnect();
   const { isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
-  const { isReady: zamaReady } = useZama();
 
-  const [stage, setStage] = useState<Stage>("LOGIN");
+  const [stage, setStage] = useState<Stage>("AUTH_CHOICE");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [kybStep, setKybStep] = useState(0);
+  const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
 
-  /* Credential checking states */
-  const [isCheckingCredentials, setIsCheckingCredentials] = useState(true);
-
-  /* KYB form inputs */
   const [companyName, setCompanyName] = useState("");
-  const [country, setCountry] = useState("US");
+  const [country, setCountry] = useState("United States");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [taxID, setTaxID] = useState("");
   const [docUploaded, setDocUploaded] = useState(false);
 
-  /* Oracle response payload */
   const [kybResult, setKybResult] = useState<KYBResult | null>(null);
-
-  /* Minting & Encryption Loader flags */
   const [isMintingSBT, setIsMintingSBT] = useState(false);
   const [isEncryptingFHE, setIsEncryptingFHE] = useState(false);
 
-  /* Advance to WALLET_READY if logged in */
   useEffect(() => {
-    if (!isInitializing && isLoggedIn && wallet && stage === "LOGIN") {
+    if (!isInitializing && authError) {
+      setError(authError);
+    }
+  }, [authError, isInitializing]);
+
+  useEffect(() => {
+    if (!isInitializing && isLoggedIn && wallet && stage === "AUTH_CHOICE") {
       setStage("WALLET_READY");
     }
-  }, [isLoggedIn, isInitializing, wallet, stage]);
+  }, [isInitializing, isLoggedIn, wallet, stage]);
 
-  /* Run credential verification check inside WALLET_READY */
   useEffect(() => {
     if (stage !== "WALLET_READY" || !wallet || !publicClient) return;
 
+    const client = publicClient;
+
     let active = true;
 
-    const checkCredentials = async () => {
+    async function checkCredentials() {
+      setIsCheckingCredentials(true);
       try {
-        setIsCheckingCredentials(true);
+        const connectedWallet = wallet;
+        if (!connectedWallet) {
+          setStage("AUTH_CHOICE");
+          return;
+        }
 
-        /* Query Soulbound Token contract for valid credential */
-        const hasSBT = (await publicClient.readContract({
+        const hasSBT = (await client.readContract({
           address: SBT_ADDRESS,
           abi: SBT_ABI,
           functionName: "hasValidSBT",
-          args: [wallet],
+          args: [connectedWallet],
         })) as boolean;
 
         if (!active) return;
 
-        if (hasSBT) {
-          /* Check if FHE identity data was submitted */
-          const hasFHE = (await publicClient.readContract({
-            address: IDENTITY_ADDRESS,
-            abi: IDENTITY_ABI,
-            functionName: "hasEncryptedCompliance",
-            args: [wallet],
-          })) as boolean;
-
-          if (!active) return;
-
-          if (hasFHE) {
-            router.push(nextPath);
-          } else {
-            setStage("SBT_MINTED");
-          }
+        if (!hasSBT) {
+          setStage("KYB_FORM");
+          return;
         }
-      } catch (e) {
-        console.error("[Register] Credential check failed:", e);
+
+        const hasFHE = (await client.readContract({
+          address: IDENTITY_ADDRESS,
+          abi: IDENTITY_ABI,
+          functionName: "hasEncryptedCompliance",
+          args: [connectedWallet],
+        })) as boolean;
+
+        if (!active) return;
+
+        if (hasFHE) {
+          router.push(nextPath);
+          return;
+        }
+
+        setStage("SBT_MINTED");
+      } catch (credentialError) {
+        console.error("[Register] Credential check failed:", credentialError);
+        if (active) {
+          setError("Unable to verify current account status.");
+          setStage("KYB_FORM");
+        }
       } finally {
         if (active) {
           setIsCheckingCredentials(false);
         }
       }
-    };
+    }
 
     checkCredentials();
 
@@ -219,46 +237,57 @@ export default function RegisterPage() {
     };
   }, [stage, wallet, publicClient, router, nextPath]);
 
-  /* Mock oracle steps sequence simulator */
   useEffect(() => {
     if (stage !== "KYB_PENDING") return;
-    const delays = [800, 1800, 2800, 3800];
-    const timers = delays.map((d, idx) =>
-      setTimeout(() => setKybStep(idx + 1), d)
+
+    const delays = [900, 1800, 3000, 4200];
+    const timers = delays.map((delay, index) =>
+      setTimeout(() => setKybStep(index + 1), delay),
     );
-    const finalTimer = setTimeout(() => setStage("KYB_APPROVED"), 4500);
+    const finishTimer = setTimeout(() => setStage("KYB_APPROVED"), 5200);
+
     return () => {
       timers.forEach(clearTimeout);
-      clearTimeout(finalTimer);
+      clearTimeout(finishTimer);
     };
   }, [stage]);
 
-  /* Web3Auth login handler */
-  const handleLogin = async () => {
+  async function handleEmailLogin() {
     setIsLoading(true);
     setError(null);
+
     try {
-      await login();
-    } catch (e) {
-      console.error(e);
-      setError("Email login failed. Please try again.");
+      await login("email");
+    } catch (loginError) {
+      console.error(loginError);
+      setError(loginError instanceof Error ? loginError.message : "Email login failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  /* Form submission triggering mock KYB verification backend */
-  const handleKYBSubmit = async () => {
+  async function handleWalletLogin() {
+    setError(null);
+
+    try {
+      await connectAsync({ connector: injected() });
+    } catch (walletError) {
+      console.error(walletError);
+      setError(walletError instanceof Error ? walletError.message : "Wallet connection failed.");
+    }
+  }
+
+  async function handleKYBSubmit() {
     if (!companyName.trim()) return setError("Company Name is required.");
-    if (!registrationNumber.trim()) return setError("Registration Number is required.");
-    if (!taxID.trim()) return setError("Tax ID / VAT is required.");
+    if (!registrationNumber.trim()) return setError("Business Registration Number is required.");
+    if (!taxID.trim()) return setError("Tax ID is required.");
     if (!docUploaded) return setError("Please upload the Certificate of Incorporation.");
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/kyb-verify", {
+      const response = await fetch("/api/kyb-verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -270,34 +299,34 @@ export default function RegisterPage() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
+      const data = await response.json();
+      if (!response.ok) {
         throw new Error(data.error || "KYB validation failed.");
       }
 
       setKybResult(data);
       setKybStep(0);
       setStage("KYB_PENDING");
-    } catch (e: any) {
-      setError(e.message || "KYB processing failed.");
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "KYB processing failed.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  /* Mint SBT using oracle signature payload */
-  const handleMintSBT = async () => {
-    if (!kybResult || !publicClient) return;
+  async function handleMintSBT() {
+    if (!wallet || !kybResult || !publicClient) return;
+
     setIsMintingSBT(true);
     setError(null);
 
     try {
-      const tx = await writeContractAsync({
+      const hash = await writeContractAsync({
         address: KYB_ORACLE_ADDRESS,
         abi: KYB_ORACLE_ABI,
         functionName: "submitKYBAttestation",
         args: [
-          wallet as `0x${string}`,
+          wallet,
           kybResult.verificationIdBytes32,
           kybResult.attestationHashBytes32,
           kybResult.risk_score,
@@ -306,33 +335,33 @@ export default function RegisterPage() {
         ],
       });
 
-      await publicClient.waitForTransactionReceipt({ hash: tx });
+      await publicClient.waitForTransactionReceipt({ hash });
       setStage("SBT_MINTED");
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || "On-chain SBT minting transaction failed.");
+    } catch (mintError) {
+      console.error(mintError);
+      setError(mintError instanceof Error ? mintError.message : "SBT minting failed.");
     } finally {
       setIsMintingSBT(false);
     }
-  };
+  }
 
-  /* Client-side FHE encryption and submission to ArbitraIdentity */
-  const handleFHESubmit = async () => {
+  async function handleFHESubmit() {
     if (!wallet || !kybResult || !publicClient) return;
+
     setIsEncryptingFHE(true);
     setError(null);
 
     try {
-      /* Extract numeric values of Tax ID */
       const taxIDInt = parseInt(taxID.replace(/\D/g, "").slice(0, 9), 10);
-      if (isNaN(taxIDInt)) throw new Error("Invalid Tax ID format.");
+      if (Number.isNaN(taxIDInt)) {
+        throw new Error("Invalid Tax ID format.");
+      }
 
-      /* Encrypt compliance data in-browser */
       const encTax = await encryptUint32(BigInt(taxIDInt), wallet, IDENTITY_ADDRESS);
       const encKyb = await encryptBool(true, wallet, IDENTITY_ADDRESS);
       const encRisk = await encryptUint8(BigInt(kybResult.risk_score), wallet, IDENTITY_ADDRESS);
 
-      const tx = await writeContractAsync({
+      const hash = await writeContractAsync({
         address: IDENTITY_ADDRESS,
         abi: IDENTITY_ABI,
         functionName: "submitEncryptedCompliance",
@@ -346,389 +375,244 @@ export default function RegisterPage() {
         ],
       });
 
-      await publicClient.waitForTransactionReceipt({ hash: tx });
+      await publicClient.waitForTransactionReceipt({ hash });
       setStage("FHE_SYNCED");
-    } catch (e: any) {
-      console.error(e);
-      setError(e.message || "FHE compliance transaction failed.");
+    } catch (fheError) {
+      console.error(fheError);
+      setError(fheError instanceof Error ? fheError.message : "FHE compliance transaction failed.");
     } finally {
       setIsEncryptingFHE(false);
     }
-  };
+  }
 
   return (
     <main
       style={{
-        background: "radial-gradient(circle at center, #0b152d 0%, #030814 100%)",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: "24px",
+        background:
+          "radial-gradient(circle at top, rgba(0,240,255,0.12) 0%, transparent 30%), radial-gradient(circle at bottom right, rgba(255,186,0,0.12) 0%, transparent 22%), #030814",
       }}
     >
-      <div style={{ width: "100%", maxWidth: "520px" }}>
+      <div style={{ width: "100%", maxWidth: 560 }}>
         <AnimatePresence mode="wait">
-          {/* ════ Stage 1: LOGIN ════ */}
-          {stage === "LOGIN" && (
+          {stage === "AUTH_CHOICE" && (
             <motion.div
-              key="login"
-              initial={{ opacity: 0, y: 15 }}
+              key="auth-choice"
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
-              <GlassCard className="p-8 text-center" glow="cyan">
-                <div
-                  style={{
-                    width: "60px",
-                    height: "60px",
-                    borderRadius: "18px",
-                    background: "rgba(0, 240, 255, 0.1)",
-                    border: "1px solid rgba(0, 240, 255, 0.25)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "28px",
-                    fontWeight: 800,
-                    color: "#00F0FF",
-                    margin: "0 auto 24px",
-                  }}
-                >
-                  A
+              <GlassCard className="p-8" glow="cyan">
+                <div style={{ marginBottom: 26 }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      borderRadius: 999,
+                      border: "1px solid rgba(0,240,255,0.16)",
+                      background: "rgba(0,240,255,0.06)",
+                      color: "#00F0FF",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "6px 12px",
+                      marginBottom: 18,
+                    }}
+                  >
+                    Dashboard Access
+                  </div>
+                  <h1 style={headingStyle}>Choose how you want to continue</h1>
+                  <p style={bodyStyle}>
+                    Sign in with an embedded email wallet or use a connected wallet for marketplace actions later.
+                  </p>
                 </div>
-                <h1 style={{ ...headingStyle, fontSize: "24px" }}>
-                  Join Arbitra
-                </h1>
-                <p style={{ ...bodyStyle, marginBottom: "32px" }}>
-                  Confidential invoice factoring for verified businesses.
-                  No MetaMask required.
-                </p>
 
                 {error && (
                   <div
                     style={{
                       background: "rgba(255,45,107,0.1)",
                       border: "1px solid rgba(255,45,107,0.2)",
-                      borderRadius: "12px",
-                      padding: "12px",
+                      borderRadius: 12,
+                      padding: 12,
                       color: "#FF5E8C",
-                      fontSize: "13px",
-                      marginBottom: "20px",
-                      textAlign: "left",
+                      fontSize: 13,
+                      marginBottom: 20,
                     }}
                   >
                     {error}
                   </div>
                 )}
 
-                <button
-                  onClick={handleLogin}
-                  disabled={isLoading}
-                  style={primaryBtnStyle}
-                >
-                  {isLoading ? (
-                    <>
-                      <Spinner /> Creating secure session...
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                        <polyline points="22,6 12,13 2,6" />
-                      </svg>
-                      Login with Email
-                    </>
-                  )}
-                </button>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    gap: "10px",
-                    marginTop: "24px",
-                  }}
-                >
-                  {["🔒 Soulbound Gate", "🛡 FHE Identity", "⚡ Instant OTP"].map((tag) => (
-                    <span
-                      key={tag}
-                      style={{
-                        background: "rgba(255,255,255,0.03)",
-                        border: "1px solid rgba(255,255,255,0.05)",
-                        borderRadius: "100px",
-                        padding: "4px 10px",
-                        fontSize: "11px",
-                        color: "#8B9CC8",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                <div style={{ display: "grid", gap: 14 }}>
+                  <button onClick={handleEmailLogin} disabled={isLoading || isInitializing} style={primaryBtnStyle}>
+                    {isLoading || isInitializing ? <Spinner /> : "Continue with Email"}
+                  </button>
+                  <button onClick={handleWalletLogin} style={secondaryBtnStyle}>
+                    Connect Wallet
+                  </button>
                 </div>
               </GlassCard>
             </motion.div>
           )}
 
-          {/* ════ Stage 2: WALLET_READY (Loading Check OR KYB Form) ════ */}
           {stage === "WALLET_READY" && (
             <motion.div
               key="wallet-ready"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
-              {isCheckingCredentials ? (
-                <GlassCard className="p-8 text-center" glow="cyan">
-                  <Spinner />
-                  <h2
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: 700,
-                      color: "#EEF2FF",
-                      marginTop: "20px",
-                      marginBottom: "8px",
-                    }}
-                  >
-                    Verifying Soulbound credentials...
-                  </h2>
-                  <p
-                    style={{
-                      color: "#8B9CC8",
-                      fontSize: "13px",
-                      fontFamily: "JetBrains Mono, monospace",
-                    }}
-                  >
-                    Wallet: {truncAddr(wallet)}
-                  </p>
-                </GlassCard>
-              ) : (
-                <GlassCard className="p-8" glow="cyan">
-                  {/* Warning banner */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      background: "rgba(255,186,0,0.06)",
-                      border: "1px solid rgba(255,186,0,0.2)",
-                      marginBottom: "24px",
-                    }}
-                  >
-                    <LockIcon size={18} />
-                    <span style={{ fontSize: "12px", color: "#FFBA00", fontWeight: 700 }}>
-                      KYB Verification Required for Marketplace
-                    </span>
-                  </div>
+              <GlassCard className="p-8" glow="cyan">
+                <h2 style={headingStyle}>Checking business access</h2>
+                <p style={{ ...bodyStyle, marginBottom: 22 }}>
+                  Wallet Connected: {truncAddr(wallet ?? "")}
+                </p>
+                {isCheckingCredentials ? <Spinner /> : <p style={bodyStyle}>Preparing your account status...</p>}
+              </GlassCard>
+            </motion.div>
+          )}
 
-                  {/* Wallet Connection Card */}
-                  <div
-                    style={{
-                      background: "rgba(0,240,255,0.04)",
-                      border: "1px solid rgba(0,240,255,0.15)",
-                      borderRadius: 11,
-                      padding: "10px 14px",
-                      marginBottom: 22,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span style={{ color: "#4F6495", fontSize: 11 }}>Wallet Connected</span>
-                    <span style={{ color: "#00F0FF", fontFamily: "JetBrains Mono,monospace", fontSize: 12 }}>
-                      {truncAddr(wallet ?? "")}
-                    </span>
-                    <span
+          {stage === "KYB_FORM" && (
+            <motion.div
+              key="kyb-form"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
+            >
+              <GlassCard className="p-8" glow="cyan">
+                <div style={{ display: "grid", gap: 18 }}>
+                  <div>
+                    <div
                       style={{
-                        background: "rgba(255,186,0,0.1)",
-                        border: "1px solid rgba(255,186,0,0.25)",
-                        borderRadius: 100,
-                        padding: "2px 9px",
-                        color: "#FFBA00",
-                        fontSize: 10,
-                        fontWeight: 600,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        marginBottom: 12,
+                        flexWrap: "wrap",
                       }}
                     >
-                      Unverified
-                    </span>
+                      <h2 style={{ ...headingStyle, marginBottom: 0 }}>Account onboarding</h2>
+                      <span style={{ color: "#00F0FF", fontSize: 12, fontFamily: "JetBrains Mono, monospace" }}>
+                        Wallet Connected: {truncAddr(wallet ?? "")}
+                      </span>
+                    </div>
+                    <div style={{ color: "#FFBA00", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                      Account Status: Unverified Business
+                    </div>
+                    <StatusBanner>Invoice Marketplace Locked - Business Verification Required to Continue</StatusBanner>
                   </div>
-
-                  <h2 style={headingStyle}>Verify Your Business</h2>
-                  <p style={{ ...bodyStyle, marginBottom: 22 }}>
-                    Complete the KYB form below. Your Tax ID will be encrypted using Zama FHEVM
-                    after verification - never stored in plaintext.
-                  </p>
 
                   {error && (
                     <div
                       style={{
                         background: "rgba(255,45,107,0.1)",
                         border: "1px solid rgba(255,45,107,0.2)",
-                        borderRadius: "12px",
-                        padding: "12px",
+                        borderRadius: 12,
+                        padding: 12,
                         color: "#FF5E8C",
-                        fontSize: "13px",
-                        marginBottom: "20px",
+                        fontSize: 13,
                       }}
                     >
                       {error}
                     </div>
                   )}
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <p style={{ ...bodyStyle, margin: 0 }}>
+                      Start Verification to unlock invoice marketplace access and submit KYB details.
+                    </p>
+                    <button
+                      onClick={() => setStage("KYB_FORM")}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid rgba(0,240,255,0.18)",
+                        borderRadius: 999,
+                        color: "#00F0FF",
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Start Verification
+                    </button>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 16 }}>
                     <div>
                       <label style={labelStyle}>Company Name</label>
-                      <input
-                        type="text"
-                        placeholder="Acme Supplies Ltd"
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        style={inputStyle}
-                      />
+                      <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} style={inputStyle} />
                     </div>
-
                     <div>
                       <label style={labelStyle}>Country</label>
-                      <select
-                        value={country}
-                        onChange={(e) => setCountry(e.target.value)}
-                        style={{ ...inputStyle, background: "#0b152d" }}
-                      >
-                        <option value="">Select country...</option>
-                        {["United States", "United Kingdom", "Nigeria", "Canada", "Germany", "Singapore",
-                          "United Arab Emirates", "Australia", "India", "Brazil", "Other"].map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
+                      <input value={country} onChange={(event) => setCountry(event.target.value)} style={inputStyle} />
                     </div>
-
                     <div>
                       <label style={labelStyle}>Business Registration Number</label>
-                      <input
-                        type="text"
-                        placeholder="RC-12345678"
-                        value={registrationNumber}
-                        onChange={(e) => setRegistrationNumber(e.target.value)}
-                        style={inputStyle}
-                      />
+                      <input value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} style={inputStyle} />
                     </div>
-
                     <div>
-                      <label style={labelStyle}>Tax ID / VAT Number</label>
-                      <input
-                        type="text"
-                        placeholder="991-20-4855"
-                        value={taxID}
-                        onChange={(e) => setTaxID(e.target.value)}
-                        style={inputStyle}
-                      />
-                      <span style={{ fontSize: "10px", color: "#4F6495", marginTop: "4px", display: "block" }}>
-                        🔒 Will be encrypted using Zama FHEVM after verification. Never stored in plaintext.
-                      </span>
+                      <label style={labelStyle}>Tax ID</label>
+                      <input value={taxID} onChange={(event) => setTaxID(event.target.value)} style={inputStyle} />
                     </div>
-
                     <div>
-                      <label style={labelStyle}>Certificate of Incorporation</label>
-                      <div
+                      <label style={labelStyle}>Upload Certificate of Incorporation</label>
+                      <button
                         onClick={() => setDocUploaded(true)}
                         style={{
-                          padding: "24px",
-                          border: "2px dashed rgba(255,255,255,0.1)",
-                          borderRadius: "12px",
-                          textAlign: "center",
-                          cursor: "pointer",
-                          background: docUploaded ? "rgba(0,255,136,0.02)" : "rgba(255,255,255,0.01)",
-                          borderColor: docUploaded ? "rgba(0,255,136,0.25)" : "rgba(255,255,255,0.1)",
+                          ...secondaryBtnStyle,
+                          justifyContent: "flex-start",
+                          padding: "14px 16px",
+                          minHeight: 58,
+                          color: docUploaded ? "#00FF88" : "#EEF2FF",
                         }}
                       >
-                        {docUploaded ? (
-                          <p style={{ color: "#00FF88", fontSize: "13px", fontWeight: 600 }}>
-                            ✓ certificate_of_incorporation.pdf (Attached)
-                          </p>
-                        ) : (
-                          <p style={{ color: "#8B9CC8", fontSize: "13px" }}>
-                            Click to upload PDF or image document
-                          </p>
-                        )}
-                      </div>
+                        {docUploaded ? "Certificate attached" : "Attach incorporation certificate"}
+                      </button>
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleKYBSubmit}
-                    disabled={isLoading}
-                    style={{ ...primaryBtnStyle, marginTop: "24px" }}
-                  >
-                    {isLoading ? <Spinner /> : "Submit for Verification →"}
+                  <button onClick={handleKYBSubmit} disabled={isLoading} style={primaryBtnStyle}>
+                    {isLoading ? <Spinner /> : "Submit for Verification"}
                   </button>
-                </GlassCard>
-              )}
+                </div>
+              </GlassCard>
             </motion.div>
           )}
 
-          {/* ════ Stage 3: KYB_PENDING ════ */}
           {stage === "KYB_PENDING" && (
             <motion.div
               key="kyb-pending"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
               <GlassCard className="p-8" glow="cyan">
-                <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#EEF2FF", marginBottom: "20px" }}>
-                  Verification Processing...
-                </h2>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <h2 style={headingStyle}>Verifying business identity...</h2>
+                <div style={{ display: "grid", gap: 14 }}>
                   {[
-                    "Validating company registration metadata",
-                    "Sanction list and AML compliance check",
-                    "Generating company risk assessment parameters",
-                    "Signing EIP-712 compliance attestation",
-                  ].map((stepDesc, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      {kybStep > idx ? (
-                        <div
-                          style={{
-                            width: "18px",
-                            height: "18px",
-                            borderRadius: "50%",
-                            background: "#00FF88",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "10px",
-                            color: "#030814",
-                            fontWeight: 700,
-                          }}
-                        >
-                          ✓
-                        </div>
-                      ) : kybStep === idx ? (
+                    "Validating company presence",
+                    "Running sanctions screening",
+                    "Running AML screening",
+                    "Generating oracle attestation",
+                  ].map((label, index) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      {kybStep > index ? (
+                        <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#00FF88" }} />
+                      ) : kybStep === index ? (
                         <Spinner size={16} />
                       ) : (
-                        <div style={{ width: "18px", height: "18px", borderRadius: "50%", border: "1px solid rgba(255,255,255,0.1)" }} />
+                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.1)" }} />
                       )}
-                      <span
-                        style={{
-                          fontSize: "13px",
-                          color: kybStep > idx ? "#00FF88" : kybStep === idx ? "#EEF2FF" : "#4F6495",
-                        }}
-                      >
-                        {stepDesc}
-                      </span>
+                      <span style={{ color: kybStep >= index ? "#EEF2FF" : "#4F6495", fontSize: 13 }}>{label}</span>
                     </div>
                   ))}
                 </div>
@@ -736,271 +620,87 @@ export default function RegisterPage() {
             </motion.div>
           )}
 
-          {/* ════ Stage 4: KYB_APPROVED ════ */}
           {stage === "KYB_APPROVED" && (
             <motion.div
               key="kyb-approved"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
-              <GlassCard className="p-8 text-center" glow="cyan">
-                <div
-                  style={{
-                    width: "50px",
-                    height: "50px",
-                    borderRadius: "50%",
-                    background: "rgba(0, 255, 136, 0.1)",
-                    border: "1px solid rgba(0, 255, 136, 0.2)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "20px",
-                    color: "#00FF88",
-                    margin: "0 auto 20px",
-                  }}
-                >
-                  ✓
-                </div>
-                <h2 style={{ fontSize: "20px", fontWeight: 800, color: "#EEF2FF", marginBottom: "8px" }}>
-                  KYB Verification Approved!
-                </h2>
-                <p style={{ ...bodyStyle, marginBottom: "24px" }}>
-                  The Arbitra Compliance Oracle has verified your credentials and signed the attestation. Mint your Soulbound Token on-chain.
+              <GlassCard className="p-8" glow="cyan">
+                <h2 style={headingStyle}>Business verified</h2>
+                <p style={{ ...bodyStyle, marginBottom: 22 }}>
+                  MockKYBOracleService approved this business and prepared a signed compliance attestation.
                 </p>
 
-                {error && (
-                  <div
-                    style={{
-                      background: "rgba(255,45,107,0.1)",
-                      border: "1px solid rgba(255,45,107,0.2)",
-                      borderRadius: "12px",
-                      padding: "12px",
-                      color: "#FF5E8C",
-                      fontSize: "13px",
-                      marginBottom: "20px",
-                      textAlign: "left",
-                    }}
-                  >
-                    {error}
-                  </div>
-                )}
-
                 <div
                   style={{
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.04)",
-                    borderRadius: "12px",
-                    padding: "14px",
-                    marginBottom: "24px",
-                    textAlign: "left",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.05)",
+                    borderRadius: 14,
+                    padding: 16,
+                    marginBottom: 22,
+                    display: "grid",
+                    gap: 8,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", fontSize: "12px" }}>
-                    <span style={{ color: "#8B9CC8" }}>Verification ID:</span>
-                    <span style={{ color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: "#8B9CC8", fontSize: 12 }}>Verification ID</span>
+                    <span style={{ color: "#00F0FF", fontSize: 12, fontFamily: "JetBrains Mono, monospace" }}>
                       {kybResult?.verification_id}
                     </span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-                    <span style={{ color: "#8B9CC8" }}>Compliance Risk Score:</span>
-                    <span style={{ color: "#00FF88", fontWeight: 700 }}>{kybResult?.risk_score}/100</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: "#8B9CC8", fontSize: 12 }}>Risk Score</span>
+                    <span style={{ color: "#00FF88", fontSize: 12, fontWeight: 700 }}>
+                      {kybResult?.risk_score}
+                    </span>
                   </div>
                 </div>
 
-                <button
-                  onClick={handleMintSBT}
-                  disabled={isMintingSBT}
-                  style={{
-                    ...primaryBtnStyle,
-                    background: "linear-gradient(90deg, #00FF88 0%, #00FFC4 100%)",
-                    boxShadow: "0 4px 20px rgba(0, 255, 136, 0.25)",
-                  }}
-                >
-                  {isMintingSBT ? <Spinner /> : "Mint soulbound verification token"}
+                <button onClick={handleMintSBT} disabled={isMintingSBT} style={primaryBtnStyle}>
+                  {isMintingSBT ? <Spinner /> : "Mint Soulbound Token"}
                 </button>
               </GlassCard>
             </motion.div>
           )}
 
-          {/* ════ Stage 5: SBT_MINTED ════ */}
           {stage === "SBT_MINTED" && (
             <motion.div
               key="sbt-minted"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
               <GlassCard className="p-8" glow="cyan">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                  <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#EEF2FF" }}>
-                    Encrypt Compliance Profile
-                  </h2>
-                  <FHEBadge />
-                </div>
-                <p style={{ color: "#8B9CC8", fontSize: "13px", lineHeight: 1.5, marginBottom: "20px" }}>
-                  Encrypt your private compliance attributes using Zama Fully Homomorphic Encryption (FHEVM) and commit them to the blockchain.
+                <h2 style={headingStyle}>Finalize encrypted compliance</h2>
+                <p style={{ ...bodyStyle, marginBottom: 20 }}>
+                  KYB is approved and the SBT is minted. FHE encryption is now enabled for Tax ID, KYB status, and risk score.
                 </p>
-
-                <div
-                  style={{
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.04)",
-                    borderRadius: "14px",
-                    padding: "16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "12px",
-                    marginBottom: "20px",
-                  }}
-                >
-                  {[
-                    { label: "Tax ID / VAT", type: "euint32" },
-                    { label: "KYB Status", type: "ebool" },
-                    { label: "Risk Score", type: "euint8" },
-                  ].map((field) => (
-                    <div key={field.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: "13px", color: "#EEF2FF", fontWeight: 600 }}>{field.label}</span>
-                      <span
-                        style={{
-                          background: "rgba(0, 240, 255, 0.1)",
-                          border: "1px solid rgba(0, 240, 255, 0.2)",
-                          borderRadius: "100px",
-                          padding: "2px 8px",
-                          fontSize: "11px",
-                          color: "#00F0FF",
-                          fontWeight: 700,
-                          fontFamily: "JetBrains Mono, monospace",
-                        }}
-                      >
-                        {field.type}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "10px",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    background: "rgba(0,240,255,0.03)",
-                    border: "1px solid rgba(0,240,255,0.1)",
-                    marginBottom: "24px",
-                  }}
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#00F0FF"
-                    strokeWidth="2"
-                    style={{ flexShrink: 0, marginTop: "2px" }}
-                  >
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  </svg>
-                  <p style={{ color: "#8B9CC8", fontSize: "11px", lineHeight: 1.5 }}>
-                    Your fields will be encrypted client-side in your browser before submission. Plain-text data never hits the blockchain.
-                  </p>
-                </div>
-
-                {error && (
-                  <div
-                    style={{
-                      background: "rgba(255,45,107,0.1)",
-                      border: "1px solid rgba(255,45,107,0.2)",
-                      borderRadius: "12px",
-                      padding: "12px",
-                      color: "#FF5E8C",
-                      fontSize: "13px",
-                      marginBottom: "20px",
-                    }}
-                  >
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  onClick={handleFHESubmit}
-                  disabled={isEncryptingFHE}
-                  style={primaryBtnStyle}
-                >
-                  {isEncryptingFHE ? <Spinner /> : "Encrypt and submit compliance"}
+                <button onClick={handleFHESubmit} disabled={isEncryptingFHE} style={primaryBtnStyle}>
+                  {isEncryptingFHE ? <Spinner /> : "Encrypt and store compliance"}
                 </button>
               </GlassCard>
             </motion.div>
           )}
 
-          {/* ════ Stage 6: FHE_SYNCED ════ */}
           {stage === "FHE_SYNCED" && (
             <motion.div
               key="fhe-synced"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
             >
-              <GlassCard className="p-8 text-center" glow="cyan">
-                <div
-                  style={{
-                    width: "60px",
-                    height: "60px",
-                    borderRadius: "50%",
-                    background: "rgba(0, 255, 136, 0.1)",
-                    border: "1px solid rgba(0, 255, 136, 0.2)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "28px",
-                    color: "#00FF88",
-                    margin: "0 auto 24px",
-                  }}
-                >
-                  ✓
-                </div>
-                <h2 style={{ fontSize: "22px", fontWeight: 800, color: "#EEF2FF", marginBottom: "10px", fontFamily: "Satoshi, sans-serif" }}>
-                  Verification Complete!
-                </h2>
-                <p style={{ color: "#8B9CC8", fontSize: "14px", lineHeight: 1.5, marginBottom: "32px" }}>
-                  Your business has been successfully verified. Soulbound Token is minted on-chain and compliance parameters are FHE-encrypted.
+              <GlassCard className="p-8" glow="cyan">
+                <h2 style={headingStyle}>Access unlocked</h2>
+                <p style={{ ...bodyStyle, marginBottom: 20 }}>
+                  Marketplace access is now available. Your compliance profile is encrypted and your SBT is active.
                 </p>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "32px" }}>
-                  {[
-                    { label: "SBT status", value: "Valid", color: "#00FF88" },
-                    { label: "Risk classification", value: "Verified Low", color: "#00FF88" },
-                    { label: "Privacy protocol", value: "FHE Locked", color: "#00F0FF" },
-                    { label: "Marketplace gate", value: "Unlocked", color: "#00F0FF" },
-                  ].map((stat) => (
-                    <div
-                      key={stat.label}
-                      style={{
-                        padding: "14px",
-                        borderRadius: "12px",
-                        background: "rgba(255,255,255,0.01)",
-                        border: "1px solid rgba(255,255,255,0.03)",
-                        textAlign: "left",
-                      }}
-                    >
-                      <span style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.05em", display: "block" }}>
-                        {stat.label}
-                      </span>
-                      <span style={{ fontSize: "14px", fontWeight: 700, color: stat.color, marginTop: "4px", display: "block" }}>
-                        {stat.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => router.push(nextPath)}
-                  style={primaryBtnStyle}
-                >
-                  Enter Factoring Marketplace →
+                <button onClick={() => router.push(nextPath)} style={primaryBtnStyle}>
+                  Enter Dashboard
                 </button>
               </GlassCard>
             </motion.div>
