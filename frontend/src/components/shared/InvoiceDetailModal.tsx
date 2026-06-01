@@ -25,7 +25,7 @@ import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
 import { EncryptedValue } from "../ui/EncryptedValue";
 import {
-  formatCUSDC,
+  formatUSDC,
   formatTimestamp,
   formatBps,
   daysUntilDue,
@@ -308,12 +308,12 @@ export function InvoiceDetailModal({
               {[
                 {
                   label: "Face Value",
-                  clear: decrypted?.faceValue !== undefined ? formatCUSDC(decrypted.faceValue) : undefined,
+                  clear: decrypted?.faceValue !== undefined ? formatUSDC(decrypted.faceValue) : undefined,
                   icon: "💰"
                 },
                 {
                   label: "Purchase Price",
-                  clear: decrypted?.purchasePrice !== undefined ? formatCUSDC(decrypted.purchasePrice) : undefined,
+                  clear: decrypted?.purchasePrice !== undefined ? formatUSDC(decrypted.purchasePrice) : undefined,
                   icon: "🏷️"
                 },
                 {

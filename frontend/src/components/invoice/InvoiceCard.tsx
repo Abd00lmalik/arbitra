@@ -9,7 +9,7 @@ import React, { useState } from "react";
 import { useWalletClient } from "wagmi";
 import type { InvoiceOnChain } from "@/lib/contracts";
 import {
-  formatCUSDT,
+  formatUSDC,
   formatTimestamp,
   formatBps,
   shortAddress,
@@ -107,7 +107,7 @@ export function InvoiceCard({
     setLocalBusy(true);
     try {
       if (!isApproved) {
-        console.log(`Setting ArbitraInvoiceRegistry as operator on cUSDT...`);
+        console.log(`Setting ArbitraInvoiceRegistry as operator on USDC...`);
         const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
         const tx = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
         console.log(`Operator set tx:`, tx);
@@ -212,12 +212,12 @@ export function InvoiceCard({
             {
               label: "Face Value",
               handle: handles?.faceValueHandle,
-              clearValue: decrypted?.faceValue !== undefined ? formatCUSDT(decrypted.faceValue) : undefined,
+              clearValue: decrypted?.faceValue !== undefined ? formatUSDC(decrypted.faceValue) : undefined,
             },
             {
               label: "Purchase Price",
               handle: handles?.purchasePriceHandle,
-              clearValue: decrypted?.purchasePrice !== undefined ? formatCUSDT(decrypted.purchasePrice) : undefined,
+              clearValue: decrypted?.purchasePrice !== undefined ? formatUSDC(decrypted.purchasePrice) : undefined,
             },
             {
               label: "Due Date",

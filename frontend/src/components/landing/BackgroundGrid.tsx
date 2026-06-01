@@ -89,7 +89,7 @@ export function BackgroundGrid() {
 
       {/* Floating Faucet Pill (Bottom-Right) */}
       <motion.a
-        href="https://faucet.zama.ai"
+        href="https://faucet.circle.com/"
         target="_blank"
         rel="noopener noreferrer"
         initial={{ opacity: 0, y: 50 }}
@@ -132,7 +132,7 @@ export function BackgroundGrid() {
         >
           <path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z" />
         </svg>
-        Get Test cUSDT
+        Get Test USDC
       </motion.a>
 
       {/* Main scanning grid background */}

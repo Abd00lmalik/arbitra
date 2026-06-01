@@ -132,7 +132,7 @@ export default function DashboardClient() {
     },
     {
       label: "My Uploaded",
-      value: isConnected ? myUploaded.toString() : "—",
+      value: isConnected ? myUploaded.toString() : "-",
       sub: "as supplier",
       color: "#00F0FF",
       icon: (
@@ -146,7 +146,7 @@ export default function DashboardClient() {
     },
     {
       label: "My Investments",
-      value: isConnected ? myInvested.toString() : "—",
+      value: isConnected ? myInvested.toString() : "-",
       sub: "as investor",
       color: "#A87FFF",
       icon: (
@@ -158,7 +158,7 @@ export default function DashboardClient() {
     },
     {
       label: "USDC Balance",
-      value: isConnected ? `$${usdcHuman}` : "—",
+      value: isConnected ? `$${usdcHuman}` : "-",
       sub: "Sepolia USDC",
       color: "#00FF88",
       icon: (

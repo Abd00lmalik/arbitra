@@ -1,36 +1,36 @@
-/*
+/**
  * @file SimulateMaturityButton.tsx
  * @description Component allowing the buyer/debtor to simulate repayment of an invoice at maturity.
- *              Triggers confidentialTransferAndCall on cUSDC back to the EscrowReceiver.
+ *              Triggers USDC approval and settleInvoice on the EscrowReceiver.
  */
 
 "use client";
 
 import React, { useState } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
-import { encodeAbiParameters, parseAbiParameters } from "viem";
+import { useWriteContract, useAccount } from "wagmi";
 import {
-  CUSDC_ADDRESS,
-  CUSDC_ABI,
+  USDC_ADDRESS,
+  USDC_ABI,
   ESCROW_RECEIVER_ADDRESS,
+  ESCROW_RECEIVER_ABI,
 } from "@/lib/contracts";
 
 interface SimulateMaturityButtonProps {
   invoiceId: bigint;
-  faceValueHandle: `0x${string}`;
+  faceValuePlaintext: bigint;
   debtorAddress: string;
   onSuccess?: () => void;
 }
 
 export function SimulateMaturityButton({
   invoiceId,
-  faceValueHandle,
+  faceValuePlaintext,
   debtorAddress,
   onSuccess
 }: SimulateMaturityButtonProps) {
   const { address } = useAccount();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const { writeContractAsync, data: txHash } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
 
   const isDebtor = address && debtorAddress && address.toLowerCase() === debtorAddress.toLowerCase();
 
@@ -39,18 +39,20 @@ export function SimulateMaturityButton({
     setIsSubmitting(true);
 
     try {
-      /* Encode invoice ID as bytes payload for the callback receiver */
-      const dataBytes = encodeAbiParameters(
-        parseAbiParameters("uint256"),
-        [invoiceId]
-      );
-
-      /* Call confidentialTransferAndCall on cUSDC */
+      /* 1. Approve EscrowReceiver to spend USDC */
       await writeContractAsync({
-        address: CUSDC_ADDRESS,
-        abi: CUSDC_ABI,
-        functionName: "confidentialTransferAndCall",
-        args: [ESCROW_RECEIVER_ADDRESS, faceValueHandle, dataBytes],
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [ESCROW_RECEIVER_ADDRESS, faceValuePlaintext],
+      });
+
+      /* 2. Call settleInvoice on EscrowReceiver */
+      await writeContractAsync({
+        address: ESCROW_RECEIVER_ADDRESS,
+        abi: ESCROW_RECEIVER_ABI,
+        functionName: "settleInvoice",
+        args: [invoiceId],
       });
 
       setIsSubmitting(false);
@@ -77,7 +79,7 @@ export function SimulateMaturityButton({
           style={{ display: "inline-block" }}
         />
       )}
-      💸 Simulate Maturity Repayment
+      Simulate Maturity Repayment
       <style>{`
         .neon-btn-primary {
           background: linear-gradient(135deg, #00f0ff 0%, #7b2fff 100%);

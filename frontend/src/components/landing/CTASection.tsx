@@ -81,7 +81,7 @@ export function CTASection() {
             marginBottom: "80px"
           }}
         >
-          <Link href="/dashboard" style={{ textDecoration: "none" }}>
+          <Link href="/register" style={{ textDecoration: "none" }}>
             <motion.span
               whileHover={{ scale: 1.04, boxShadow: "0 0 30px rgba(0, 240, 255, 0.45)" }}
               whileTap={{ scale: 0.97 }}
@@ -100,14 +100,11 @@ export function CTASection() {
                 cursor: "pointer"
               }}
             >
-              Launch App
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8h10M8 3l5 5-5 5" stroke="#020714" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              Login with Email →
             </motion.span>
           </Link>
 
-          <a href="https://faucet.testnet.zama.org" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+          <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
             <motion.span
               whileHover={{ scale: 1.03, background: "rgba(0, 240, 255, 0.08)" }}
               whileTap={{ scale: 0.97 }}
@@ -127,7 +124,7 @@ export function CTASection() {
                 cursor: "pointer"
               }}
             >
-              Get Test cUSDT
+              Get Test USDC
             </motion.span>
           </a>
         </div>

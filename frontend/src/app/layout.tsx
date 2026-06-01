@@ -1,12 +1,18 @@
+/*
+ * @file layout.tsx
+ * @description Root layout component wrapping the Next.js application with necessary providers and the authentication gate.
+ */
+
 import type { Metadata } from "next";
 import "@/styles/globals.css";
 import { Web3AuthProvider } from "@/providers/Web3AuthProvider";
-import { WagmiProvider } from "@/providers/WagmiProvider";
-import { ZamaProvider } from "@/providers/ZamaProvider";
-import { RoleProvider } from "@/providers/RoleProvider";
+import { WagmiProvider }    from "@/providers/WagmiProvider";
+import { ZamaProvider }     from "@/providers/ZamaProvider";
+import { RoleProvider }     from "@/providers/RoleProvider";
+import { AuthGate }         from "@/components/shared/AuthGate";
 
 export const metadata: Metadata = {
-  title: "Arbitra — Confidential Invoice Factoring",
+  title: "Arbitra - Confidential Invoice Factoring",
   description:
     "Decentralized confidential invoice factoring registry powered by Zama FHEVM. Submit and trade invoices with fully homomorphic encryption protecting all financial data.",
   keywords: [
@@ -20,7 +26,7 @@ export const metadata: Metadata = {
     "Sepolia",
   ],
   openGraph: {
-    title: "Arbitra — Confidential Invoice Factoring",
+    title: "Arbitra - Confidential Invoice Factoring",
     description:
       "FHE-powered decentralized invoice factoring on Ethereum. Zero-knowledge financial data.",
     type: "website",
@@ -43,7 +49,9 @@ export default function RootLayout({
           <WagmiProvider>
             <ZamaProvider>
               <RoleProvider>
-                {children}
+                <AuthGate>
+                  {children}
+                </AuthGate>
               </RoleProvider>
             </ZamaProvider>
           </WagmiProvider>

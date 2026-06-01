@@ -199,7 +199,7 @@ export function HeroSection() {
         {/* Nav actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <a
-            href="https://faucet.testnet.zama.org"
+            href="https://faucet.circle.com/"
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -211,14 +211,14 @@ export function HeroSection() {
               transition: "color 0.2s"
             }}
           >
-            Get Test cUSDT
+            Get Test USDC
           </a>
           <Link href="/marketplace" style={{
             color: "#8B9CC8", fontSize: 14, fontWeight: 500, textDecoration: "none",
             fontFamily: "Satoshi, sans-serif",
             transition: "color 0.2s"
           }}>Marketplace</Link>
-          <Link href="/dashboard" style={{
+          <Link href="/register" style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             height: 40, padding: "0 20px",
             background: "rgba(0,240,255,0.08)",
@@ -228,7 +228,7 @@ export function HeroSection() {
             textDecoration: "none",
             fontFamily: "Satoshi, sans-serif",
             transition: "all 0.2s"
-          }}>Launch App</Link>
+          }}>Login with Email</Link>
         </div>
       </motion.nav>
 
@@ -340,7 +340,7 @@ export function HeroSection() {
             animate="visible"
             style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}
           >
-            <Link href="/dashboard" style={{ textDecoration: "none" }}>
+            <Link href="/register" style={{ textDecoration: "none" }}>
               <motion.span
                 whileHover={{ scale: 1.04, boxShadow: "0 0 34px rgba(0,240,255,0.45)" }}
                 whileTap={{ scale: 0.97 }}
@@ -361,13 +361,10 @@ export function HeroSection() {
                   transition: "box-shadow 0.2s"
                 }}
               >
-                Launch App
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8h10M8 3l5 5-5 5" stroke="#020714" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                Login with Email →
               </motion.span>
             </Link>
-            <Link href="/marketplace" style={{ textDecoration: "none" }}>
+            <Link href="/register?next=/marketplace" style={{ textDecoration: "none" }}>
               <motion.span
                 whileHover={{ scale: 1.03, background: "rgba(0,240,255,0.08)" }}
                 whileTap={{ scale: 0.97 }}

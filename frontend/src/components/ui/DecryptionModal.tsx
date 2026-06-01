@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { NeonButton } from "./NeonButton";
 import { FHEBadge } from "./FHEBadge";
 import { EncryptedValue } from "./EncryptedValue";
-import { formatCUSDC, formatTimestamp, formatBps } from "@/lib/contracts";
+import { formatUSDC, formatTimestamp, formatBps } from "@/lib/contracts";
 
 interface DecryptedValues {
   faceValue?: bigint;
@@ -56,7 +56,7 @@ export function DecryptionModal({
     {
       label: "Face Value",
       value: decrypted?.faceValue,
-      formatter: formatCUSDC,
+      formatter: formatUSDC,
       icon: "💰",
     },
     {
@@ -68,7 +68,7 @@ export function DecryptionModal({
     {
       label: "Purchase Price",
       value: decrypted?.purchasePrice,
-      formatter: formatCUSDC,
+      formatter: formatUSDC,
       icon: "🏷️",
     },
     {

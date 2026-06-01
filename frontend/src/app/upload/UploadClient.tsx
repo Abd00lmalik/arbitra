@@ -112,7 +112,7 @@ export default function UploadClient() {
                 <div className="text-xs text-slate-500 leading-relaxed">
                   This demo uses <code className="text-neon-cyan">euint64</code> for face values.
                   Due to intermediate multiplication overflow, the maximum safe invoice size is{" "}
-                  <strong className="text-white">$3,356 cUSDC</strong> at a 15% discount rate and
+                  <strong className="text-white">$3,356 USDC</strong> at a 15% discount rate and
                   365-day maturity. Production deployments would use euint128 or intermediate
                   scaling to support larger amounts.
                 </div>

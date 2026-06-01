@@ -69,15 +69,15 @@ export const fromMicroUnits = fromMicro;
 export const truncateAddress = (a: string): string =>
   a && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : (a ?? "");
 export const shortAddress = (a: string): string =>
-  !a || a === "0x0000000000000000000000000000000000000000" ? "—" : `${a.slice(0, 6)}...${a.slice(-4)}`;
+  !a || a === "0x0000000000000000000000000000000000000000" ? "-" : `${a.slice(0, 6)}...${a.slice(-4)}`;
 
-export const formatCUSDC = (microUnits: bigint | undefined): string => {
-  if (microUnits === undefined) return "—";
+export const formatUSDC = (microUnits: bigint | undefined): string => {
+  if (microUnits === undefined) return "-";
   return `$${fromMicro(microUnits)} USDC`;
 };
 
 export const formatTimestamp = (ts: bigint | number | undefined): string => {
-  if (ts === undefined) return "—";
+  if (ts === undefined) return "-";
   return new Date(Number(ts) * 1000).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -86,7 +86,7 @@ export const formatTimestamp = (ts: bigint | number | undefined): string => {
 };
 
 export const formatBps = (bps: bigint | undefined): string => {
-  if (bps === undefined) return "—";
+  if (bps === undefined) return "-";
   return `${(Number(bps) / 100).toFixed(2)}%`;
 };
 
