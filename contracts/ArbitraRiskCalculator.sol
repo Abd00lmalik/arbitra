@@ -1,13 +1,13 @@
+/**
+ * @file ArbitraRiskCalculator.sol
+ * @description Computes encrypted invoice discount rates and purchase prices using FHE arithmetic.
+ */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
 import { FHE, euint64, ebool } from "@fhevm/solidity/lib/FHE.sol";
 import { ZamaEthereumConfig }   from "@fhevm/solidity/config/ZamaConfig.sol";
 
-/*
- * @file ArbitraRiskCalculator.sol
- * @description Computes encrypted invoice discount rates and purchase prices using FHE arithmetic.
- */
 contract ArbitraRiskCalculator is ZamaEthereumConfig {
 
     /*************** NatSpec ***************/

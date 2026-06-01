@@ -1,3 +1,7 @@
+/**
+ * @file ArbitraEscrowReceiver.sol
+ * @description Escrow contract for automated maturity settlement.
+ */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
@@ -13,10 +17,6 @@ interface IArbitraRegistry {
     function platformVerifier() external view returns (address);
 }
 
-/*
- * @file ArbitraEscrowReceiver.sol
- * @description Escrow contract for automated maturity settlement.
- */
 contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step {
     using SafeERC20 for IERC20;
 

@@ -1,3 +1,7 @@
+/**
+ * @file ArbitraInvoiceRegistry.sol
+ * @description Main orchestrator for Arbitra v2.0 trade finance platform.
+ */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
@@ -38,10 +42,6 @@ interface IArbitraEscrowReceiver {
     function resolveDispute(uint256 invoiceId, bool fraudConfirmed) external;
 }
 
-/*
- * @file ArbitraInvoiceRegistry.sol
- * @description Main orchestrator for Arbitra v2.0 trade finance platform.
- */
 contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /*************** Constants ***************/
@@ -80,7 +80,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         bool     geminiUnderwritingEnabled;
         bytes32  debtorAttestationHash;
         bool     collateralStaked;
-        bytes32  debtorEmailHash;      /* keccak256(debtorEmail) — email-verified path */
+        bytes32  debtorEmailHash;      /* keccak256(debtorEmail) - email-verified path */
         bool     isEmailVerified;      /* true if attested via platform email flow */
     }
 
@@ -347,7 +347,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
      *         Called only by the platformVerifier address after the debtor
      *         has verified their email and confirmed the invoice details
      *         through the Arbitra web app. The debtor's identity is committed
-     *         as keccak256(email) — the raw email is never stored on-chain.
+     *         as keccak256(email) - the raw email is never stored on-chain.
      * @param invoiceId         The invoice to attest
      * @param emailHash         keccak256 of the debtor's verified email address
      * @param verifiedAt        Unix timestamp when email was verified

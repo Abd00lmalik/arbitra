@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: MIT */
 /**
  * @file ArbitraIdentity.sol
  * @description Stores FHE-encrypted compliance data for verified suppliers.
@@ -6,7 +5,7 @@
  *              Encryption occurs client-side AFTER KYB approval is confirmed.
  *              Only wallets with a valid ArbitraSBT may submit encrypted data.
  */
-
+/* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
 import { FHE, euint32, euint8, ebool,

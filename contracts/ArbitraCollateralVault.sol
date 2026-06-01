@@ -1,3 +1,7 @@
+/**
+ * @file ArbitraCollateralVault.sol
+ * @description Manages supplier USDC collateral staking, releasing, and slashing.
+ */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
@@ -5,10 +9,6 @@ import { Ownable2Step, Ownable }   from "@openzeppelin/contracts/access/Ownable2
 import { IERC20 }                   from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 }                from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/*
- * @file ArbitraCollateralVault.sol
- * @description Manages supplier USDC collateral staking, releasing, and slashing.
- */
 contract ArbitraCollateralVault is Ownable2Step {
     using SafeERC20 for IERC20;
 

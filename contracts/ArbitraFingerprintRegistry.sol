@@ -1,3 +1,7 @@
+/**
+ * @file ArbitraFingerprintRegistry.sol
+ * @description Stores encrypted SHA-256 invoice fingerprints and provides duplicate detection.
+ */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
@@ -5,10 +9,6 @@ import { FHE, euint64, ebool } from "@fhevm/solidity/lib/FHE.sol";
 import { ZamaEthereumConfig }     from "@fhevm/solidity/config/ZamaConfig.sol";
 import { Ownable2Step, Ownable }  from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-/*
- * @file ArbitraFingerprintRegistry.sol
- * @description Stores encrypted SHA-256 invoice fingerprints and provides duplicate detection.
- */
 contract ArbitraFingerprintRegistry is ZamaEthereumConfig, Ownable2Step {
 
     /*************** Constants ***************/
