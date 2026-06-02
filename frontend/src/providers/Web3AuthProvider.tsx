@@ -111,6 +111,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       try {
         /* Dynamic import to prevent SSR crashes */
         const { Web3Auth } = await import("@web3auth/modal");
+        const { AuthAdapter } = await import("@web3auth/auth-adapter");
         const { CHAIN_NAMESPACES, WEB3AUTH_NETWORK } = await import("@web3auth/base");
         const { EthereumPrivateKeyProvider } = await import("@web3auth/ethereum-provider");
 
@@ -156,6 +157,20 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
             modalZIndex:         "99999",
           },
         });
+
+        const authAdapter = new AuthAdapter({
+          privateKeyProvider,
+          adapterSettings: {
+            clientId: web3AuthClientId,
+            network:
+              window.location.hostname === "localhost"
+                ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
+                : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
+            uxMode: "popup",
+          },
+        });
+
+        instance.configureAdapter(authAdapter);
 
         await instance.initModal();
         if (cancelled) return;
