@@ -8,7 +8,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount, useConnect, usePublicClient, useWriteContract } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { injected } from "@wagmi/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { GlassCard } from "@/components/ui/GlassCard";

@@ -2,7 +2,7 @@
 
 import { createConfig, http, WagmiProvider as WagmiProviderBase } from "wagmi";
 import { sepolia } from "wagmi/chains";
-import { injected } from "wagmi/connectors";
+import { injected } from "@wagmi/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 
@@ -14,6 +14,7 @@ export const wagmiConfig = createConfig({
   chains: [sepolia],
   connectors: [
     injected({
+      shimDisconnect: true,
       target: () => ({
         id: "web3auth",
         name: "Web3Auth",

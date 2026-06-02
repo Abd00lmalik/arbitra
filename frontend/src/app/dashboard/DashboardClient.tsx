@@ -202,26 +202,20 @@ function StatCard({ label, value, sub, color = "#00F0FF" }: StatCardProps) {
   );
 }
 
-export default function DashboardClient() {
+function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const { address, isConnected } = useAccount();
-  const { wallet, isLoggedIn } = useWeb3Auth();
   const { data: realInvoices } = useRealInvoiceList();
   const { data: invoiceCount } = useInvoiceCount();
   const { data: supplierIds } = useSupplierInvoices(isConnected ? address : undefined);
   const { data: investorIds } = useInvestorInvoices(isConnected ? address : undefined);
   const { data: usdcBalance } = useUSDCBalance(isConnected ? address : undefined);
-
   const { data: hasSBT } = useReadContract({
     address: SBT_ADDRESS,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
-    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
-    query: { enabled: !!wallet },
+    args: [wallet],
+    query: { enabled: true },
   });
-
-  if (!isLoggedIn || !wallet) {
-    return <PublicDashboardLanding />;
-  }
 
   const invoices = realInvoices ?? [];
   const totalOnChain = invoiceCount ? Number(invoiceCount) : 0;
@@ -300,4 +294,14 @@ export default function DashboardClient() {
       </motion.div>
     </AppLayout>
   );
+}
+
+export default function DashboardClient() {
+  const { wallet, isLoggedIn } = useWeb3Auth();
+
+  if (!isLoggedIn || !wallet) {
+    return <PublicDashboardLanding />;
+  }
+
+  return <AuthenticatedDashboard wallet={wallet} />;
 }

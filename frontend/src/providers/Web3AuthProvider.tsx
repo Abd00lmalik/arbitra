@@ -129,13 +129,23 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         });
 
         const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
+        if (typeof window !== "undefined") {
+          (window as any).__arbitraWeb3AuthEnv = {
+            hasClientId: !!web3AuthClientId,
+            clientIdLength: web3AuthClientId?.length ?? 0,
+            startsWithPlaceholder: !!web3AuthClientId?.includes("your_"),
+          };
+        }
         if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
           throw new Error("NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is missing or invalid");
         }
 
         const instance = new Web3Auth({
           clientId:        web3AuthClientId,
-          web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
+          web3AuthNetwork:
+            window.location.hostname === "localhost"
+              ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
+              : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
           privateKeyProvider,
           uiConfig: {
             appName:             "Arbitra",
@@ -178,7 +188,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
 
     const prov = method === "email"
-      ? await web3auth.connectTo("email_passwordless")
+      ? await web3auth.connectTo("auth", { loginProvider: "email_passwordless" })
       : await web3auth.connect();
 
     if (!prov) throw new Error("Login cancelled or failed");

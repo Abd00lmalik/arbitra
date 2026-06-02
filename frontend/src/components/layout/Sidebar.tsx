@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { injected } from "@wagmi/core";
 import { shortAddress } from "@/lib/contracts";
 
 const NAV_ITEMS = [

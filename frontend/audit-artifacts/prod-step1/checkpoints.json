@@ -1,0 +1,6 @@
+{
+  "dashboardText": "ARBITRA DASHBOARD\nConfidential invoice finance, without exposing your data.\nLogin\nDashboard Landing Page\n\nEnter through the dashboard first, then choose email or wallet authentication. Business verification unlocks the invoice marketplace, submission, underwriting, and tokenization flows.\n\nAUTHENTICATION\nEmail or Wallet\nCOMPLIANCE\nMock KYB Oracle\nPRIVACY\nFHE after KYB\nACCESS\nSBT-gated Marketplace\nHow access unlocks\n1\nVisit dashboard landing page\n2\nClick Login\n3\nAuthenticate with email\n4\nGenerate embedded wallet\n5\nComplete mock business verification\n6\nMint SBT and unlock marketplace",
+  "registerText": "Dashboard Access\nChoose how you want to continue\n\nSign in with an embedded email wallet or use a connected wallet for marketplace actions later.\n\nConnect Wallet",
+  "hasEmailButton": 0,
+  "hasWalletButton": 1
+}

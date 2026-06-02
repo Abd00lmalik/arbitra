@@ -1,0 +1,16 @@
+{
+  "screenshots": [
+    "C:\\Users\\USER\\Downloads\\arbitra\\frontend\\audit-artifacts\\01-dashboard-landing.png",
+    "C:\\Users\\USER\\Downloads\\arbitra\\frontend\\audit-artifacts\\02-register-page.png"
+  ],
+  "notes": [
+    {
+      "checkpoint": "register_page_text",
+      "pageText": "Dashboard Access\nChoose how you want to continue\n\nSign in with an embedded email wallet or use a connected wallet for marketplace actions later.\n\nNEXT_PUBLIC_WEB3AUTH_CLIENT_ID is missing or invalid\nContinue with Email\nConnect Wallet"
+    },
+    {
+      "checkpoint": "web3auth_missing_client_id",
+      "present": true
+    }
+  ]
+}
