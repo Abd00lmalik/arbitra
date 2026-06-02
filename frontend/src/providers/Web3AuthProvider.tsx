@@ -130,11 +130,15 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         });
 
         const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
+        const configuredNetwork =
+          process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK ??
+          WEB3AUTH_NETWORK.SAPPHIRE_DEVNET;
         if (typeof window !== "undefined") {
           (window as any).__arbitraWeb3AuthEnv = {
             hasClientId: !!web3AuthClientId,
             clientIdLength: web3AuthClientId?.length ?? 0,
             startsWithPlaceholder: !!web3AuthClientId?.includes("your_"),
+            configuredNetwork,
           };
         }
         if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
@@ -143,10 +147,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
 
         const instance = new Web3Auth({
           clientId:        web3AuthClientId,
-          web3AuthNetwork:
-            window.location.hostname === "localhost"
-              ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
-              : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
+          web3AuthNetwork: configuredNetwork,
           privateKeyProvider,
           uiConfig: {
             appName:             "Arbitra",
@@ -162,10 +163,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           privateKeyProvider,
           adapterSettings: {
             clientId: web3AuthClientId,
-            network:
-              window.location.hostname === "localhost"
-                ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
-                : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
+            network: configuredNetwork,
             uxMode: "popup",
           },
         });
