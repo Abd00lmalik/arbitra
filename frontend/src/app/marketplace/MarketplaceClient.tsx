@@ -7,29 +7,44 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { InvoiceMiniCard } from "@/components/invoice/InvoiceMiniCard";
 import { InvoiceDetailModal } from "@/components/shared/InvoiceDetailModal";
+import { LockedPage } from "@/components/shared/LockedPage";
 import {
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
-import { InvoiceStatus, type InvoiceOnChain } from "@/lib/contracts";
+import { useWeb3Auth } from "@/providers/Web3AuthProvider";
+import { InvoiceStatus, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
 import Link from "next/link";
 
 type FilterTab = "all" | "available" | "factored" | "repaid";
 
 export default function MarketplaceClient() {
-  const { isConnected } = useAccount();
+  const { wallet: web3authWallet } = useWeb3Auth();
+  const { address, isConnected } = useAccount();
+  const wallet = web3authWallet ?? (isConnected && address ? address : null);
   const { role } = useRole();
+  const { data: hasSBT } = useReadContract({
+    address: SBT_ADDRESS as `0x${string}`,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet },
+  });
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const invoices = realInvoices ?? [];
+
+  if (wallet && hasSBT === false) {
+    return <LockedPage message="Complete business verification to access the marketplace." />;
+  }
 
   const filtered = invoices.filter((inv) => {
     const isFactored = inv.status >= InvoiceStatus.Factored;
@@ -82,9 +97,9 @@ export default function MarketplaceClient() {
       description="Browse and purchase confidential real-world invoices protected by Full Homomorphic Encryption."
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-        /* Toolbar Header */
+        {/* Toolbar Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-          /* Filter Categories */
+          {/* Filter Categories */}
           <div
             style={{
               display: "flex",
@@ -141,13 +156,10 @@ export default function MarketplaceClient() {
             <FaucetLinks />
           </div>
         </div>
-
-
-
-        /* Dynamic State Rendering */
+        {/* Dynamic State Rendering */}
         {isLoadingInvoices ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "260px" }}>
-            /* Custom Neon Loader Spinner */
+            {/* Custom Neon Loader Spinner */}
             <div
               style={{
                 width: "48px",
@@ -214,7 +226,7 @@ export default function MarketplaceClient() {
         )}
       </div>
 
-      /* Slide-Up details Modal */
+      {/* Slide-Up details Modal */}
       <InvoiceDetailModal
         invoiceId={selectedInvoiceId}
         isOpen={selectedInvoiceId !== undefined}

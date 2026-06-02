@@ -1,8 +1,4 @@
-import dynamic from "next/dynamic";
-
-const MarketplaceClient = dynamic(() => import("./MarketplaceClient"), {
-  ssr: false,
-});
+import MarketplaceClient from "./MarketplaceClient";
 
 export default function MarketplacePage() {
   return <MarketplaceClient />;

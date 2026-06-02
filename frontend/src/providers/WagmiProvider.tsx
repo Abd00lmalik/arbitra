@@ -3,13 +3,13 @@
 import { createConfig, http, WagmiProvider as WagmiProviderBase } from "wagmi";
 import { sepolia } from "wagmi/chains";
 import { injected } from "@wagmi/core";
+import { walletConnect } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 
-/*
- * Wagmi config for Arbitra.
- * Uses Sepolia testnet. Integrates the dynamic Web3Auth provider under the injected connector.
- */
+const walletConnectProjectId =
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "";
+
 export const wagmiConfig = createConfig({
   chains: [sepolia],
   connectors: [
@@ -21,6 +21,21 @@ export const wagmiConfig = createConfig({
         provider: typeof window !== "undefined" ? (window as any).web3authProvider : undefined,
       }),
     }),
+    injected({ shimDisconnect: true }),
+    ...(walletConnectProjectId
+      ? [
+          walletConnect({
+            projectId: walletConnectProjectId,
+            metadata: {
+              name: "Arbitra",
+              description: "Confidential Invoice Factoring",
+              url: "https://arbitra-dapp.vercel.app",
+              icons: ["https://arbitra-dapp.vercel.app/favicon.ico"],
+            },
+            showQrModal: true,
+          }),
+        ]
+      : []),
   ],
   transports: {
     [sepolia.id]: http(

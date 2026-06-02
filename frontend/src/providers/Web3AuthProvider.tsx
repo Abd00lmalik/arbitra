@@ -49,6 +49,34 @@ function clearSessionCookie() {
   document.cookie = "arbitra_session=; path=/; max-age=0";
 }
 
+async function connectEmbeddedWallet(instance: any, provider: any) {
+  const { ethers } = await import("ethers");
+  const ethProvider = new ethers.BrowserProvider(provider);
+  const signer = await ethProvider.getSigner();
+  const walletAddress = await signer.getAddress() as `0x${string}`;
+
+  if (!walletAddress) {
+    throw new Error("Embedded wallet address was not available after login.");
+  }
+
+  return {
+    walletAddress,
+    userInfo: await instance.getUserInfo(),
+  };
+}
+
+async function connectWeb3AuthWagmi() {
+  const { connect } = await import("@wagmi/core");
+  const { wagmiConfig } = await import("./WagmiProvider");
+  const web3authConnector = wagmiConfig.connectors.find((connector) => connector.id === "web3auth");
+
+  if (!web3authConnector) {
+    throw new Error("Web3Auth wallet connector is not configured.");
+  }
+
+  await connect(wagmiConfig, { connector: web3authConnector });
+}
+
 /* ── Provider ── */
 export function Web3AuthProvider({ children }: { children: ReactNode }) {
   const [web3auth,       setWeb3auth]       = useState<any>(null);
@@ -67,35 +95,19 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       setProviderRef(prov);
       setAuthError(null);
 
-      /* Get wallet address */
-      const { ethers } = await import("ethers");
-      const ethProvider = new ethers.BrowserProvider(prov);
-      const signer      = await ethProvider.getSigner();
-      const addr        = await signer.getAddress() as `0x${string}`;
+      const { walletAddress, userInfo } = await connectEmbeddedWallet(instance, prov);
 
-      /* Get email from Web3Auth user info */
-      const info = await instance.getUserInfo();
-
-      setWallet(addr);
-      setEmail(info?.email ?? null);
+      setWallet(walletAddress);
+      setEmail(userInfo?.email ?? null);
+      setSessionCookie(walletAddress);
+      await connectWeb3AuthWagmi();
       setIsLoggedIn(true);
-
-      /* Set session cookie so middleware allows access to protected routes */
-      setSessionCookie(addr);
-
-      /* Bridge to Wagmi */
-      try {
-        const { connect } = await import("@wagmi/core");
-        const { wagmiConfig } = await import("./WagmiProvider");
-        const web3authConnector = wagmiConfig.connectors.find((c) => c.id === "web3auth");
-        if (web3authConnector) {
-          await connect(wagmiConfig, { connector: web3authConnector });
-        }
-      } catch (e) {
-        console.warn("[Web3Auth] Wagmi auto-connect warning:", e);
-      }
     } catch (e) {
       console.error("[Web3Auth] session restore error:", e);
+      setWallet(null);
+      setEmail(null);
+      setIsLoggedIn(false);
+      setProviderRef(null);
       clearSessionCookie();
       setAuthError(e instanceof Error ? e.message : "Session restoration failed");
     }
@@ -131,8 +143,8 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
 
         const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
         const configuredNetwork =
-          process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK ??
-          WEB3AUTH_NETWORK.SAPPHIRE_DEVNET;
+          (process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK ??
+            WEB3AUTH_NETWORK.SAPPHIRE_DEVNET) as typeof WEB3AUTH_NETWORK[keyof typeof WEB3AUTH_NETWORK];
         if (typeof window !== "undefined") {
           (window as any).__arbitraWeb3AuthEnv = {
             hasClientId: !!web3AuthClientId,
@@ -209,31 +221,13 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     (window as any).web3authProvider = prov;
     setProviderRef(prov);
 
-    const { ethers }  = await import("ethers");
-    const ethProvider = new ethers.BrowserProvider(prov);
-    const signer      = await ethProvider.getSigner();
-    const addr        = await signer.getAddress() as `0x${string}`;
-    const info        = await web3auth.getUserInfo();
+    const { walletAddress, userInfo } = await connectEmbeddedWallet(web3auth, prov);
 
-    setWallet(addr);
-    setEmail(info?.email ?? null);
+    setWallet(walletAddress);
+    setEmail(userInfo?.email ?? null);
+    setSessionCookie(walletAddress);
+    await connectWeb3AuthWagmi();
     setIsLoggedIn(true);
-
-    /* Set cookie so middleware allows access to protected routes */
-    setSessionCookie(addr);
-
-    /* Bridge to Wagmi */
-    try {
-      const { connect } = await import("@wagmi/core");
-      const { wagmiConfig } = await import("./WagmiProvider");
-      const web3authConnector = wagmiConfig.connectors.find((c) => c.id === "web3auth");
-      if (web3authConnector) {
-        await connect(wagmiConfig, { connector: web3authConnector });
-      }
-    } catch (e) {
-      console.error("[Web3Auth] Wagmi connect failed:", e);
-    }
-
     setAuthError(null);
   }, [web3auth]);
 

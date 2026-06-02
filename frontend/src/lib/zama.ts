@@ -8,8 +8,10 @@ export type FhevmInstance = any;
 
 let sdkInstance: any | null = null;
 
-export async function getZamaSDK() {
-  if (typeof window === "undefined") return null;
+export async function getZamaSDK(network?: any) {
+  if (typeof window === "undefined") {
+    throw new Error("FHEVM SDK is only available in the browser.");
+  }
   if (sdkInstance) return sdkInstance;
 
   try {
@@ -19,13 +21,13 @@ export async function getZamaSDK() {
     const instance = await createInstance({
       ...SepoliaConfig,
       relayerUrl: "https://relayer.testnet.zama.org",
-      network: window.ethereum as any,
+      network: network ?? (window.ethereum as any),
     });
     sdkInstance = instance;
     return sdkInstance;
   } catch (e) {
     console.error("[Arbitra] FHEVM init failed:", e);
-    return null;
+    throw new Error(e instanceof Error ? e.message : "FHEVM SDK initialization failed.");
   }
 }
 

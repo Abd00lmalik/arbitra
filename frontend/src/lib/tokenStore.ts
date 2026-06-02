@@ -11,10 +11,22 @@ import { Redis }                   from "@upstash/redis";
 const TOKEN_TTL_SECONDS = 72 * 60 * 60; /* 72 hours */
 
 /* ── Redis client (Upstash) ── */
-const redis = new Redis({
-  url:   process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+let redis: Redis | null = null;
+
+export function getRedis() {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!url || !token) {
+    throw new Error("Upstash Redis is not configured.");
+  }
+
+  if (!redis) {
+    redis = new Redis({ url, token });
+  }
+
+  return redis;
+}
 
 /* ── Key format ── */
 const key = (invoiceId: number, tokenHash: string) =>
@@ -32,6 +44,7 @@ export async function createVerifyToken(
   const raw       = randomBytes(32).toString("hex");
   const hash      = createHash("sha256").update(raw).digest("hex");
   const emailHash = createHash("sha256").update(debtorEmail.toLowerCase().trim()).digest("hex");
+  const redis = getRedis();
 
   await redis.set(
     key(invoiceId, hash),
@@ -50,6 +63,7 @@ export async function validateVerifyToken(
   if (!rawToken || rawToken.length !== 64) return { valid: false };
 
   const hash  = createHash("sha256").update(rawToken).digest("hex");
+  const redis = getRedis();
   const data  = await redis.get(key(invoiceId, hash));
 
   if (!data) return { valid: false };
@@ -70,6 +84,7 @@ export async function consumeVerifyToken(
   rawToken: string
 ): Promise<void> {
   const hash  = createHash("sha256").update(rawToken).digest("hex");
+  const redis = getRedis();
   await redis.del(key(invoiceId, hash));
 }
 

@@ -249,15 +249,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setEncryptionSubstep("sign");
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      const toHex = (b: Uint8Array): `0x${string}` =>
-        ("0x" + Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
-
-      const h1 = toHex(handle1);
-      const h2 = toHex(handle2);
-      const h3 = toHex(handle3);
-      const h4 = toHex(handle4);
-      const h5 = toHex(handle5);
-      const proofHex = toHex(inputProof);
+      const h1 = handle1;
+      const h2 = handle2;
+      const h3 = handle3;
+      const h4 = handle4;
+      const h5 = handle5;
+      const proofHex = inputProof;
 
       /* Substep 4: Submitting to Sepolia */
       setEncryptionSubstep("blockchain");

@@ -56,8 +56,14 @@ const nextConfig = {
       type: "asset/resource",
     });
 
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      { message: /Circular dependency between chunks with runtime/ },
+    ];
+
     config.resolve.alias = {
       ...config.resolve.alias,
+      "@react-native-async-storage/async-storage": false,
       unstorage: require.resolve("unstorage"),
     };
     return config;

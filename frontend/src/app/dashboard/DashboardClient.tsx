@@ -210,11 +210,11 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const { data: investorIds } = useInvestorInvoices(isConnected ? address : undefined);
   const { data: usdcBalance } = useUSDCBalance(isConnected ? address : undefined);
   const { data: hasSBT } = useReadContract({
-    address: SBT_ADDRESS,
+    address: SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
-    args: [wallet],
-    query: { enabled: true },
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet },
   });
 
   const invoices = realInvoices ?? [];
@@ -243,7 +243,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                   Account Status: {hasSBT ? "Verified Business" : "Unverified Business"}
                 </div>
               </div>
-              {!hasSBT && (
+              {hasSBT === false && (
                 <Link
                   href="/register?next=/dashboard"
                   style={{
@@ -261,19 +261,60 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
               )}
             </div>
 
-            {!hasSBT && (
+            {wallet && hasSBT === false && (
               <div
                 style={{
-                  borderRadius: 14,
-                  border: "1px solid rgba(255,186,0,0.24)",
                   background: "rgba(255,186,0,0.06)",
-                  padding: 14,
-                  color: "#FFCF6B",
-                  fontWeight: 700,
-                  fontSize: 13,
+                  border: "1px solid rgba(255,186,0,0.22)",
+                  borderRadius: 16,
+                  padding: "16px 20px",
+                  marginBottom: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
                 }}
               >
-                Invoice Marketplace Locked - Business Verification Required to Continue
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFBA00" strokeWidth="2" strokeLinecap="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <div>
+                    <p
+                      style={{
+                        color: "#FFBA00",
+                        fontSize: 14,
+                        fontWeight: 700,
+                        fontFamily: "Satoshi,sans-serif",
+                        margin: 0,
+                      }}
+                    >
+                      Invoice Marketplace Locked {"\u2014"} Business Verification Required to Continue
+                    </p>
+                    <p style={{ color: "#8B9CC8", fontSize: 12, marginTop: 3, margin: 0 }}>
+                      Account Status:{" "}
+                      <span style={{ color: "#FFBA00", fontWeight: 600 }}>Unverified Business</span>
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href="/register"
+                  style={{
+                    background: "#FFBA00",
+                    color: "#020714",
+                    borderRadius: 11,
+                    padding: "9px 20px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: "Satoshi,sans-serif",
+                    textDecoration: "none",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Start Verification {"\u2192"}
+                </a>
               </div>
             )}
           </div>
@@ -297,11 +338,12 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
 }
 
 export default function DashboardClient() {
-  const { wallet, isLoggedIn } = useWeb3Auth();
+  const { wallet: web3authWallet, isLoggedIn, isInitializing } = useWeb3Auth();
+  const { address, isConnected } = useAccount();
+  const wallet = web3authWallet ?? (isConnected && address ? address : null);
 
-  if (!isLoggedIn || !wallet) {
-    return <PublicDashboardLanding />;
-  }
+  if (isInitializing && !isConnected) return null;
+  if (!wallet || (!isLoggedIn && !isConnected)) return null;
 
   return <AuthenticatedDashboard wallet={wallet} />;
 }

@@ -135,7 +135,7 @@ export default function PortfolioClient() {
 
         {/* Distribution & List Content */}
         {isLoadingInvoices ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifycontent: "center", minHeight: "260px" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "260px" }}>
             <div
               style={{
                 width: "48px",

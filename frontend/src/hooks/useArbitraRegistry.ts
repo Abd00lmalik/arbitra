@@ -15,7 +15,10 @@ import {
   COLLATERAL_VAULT_ADDRESS,
   COLLATERAL_VAULT_ABI,
   InvoiceStatus,
+  parseInvoiceHandles,
+  parseInvoiceTuple,
   type InvoiceOnChain,
+  type InvoiceHandles,
 } from "@/lib/contracts";
 
 /*
@@ -33,13 +36,21 @@ export function useAllInvoiceIds() {
  * Hook: read a single invoice's data.
  */
 export function useInvoice(invoiceId: bigint | number | undefined) {
-  return useReadContract({
+  const result = useReadContract({
     address: ARBITRA_REGISTRY_ADDRESS,
     abi: ARBITRA_REGISTRY_ABI,
     functionName: "invoices",
     args: invoiceId !== undefined ? [BigInt(invoiceId)] : undefined,
     query: { enabled: invoiceId !== undefined },
   });
+
+  return {
+    ...result,
+    data:
+      invoiceId !== undefined && result.data
+        ? parseInvoiceTuple(BigInt(invoiceId), result.data as readonly unknown[])
+        : undefined,
+  };
 }
 
 /*
@@ -72,13 +83,18 @@ export function useInvestorInvoices(investor: `0x${string}` | undefined) {
  * Hook: read encrypted handles for an invoice.
  */
 export function useInvoiceHandles(invoiceId: bigint | undefined) {
-  return useReadContract({
+  const result = useReadContract({
     address: ARBITRA_REGISTRY_ADDRESS,
     abi: ARBITRA_REGISTRY_ABI,
     functionName: "getInvoiceHandles",
     args: invoiceId ? [invoiceId] : undefined,
     query: { enabled: !!invoiceId },
   });
+
+  return {
+    ...result,
+    data: result.data ? parseInvoiceHandles(result.data as readonly unknown[]) : undefined,
+  };
 }
 
 /*
@@ -358,27 +374,7 @@ export function useRealInvoiceList() {
   if (results && ids.length > 0) {
     results.forEach((res, index) => {
       if (res.status === "success" && res.result) {
-        const r = res.result as any;
-        invoices.push({
-          invoiceId: ids[index],
-          faceValue: r[0],
-          dueDate: r[1],
-          purchasePrice: r[2],
-          discountRateBps: r[3],
-          fingerprintHash: r[4],
-          faceValuePlaintext: r[5],
-          supplier: r[6],
-          investor: r[7],
-          debtor: r[8],
-          uploadTimestamp: r[9],
-          maturityTimestamp: r[10],
-          status: Number(r[11]) as InvoiceStatus,
-          geminiUnderwritingEnabled: r[12],
-          debtorAttestationHash: r[13],
-          debtorEmailHash: r[14],
-          isEmailVerified: r[15],
-          collateralStaked: r[16],
-        });
+        invoices.push(parseInvoiceTuple(ids[index], res.result as readonly unknown[]));
       }
     });
   }
@@ -405,14 +401,20 @@ export function useMockInvoiceList(): InvoiceOnChain[] {
       purchasePrice: "0x0000000000000000000000000000000000000000000000000000000000000003",
       discountRateBps: "0x0000000000000000000000000000000000000000000000000000000000000004",
       fingerprintHash: "0x0000000000000000000000000000000000000000000000000000000000000005",
+      faceValuePlaintext: 1_000_000n,
       supplier: address || "0x1111111111111111111111111111111111111111",
       investor: "0x0000000000000000000000000000000000000000",
       debtor: "0x2222222222222222222222222222222222222222",
+      buyer: "0x2222222222222222222222222222222222222222",
       uploadTimestamp: BigInt(Math.floor(Date.now() / 1000) - 86400),
       maturityTimestamp: BigInt(Math.floor(Date.now() / 1000) + 30 * 86400),
       status: InvoiceStatus.Pending,
+      isFactored: false,
+      isRepaid: false,
       geminiUnderwritingEnabled: true,
       debtorAttestationHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      debtorEmailHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      isEmailVerified: false,
       collateralStaked: true,
     },
     {
@@ -422,14 +424,20 @@ export function useMockInvoiceList(): InvoiceOnChain[] {
       purchasePrice: "0x0000000000000000000000000000000000000000000000000000000000000013",
       discountRateBps: "0x0000000000000000000000000000000000000000000000000000000000000014",
       fingerprintHash: "0x0000000000000000000000000000000000000000000000000000000000000015",
+      faceValuePlaintext: 2_000_000n,
       supplier: "0x3333333333333333333333333333333333333333",
       investor: address || "0x4444444444444444444444444444444444444444",
       debtor: "0x5555555555555555555555555555555555555555",
+      buyer: "0x5555555555555555555555555555555555555555",
       uploadTimestamp: BigInt(Math.floor(Date.now() / 1000) - 2 * 86400),
       maturityTimestamp: BigInt(Math.floor(Date.now() / 1000) + 15 * 86400),
       status: InvoiceStatus.Factored,
+      isFactored: true,
+      isRepaid: false,
       geminiUnderwritingEnabled: true,
       debtorAttestationHash: "0x6666666666666666666666666666666666666666666666666666666666666666",
+      debtorEmailHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      isEmailVerified: false,
       collateralStaked: true,
     },
   ];

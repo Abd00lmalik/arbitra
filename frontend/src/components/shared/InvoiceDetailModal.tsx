@@ -57,7 +57,7 @@ export function InvoiceDetailModal({
   const [viewRole, setViewRole] = useState<"supplier" | "investor">("supplier");
 
   /* Fetch core data */
-  const { data: invoiceData, refetch: refetchInvoice } = useInvoice(invoiceId);
+  const { data: invoice, refetch: refetchInvoice } = useInvoice(invoiceId);
 
   /* Decryption hook */
   const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
@@ -84,26 +84,7 @@ export function InvoiceDetailModal({
     }
   }, [isOpen, globalRole]);
 
-  if (!isOpen || invoiceId === undefined || !invoiceData) return null;
-
-  /* Reconstruct structured invoice details from v2.0 contract struct mapping */
-  const invoice = {
-    invoiceId,
-    faceValue: invoiceData[0] as `0x${string}`,
-    dueDate: invoiceData[1] as `0x${string}`,
-    purchasePrice: invoiceData[2] as `0x${string}`,
-    discountRateBps: invoiceData[3] as `0x${string}`,
-    fingerprintHash: invoiceData[4] as `0x${string}`,
-    supplier: invoiceData[5] as string,
-    investor: invoiceData[6] as string,
-    debtor: invoiceData[7] as string,
-    uploadTimestamp: BigInt(invoiceData[8] as bigint),
-    maturityTimestamp: BigInt(invoiceData[9] as bigint),
-    status: Number(invoiceData[10]) as InvoiceStatus,
-    geminiUnderwritingEnabled: invoiceData[11] as boolean,
-    debtorAttestationHash: invoiceData[12] as `0x${string}`,
-    collateralStaked: invoiceData[13] as boolean,
-  };
+  if (!isOpen || invoiceId === undefined || !invoice) return null;
 
   const isFactored = invoice.status >= InvoiceStatus.Factored;
   const isRepaid = invoice.status === InvoiceStatus.Settled;

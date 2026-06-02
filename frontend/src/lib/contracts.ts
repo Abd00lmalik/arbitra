@@ -129,9 +129,12 @@ export interface InvoiceOnChain {
   supplier: `0x${string}`;
   investor: `0x${string}`;
   debtor: `0x${string}`;
+  buyer: `0x${string}`;
   uploadTimestamp: bigint;
   maturityTimestamp: bigint;
   status: InvoiceStatus;
+  isFactored: boolean;
+  isRepaid: boolean;
   geminiUnderwritingEnabled: boolean;
   debtorAttestationHash: `0x${string}`;
   debtorEmailHash: `0x${string}`;
@@ -145,6 +148,57 @@ export interface InvoiceDecoded extends InvoiceOnChain {
   purchasePriceClear?: bigint;
   discountRateClear?: bigint;
   fingerprintClear?: bigint;
+}
+
+export interface InvoiceHandles {
+  faceValueHandle: `0x${string}`;
+  dueDateHandle: `0x${string}`;
+  purchasePriceHandle: `0x${string}`;
+  discountRateHandle: `0x${string}`;
+}
+
+function toBigIntValue(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" || typeof value === "string") return BigInt(value);
+  return 0n;
+}
+
+export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): InvoiceOnChain {
+  const status = Number(raw[11]) as InvoiceStatus;
+  const debtor = raw[8] as `0x${string}`;
+
+  return {
+    invoiceId,
+    faceValue: raw[0] as `0x${string}`,
+    dueDate: raw[1] as `0x${string}`,
+    purchasePrice: raw[2] as `0x${string}`,
+    discountRateBps: raw[3] as `0x${string}`,
+    fingerprintHash: raw[4] as `0x${string}`,
+    faceValuePlaintext: toBigIntValue(raw[5]),
+    supplier: raw[6] as `0x${string}`,
+    investor: raw[7] as `0x${string}`,
+    debtor,
+    buyer: debtor,
+    uploadTimestamp: toBigIntValue(raw[9]),
+    maturityTimestamp: toBigIntValue(raw[10]),
+    status,
+    isFactored: status >= InvoiceStatus.Factored,
+    isRepaid: status === InvoiceStatus.Settled,
+    geminiUnderwritingEnabled: Boolean(raw[12]),
+    debtorAttestationHash: raw[13] as `0x${string}`,
+    collateralStaked: Boolean(raw[14]),
+    debtorEmailHash: raw[15] as `0x${string}`,
+    isEmailVerified: Boolean(raw[16]),
+  };
+}
+
+export function parseInvoiceHandles(raw: readonly unknown[]): InvoiceHandles {
+  return {
+    faceValueHandle: raw[0] as `0x${string}`,
+    dueDateHandle: raw[1] as `0x${string}`,
+    purchasePriceHandle: raw[2] as `0x${string}`,
+    discountRateHandle: raw[3] as `0x${string}`,
+  };
 }
 
 /* ── Registry ABI (v2.2 — includes faceValuePlaintext) ── */
@@ -307,6 +361,23 @@ export const REGISTRY_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ type: "address" }],
+  },
+  {
+    type: "function", name: "isInvestorApproved",
+    stateMutability: "view",
+    inputs: [{ name: "investor", type: "address" }],
+    outputs: [{ name: "approved", type: "bool" }],
+  },
+  {
+    type: "function", name: "supplierStats",
+    stateMutability: "view",
+    inputs: [{ name: "supplier", type: "address" }],
+    outputs: [
+      { name: "totalInvoices", type: "bytes32" },
+      { name: "repaidInvoices", type: "bytes32" },
+      { name: "repaymentRatioBps", type: "bytes32" },
+      { name: "initialized", type: "bool" },
+    ],
   },
   /* Events */
   {

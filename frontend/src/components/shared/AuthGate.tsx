@@ -6,16 +6,21 @@
 "use client";
 
 import { useEffect, ReactNode }   from "react";
+import { useAccount }              from "wagmi";
 import { usePathname, useRouter }  from "next/navigation";
 import { useWeb3Auth }             from "@/providers/Web3AuthProvider";
 
 /* Public routes that do not require authentication */
-const PUBLIC_PATHS = ["/", "/register", "/dashboard"];
+const PUBLIC_PATHS = ["/", "/register"];
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { isLoggedIn, isInitializing } = useWeb3Auth();
+  const { isConnected } = useAccount();
   const pathname = usePathname();
   const router = useRouter();
+  const hasSessionCookie =
+    typeof document !== "undefined" && document.cookie.includes("arbitra_session=");
+  const hasAuthenticatedSession = isLoggedIn || isConnected || hasSessionCookie;
 
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith("/api/")
@@ -25,11 +30,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     /* Wait for Web3Auth initialization to finish before checking login state */
     if (isInitializing) return;
     if (isPublic) return;
-    if (!isLoggedIn) {
+    if (!hasAuthenticatedSession) {
       /* User is unauthenticated and attempting to visit a protected route */
       router.replace(`/register?next=${encodeURIComponent(pathname)}`);
     }
-  }, [isLoggedIn, isInitializing, isPublic, pathname, router]);
+  }, [hasAuthenticatedSession, isInitializing, isPublic, pathname, router]);
 
   /* Show visual loader during initialization of protected routes */
   if (isInitializing && !isPublic) {
@@ -70,7 +75,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   /* Prevent rendering of protected route for unauthenticated sessions */
-  if (!isLoggedIn && !isPublic && !isInitializing) {
+  if (!hasAuthenticatedSession && !isPublic && !isInitializing) {
     return null;
   }
 

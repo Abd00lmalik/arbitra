@@ -1,8 +1,4 @@
-import dynamic from "next/dynamic";
-
-const UploadClient = dynamic(() => import("./UploadClient"), {
-  ssr: false,
-});
+import UploadClient from "./UploadClient";
 
 export default function UploadPage() {
   return <UploadClient />;

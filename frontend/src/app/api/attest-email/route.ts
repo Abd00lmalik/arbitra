@@ -1,11 +1,39 @@
 import { NextRequest, NextResponse }             from "next/server";
 import { validateVerifyToken, consumeVerifyToken, computeEmailHash } from "@/lib/tokenStore";
-import { createWalletClient, createPublicClient, http } from "viem";
+import { createWalletClient, createPublicClient, defineChain, http } from "viem";
 import { privateKeyToAccount }                   from "viem/accounts";
-import { sepolia }                               from "viem/chains";
 import { ARBITRA_REGISTRY_ADDRESS, REGISTRY_ABI } from "@/lib/contracts";
 
 export const runtime = "nodejs";
+
+const sepolia = defineChain({
+  id: 11155111,
+  name: "Sepolia",
+  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ["https://11155111.rpc.thirdweb.com"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Etherscan",
+      url: "https://sepolia.etherscan.io",
+      apiUrl: "https://api-sepolia.etherscan.io/api",
+    },
+  },
+  contracts: {
+    multicall3: {
+      address: "0xca11bde05977b3631167028862be2a173976ca11",
+      blockCreated: 751532,
+    },
+    ensUniversalResolver: {
+      address: "0xeeeeeeee14d718c2b47d9923deab1335e144eeee",
+      blockCreated: 8928790,
+    },
+  },
+  testnet: true,
+});
 
 const EMAIL_ATTESTATION_DOMAIN = {
   name:              "Arbitra",
@@ -105,4 +133,3 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
-

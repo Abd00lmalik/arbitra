@@ -51,7 +51,7 @@ export function FaucetButton() {
     <>
       <NeonButton
         variant="secondary"
-        size="xs"
+        size="sm"
         onClick={() => setIsOpen(true)}
         className="flex items-center gap-1.5"
         id="faucet-button"

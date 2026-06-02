@@ -5,13 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-/* Routes that require authentication */
-const PROTECTED_ROUTES = [
-  "/marketplace",
-  "/upload",
-  "/portfolio",
-  "/verify",
-];
+const PUBLIC_ROUTES = ["/", "/register"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -26,9 +20,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /* Check if this is a protected route */
-  const isProtected = PROTECTED_ROUTES.some((r) => pathname.startsWith(r));
-  if (!isProtected) {
+  const isPublicRoute = PUBLIC_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+
+  if (isPublicRoute) {
     return NextResponse.next();
   }
 
@@ -47,6 +43,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  /* Match all routes except static files */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 };

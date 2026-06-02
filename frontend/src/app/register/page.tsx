@@ -7,8 +7,13 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAccount, useConnect, usePublicClient, useWriteContract } from "wagmi";
-import { injected } from "@wagmi/core";
+import {
+  useAccount,
+  useConnect,
+  usePublicClient,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -22,7 +27,7 @@ import {
   SBT_ADDRESS,
   truncAddr,
 } from "@/lib/contracts";
-import { encryptBool, encryptUint32, encryptUint8 } from "@/lib/zama";
+import { encryptBool, encryptUint32, encryptUint8, getZamaSDK } from "@/lib/zama";
 
 type Stage =
   | "AUTH_CHOICE"
@@ -39,11 +44,18 @@ interface KYBResult {
   sanctions_flag: boolean;
   pep_flag: boolean;
   risk_score: number;
-  timestamp: number;
+  verified_at: number;
   signature: `0x${string}`;
   oracle_signature?: string;
-  verificationIdBytes32: `0x${string}`;
-  attestationHashBytes32: `0x${string}`;
+  verification_id_bytes32: `0x${string}`;
+  attestation_hash_bytes32: `0x${string}`;
+}
+
+interface KybFieldErrors {
+  companyName?: string;
+  country?: string;
+  registrationNumber?: string;
+  taxID?: string;
 }
 
 const headingStyle: React.CSSProperties = {
@@ -139,13 +151,14 @@ export default function RegisterPage() {
   const nextPath = searchParams.get("next") ?? "/dashboard";
 
   const { wallet, isLoggedIn, isInitializing, login, authError } = useWeb3Auth();
-  const { connectAsync } = useConnect();
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { connectAsync, connectors } = useConnect();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
   const [stage, setStage] = useState<Stage>("AUTH_CHOICE");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<KybFieldErrors>({});
   const [isLoading, setIsLoading] = useState(false);
   const [kybStep, setKybStep] = useState(0);
   const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
@@ -154,11 +167,27 @@ export default function RegisterPage() {
   const [country, setCountry] = useState("United States");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [taxID, setTaxID] = useState("");
-  const [docUploaded, setDocUploaded] = useState(false);
 
   const [kybResult, setKybResult] = useState<KYBResult | null>(null);
   const [isMintingSBT, setIsMintingSBT] = useState(false);
   const [isEncryptingFHE, setIsEncryptingFHE] = useState(false);
+  const [sbtTxHash, setSbtTxHash] = useState<`0x${string}` | undefined>(undefined);
+  const [fheTxHash, setFheTxHash] = useState<`0x${string}` | undefined>(undefined);
+
+  const browserWalletConnector = connectors.find((connector) => connector.id === "injected");
+  const walletConnectConnector = connectors.find((connector) => connector.id === "walletConnect");
+  const activeWallet = wallet ?? (isConnected && address ? address : null);
+  const hasAuthenticatedWallet = isLoggedIn || isConnected;
+
+  const {
+    isSuccess: isSbtReceiptSuccess,
+    error: sbtReceiptError,
+  } = useWaitForTransactionReceipt({ hash: sbtTxHash });
+
+  const {
+    isSuccess: isFheReceiptSuccess,
+    error: fheReceiptError,
+  } = useWaitForTransactionReceipt({ hash: fheTxHash });
 
   useEffect(() => {
     if (!isInitializing && authError) {
@@ -167,32 +196,22 @@ export default function RegisterPage() {
   }, [authError, isInitializing]);
 
   useEffect(() => {
-    if (!isInitializing && isLoggedIn && wallet && stage === "AUTH_CHOICE") {
-      setStage("WALLET_READY");
-    }
-  }, [isInitializing, isLoggedIn, wallet, stage]);
-
-  useEffect(() => {
-    if (stage !== "WALLET_READY" || !wallet || !publicClient) return;
+    if (!hasAuthenticatedWallet || !activeWallet || isInitializing || !publicClient) return;
 
     const client = publicClient;
-
+    const walletAddress = activeWallet;
     let active = true;
 
-    async function checkCredentials() {
+    async function checkExistingSBTAndRoute() {
+      setStage("WALLET_READY");
       setIsCheckingCredentials(true);
-      try {
-        const connectedWallet = wallet;
-        if (!connectedWallet) {
-          setStage("AUTH_CHOICE");
-          return;
-        }
 
+      try {
         const hasSBT = (await client.readContract({
           address: SBT_ADDRESS,
           abi: SBT_ABI,
           functionName: "hasValidSBT",
-          args: [connectedWallet],
+          args: [walletAddress],
         })) as boolean;
 
         if (!active) return;
@@ -206,13 +225,13 @@ export default function RegisterPage() {
           address: IDENTITY_ADDRESS,
           abi: IDENTITY_ABI,
           functionName: "hasEncryptedCompliance",
-          args: [connectedWallet],
+          args: [walletAddress],
         })) as boolean;
 
         if (!active) return;
 
         if (hasFHE) {
-          router.push(nextPath);
+          router.replace(nextPath);
           return;
         }
 
@@ -230,12 +249,40 @@ export default function RegisterPage() {
       }
     }
 
-    checkCredentials();
+    checkExistingSBTAndRoute();
 
     return () => {
       active = false;
     };
-  }, [stage, wallet, publicClient, router, nextPath]);
+  }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath]);
+
+  useEffect(() => {
+    if (!isSbtReceiptSuccess) return;
+    setIsMintingSBT(false);
+    setSbtTxHash(undefined);
+    setStage("SBT_MINTED");
+  }, [isSbtReceiptSuccess]);
+
+  useEffect(() => {
+    if (!sbtReceiptError) return;
+    setIsMintingSBT(false);
+    setSbtTxHash(undefined);
+    setError(sbtReceiptError instanceof Error ? sbtReceiptError.message : "SBT minting failed.");
+  }, [sbtReceiptError]);
+
+  useEffect(() => {
+    if (!isFheReceiptSuccess) return;
+    setIsEncryptingFHE(false);
+    setFheTxHash(undefined);
+    setStage("FHE_SYNCED");
+  }, [isFheReceiptSuccess]);
+
+  useEffect(() => {
+    if (!fheReceiptError) return;
+    setIsEncryptingFHE(false);
+    setFheTxHash(undefined);
+    setError(fheReceiptError instanceof Error ? fheReceiptError.message : "FHE compliance transaction failed.");
+  }, [fheReceiptError]);
 
   useEffect(() => {
     if (stage !== "KYB_PENDING") return;
@@ -266,11 +313,29 @@ export default function RegisterPage() {
     }
   }
 
-  async function handleWalletLogin() {
+  async function handleWalletLogin(connectorId: "injected" | "walletConnect") {
     setError(null);
 
     try {
-      await connectAsync({ connector: injected() });
+      const connector = connectors.find((item) => item.id === connectorId);
+
+      if (!connector) {
+        throw new Error(
+          connectorId === "walletConnect"
+            ? "WalletConnect is not configured."
+            : "No browser wallet connector is available.",
+        );
+      }
+
+      const connection = await connectAsync({ connector });
+      const connectedWallet = connection.accounts[0];
+
+      if (!connectedWallet) {
+        throw new Error("Connected wallet address was not available.");
+      }
+
+      document.cookie = `arbitra_session=${connectedWallet}; path=/; max-age=86400; SameSite=Strict`;
+      setStage("WALLET_READY");
     } catch (walletError) {
       console.error(walletError);
       setError(walletError instanceof Error ? walletError.message : "Wallet connection failed.");
@@ -278,10 +343,24 @@ export default function RegisterPage() {
   }
 
   async function handleKYBSubmit() {
-    if (!companyName.trim()) return setError("Company Name is required.");
-    if (!registrationNumber.trim()) return setError("Business Registration Number is required.");
-    if (!taxID.trim()) return setError("Tax ID is required.");
-    if (!docUploaded) return setError("Please upload the Certificate of Incorporation.");
+    const nextFieldErrors: KybFieldErrors = {};
+
+    if (!companyName.trim()) nextFieldErrors.companyName = "Company name is required.";
+    if (!country.trim()) nextFieldErrors.country = "Country is required.";
+    if (!registrationNumber.trim()) nextFieldErrors.registrationNumber = "Registration number is required.";
+    if (!taxID.trim()) nextFieldErrors.taxID = "Tax ID is required.";
+
+    setFieldErrors(nextFieldErrors);
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setError("Please correct the highlighted KYB fields.");
+      return;
+    }
+
+    if (!activeWallet) {
+      setError("A connected wallet is required before verification.");
+      setStage("WALLET_READY");
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -291,7 +370,7 @@ export default function RegisterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          wallet,
+          wallet: activeWallet,
           companyName,
           country,
           registrationNumber,
@@ -301,6 +380,7 @@ export default function RegisterPage() {
 
       const data = await response.json();
       if (!response.ok) {
+        setStage("WALLET_READY");
         throw new Error(data.error || "KYB validation failed.");
       }
 
@@ -315,7 +395,7 @@ export default function RegisterPage() {
   }
 
   async function handleMintSBT() {
-    if (!wallet || !kybResult || !publicClient) return;
+    if (!activeWallet || !kybResult) return;
 
     setIsMintingSBT(true);
     setError(null);
@@ -326,40 +406,44 @@ export default function RegisterPage() {
         abi: KYB_ORACLE_ABI,
         functionName: "submitKYBAttestation",
         args: [
-          wallet,
-          kybResult.verificationIdBytes32,
-          kybResult.attestationHashBytes32,
+          activeWallet,
+          kybResult.verification_id_bytes32,
+          kybResult.attestation_hash_bytes32,
           kybResult.risk_score,
-          BigInt(kybResult.timestamp),
+          BigInt(kybResult.verified_at),
           kybResult.signature,
         ],
       });
-
-      await publicClient.waitForTransactionReceipt({ hash });
-      setStage("SBT_MINTED");
+      setSbtTxHash(hash);
     } catch (mintError) {
       console.error(mintError);
-      setError(mintError instanceof Error ? mintError.message : "SBT minting failed.");
-    } finally {
       setIsMintingSBT(false);
+      setError(mintError instanceof Error ? mintError.message : "SBT minting failed.");
     }
   }
 
   async function handleFHESubmit() {
-    if (!wallet || !kybResult || !publicClient) return;
+    if (!activeWallet || !kybResult) return;
 
     setIsEncryptingFHE(true);
     setError(null);
 
     try {
-      const taxIDInt = parseInt(taxID.replace(/\D/g, "").slice(0, 9), 10);
-      if (Number.isNaN(taxIDInt)) {
+      await getZamaSDK();
+
+      const taxIdDigits = taxID.replace(/\D/g, "");
+      if (!taxIdDigits || taxIdDigits.length > 9) {
         throw new Error("Invalid Tax ID format.");
       }
 
-      const encTax = await encryptUint32(BigInt(taxIDInt), wallet, IDENTITY_ADDRESS);
-      const encKyb = await encryptBool(true, wallet, IDENTITY_ADDRESS);
-      const encRisk = await encryptUint8(BigInt(kybResult.risk_score), wallet, IDENTITY_ADDRESS);
+      const taxIDInt = Number.parseInt(taxIdDigits, 10);
+      if (!Number.isSafeInteger(taxIDInt)) {
+        throw new Error("Tax ID must fit into a 32-bit unsigned integer.");
+      }
+
+      const encTax = await encryptUint32(BigInt(taxIDInt), activeWallet, IDENTITY_ADDRESS);
+      const encKyb = await encryptBool(kybResult.company_status === "verified", activeWallet, IDENTITY_ADDRESS);
+      const encRisk = await encryptUint8(BigInt(kybResult.risk_score), activeWallet, IDENTITY_ADDRESS);
 
       const hash = await writeContractAsync({
         address: IDENTITY_ADDRESS,
@@ -374,14 +458,11 @@ export default function RegisterPage() {
           encRisk.proof,
         ],
       });
-
-      await publicClient.waitForTransactionReceipt({ hash });
-      setStage("FHE_SYNCED");
+      setFheTxHash(hash);
     } catch (fheError) {
       console.error(fheError);
-      setError(fheError instanceof Error ? fheError.message : "FHE compliance transaction failed.");
-    } finally {
       setIsEncryptingFHE(false);
+      setError(fheError instanceof Error ? fheError.message : "FHE compliance transaction failed.");
     }
   }
 
@@ -452,9 +533,16 @@ export default function RegisterPage() {
                   <button onClick={handleEmailLogin} disabled={isLoading || isInitializing} style={primaryBtnStyle}>
                     {isLoading || isInitializing ? <Spinner /> : "Continue with Email"}
                   </button>
-                  <button onClick={handleWalletLogin} style={secondaryBtnStyle}>
-                    Connect Wallet
-                  </button>
+                  {browserWalletConnector && (
+                    <button onClick={() => handleWalletLogin("injected")} style={secondaryBtnStyle}>
+                      Connect Browser Wallet
+                    </button>
+                  )}
+                  {walletConnectConnector && (
+                    <button onClick={() => handleWalletLogin("walletConnect")} style={secondaryBtnStyle}>
+                      Connect with WalletConnect
+                    </button>
+                  )}
                 </div>
               </GlassCard>
             </motion.div>
@@ -471,7 +559,7 @@ export default function RegisterPage() {
               <GlassCard className="p-8" glow="cyan">
                 <h2 style={headingStyle}>Checking business access</h2>
                 <p style={{ ...bodyStyle, marginBottom: 22 }}>
-                  Wallet Connected: {truncAddr(wallet ?? "")}
+                  Wallet Connected: {truncAddr(activeWallet ?? "")}
                 </p>
                 {isCheckingCredentials ? <Spinner /> : <p style={bodyStyle}>Preparing your account status...</p>}
               </GlassCard>
@@ -501,7 +589,7 @@ export default function RegisterPage() {
                     >
                       <h2 style={{ ...headingStyle, marginBottom: 0 }}>Account onboarding</h2>
                       <span style={{ color: "#00F0FF", fontSize: 12, fontFamily: "JetBrains Mono, monospace" }}>
-                        Wallet Connected: {truncAddr(wallet ?? "")}
+                        Wallet Connected: {truncAddr(activeWallet ?? "")}
                       </span>
                     </div>
                     <div style={{ color: "#FFBA00", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
@@ -548,34 +636,79 @@ export default function RegisterPage() {
                   <div style={{ display: "grid", gap: 16 }}>
                     <div>
                       <label style={labelStyle}>Company Name</label>
-                      <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} style={inputStyle} />
+                      <input
+                        value={companyName}
+                        onChange={(event) => {
+                          setCompanyName(event.target.value);
+                          setFieldErrors((current) => ({ ...current, companyName: undefined }));
+                        }}
+                        style={{
+                          ...inputStyle,
+                          border: fieldErrors.companyName ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                        }}
+                      />
+                      {fieldErrors.companyName && (
+                        <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                          {fieldErrors.companyName}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label style={labelStyle}>Country</label>
-                      <input value={country} onChange={(event) => setCountry(event.target.value)} style={inputStyle} />
+                      <input
+                        value={country}
+                        onChange={(event) => {
+                          setCountry(event.target.value);
+                          setFieldErrors((current) => ({ ...current, country: undefined }));
+                        }}
+                        style={{
+                          ...inputStyle,
+                          border: fieldErrors.country ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                        }}
+                      />
+                      {fieldErrors.country && (
+                        <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                          {fieldErrors.country}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label style={labelStyle}>Business Registration Number</label>
-                      <input value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} style={inputStyle} />
+                      <input
+                        value={registrationNumber}
+                        onChange={(event) => {
+                          setRegistrationNumber(event.target.value);
+                          setFieldErrors((current) => ({ ...current, registrationNumber: undefined }));
+                        }}
+                        style={{
+                          ...inputStyle,
+                          border: fieldErrors.registrationNumber ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                        }}
+                      />
+                      {fieldErrors.registrationNumber && (
+                        <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                          {fieldErrors.registrationNumber}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label style={labelStyle}>Tax ID</label>
-                      <input value={taxID} onChange={(event) => setTaxID(event.target.value)} style={inputStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Upload Certificate of Incorporation</label>
-                      <button
-                        onClick={() => setDocUploaded(true)}
-                        style={{
-                          ...secondaryBtnStyle,
-                          justifyContent: "flex-start",
-                          padding: "14px 16px",
-                          minHeight: 58,
-                          color: docUploaded ? "#00FF88" : "#EEF2FF",
+                      <input
+                        value={taxID}
+                        onChange={(event) => {
+                          setTaxID(event.target.value);
+                          setFieldErrors((current) => ({ ...current, taxID: undefined }));
                         }}
-                      >
-                        {docUploaded ? "Certificate attached" : "Attach incorporation certificate"}
-                      </button>
+                        style={{
+                          ...inputStyle,
+                          border: fieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                        }}
+                      />
+                      {fieldErrors.taxID && (
+                        <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                          {fieldErrors.taxID}
+                        </p>
+                      )}
                     </div>
                   </div>
 

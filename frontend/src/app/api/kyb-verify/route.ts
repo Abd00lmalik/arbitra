@@ -1,14 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
 import {
   KYB_ORACLE_ABI,
   KYB_ORACLE_ADDRESS,
 } from "@/lib/contracts";
 
 export const runtime = "nodejs";
+
+const sepolia = defineChain({
+  id: 11155111,
+  name: "Sepolia",
+  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ["https://11155111.rpc.thirdweb.com"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Etherscan",
+      url: "https://sepolia.etherscan.io",
+      apiUrl: "https://api-sepolia.etherscan.io/api",
+    },
+  },
+  contracts: {
+    multicall3: {
+      address: "0xca11bde05977b3631167028862be2a173976ca11",
+      blockCreated: 751532,
+    },
+    ensUniversalResolver: {
+      address: "0xeeeeeeee14d718c2b47d9923deab1335e144eeee",
+      blockCreated: 8928790,
+    },
+  },
+  testnet: true,
+});
 
 interface MockKYBOracleResult {
   verification_id: string;
@@ -162,9 +190,9 @@ export async function POST(req: NextRequest) {
       risk_score: kybResult.risk_score,
       oracle_signature: kybResult.oracle_signature,
       signature,
-      timestamp,
-      verificationIdBytes32,
-      attestationHashBytes32,
+      verified_at: timestamp,
+      verification_id_bytes32: verificationIdBytes32,
+      attestation_hash_bytes32: attestationHashBytes32,
       kybApproved: true,
       kybAttestationHash: attestationHashBytes32,
       message: "Business verified. Signature generated.",

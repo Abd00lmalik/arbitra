@@ -40,7 +40,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
-  const { data: rawInvoice, isLoading: invoiceLoading, refetch: refetchInvoice } = useInvoice(invoiceId);
+  const { data: invoice, isLoading: invoiceLoading, refetch: refetchInvoice } = useInvoice(invoiceId);
 
   const [verifyMode, setVerifyMode] = useState<"web2" | "web3" | null>(null);
   const [tokenValidating, setTokenValidating] = useState<boolean>(false);
@@ -64,26 +64,6 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const [successAttesting, setSuccessAttesting] = useState<boolean>(false);
   const [submittingWeb2, setSubmittingWeb2] = useState<boolean>(false);
   const [web2TxHash, setWeb2TxHash] = useState<string | null>(null);
-
-  /* Parse rawInvoice from readContract */
-  const invoice = rawInvoice ? {
-    faceValue: rawInvoice[0] as `0x${string}`,
-    dueDate: rawInvoice[1] as `0x${string}`,
-    purchasePrice: rawInvoice[2] as `0x${string}`,
-    discountRateBps: rawInvoice[3] as `0x${string}`,
-    fingerprintHash: rawInvoice[4] as `0x${string}`,
-    supplier: rawInvoice[5] as string,
-    investor: rawInvoice[6] as string,
-    debtor: rawInvoice[7] as string,
-    uploadTimestamp: BigInt(rawInvoice[8] as string),
-    maturityTimestamp: BigInt(rawInvoice[9] as string),
-    status: Number(rawInvoice[10]) as InvoiceStatus,
-    geminiUnderwritingEnabled: rawInvoice[11] as boolean,
-    debtorAttestationHash: rawInvoice[12] as `0x${string}`,
-    collateralStaked: rawInvoice[13] as boolean,
-    debtorEmailHash: rawInvoice[14] as `0x${string}`,
-    isEmailVerified: rawInvoice[15] as boolean,
-  } : null;
 
   const isDebtor = address && invoice && address.toLowerCase() === invoice.debtor.toLowerCase();
 
@@ -145,12 +125,12 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
       /* Mock signer object matching userDecryptHandles requirements */
       const mockSigner = {
         getAddress: async () => address!,
-        signTypedData: async (domain: any, types: any, message: any) => {
+        signTypedData: async (domain: object, types: object, message: object) => {
           return walletClient.signTypedData({
-            domain,
-            types,
+            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
+            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
             primaryType: "ReencryptionRequest",
-            message,
+            message: message as Parameters<typeof walletClient.signTypedData>[0]["message"],
             account: address!,
           });
         }
@@ -158,8 +138,8 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
 
       const clearValues = await userDecryptHandles(instance, handlesToDecrypt, mockSigner);
 
-      const valClear = BigInt(clearValues[invoice.faceValue] as string);
-      const dueClear = BigInt(clearValues[invoice.dueDate] as string);
+      const valClear = BigInt(clearValues[invoice.faceValue] as string | bigint);
+      const dueClear = BigInt(clearValues[invoice.dueDate] as string | bigint);
 
       setDecryptedData({
         faceValue: valClear,
