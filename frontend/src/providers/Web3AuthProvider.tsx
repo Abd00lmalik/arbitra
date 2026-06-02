@@ -201,7 +201,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
 
     const prov = method === "email"
-      ? await web3auth.connectTo("auth", { loginProvider: "email_passwordless" })
+      ? await web3auth.connect()
       : await web3auth.connect();
 
     if (!prov) throw new Error("Login cancelled or failed");
