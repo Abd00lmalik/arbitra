@@ -154,6 +154,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
           privateKeyProvider,
           uiConfig: {
+            uxMode:              "redirect",
             appName:             "Arbitra",
             appUrl:              appUrl,
             theme:               { primary: "#00F0FF" },
@@ -168,7 +169,11 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           adapterSettings: {
             clientId: web3AuthClientId,
             network: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
-            uxMode: "popup",
+            redirectUrl: `${appUrl}/register`,
+            uxMode: "redirect",
+          },
+          loginSettings: {
+            mfaLevel: "none",
           },
         });
 
@@ -178,6 +183,14 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         setWeb3auth(instance);
+
+        if (typeof window !== "undefined" && window.location.hash.includes("openlogin")) {
+          window.history.replaceState(
+            null,
+            "",
+            window.location.pathname + window.location.search,
+          );
+        }
 
         /* Restore session if already connected */
         if (instance.connected && instance.provider) {
