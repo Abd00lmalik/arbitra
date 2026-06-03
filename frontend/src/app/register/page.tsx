@@ -228,6 +228,17 @@ export default function RegisterPage() {
   }, [authError, isInitializing]);
 
   useEffect(() => {
+    if (stage !== "WALLET_READY" || !statusError) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setStatusMessage("Continuing to registration...");
+      setStage("KYB_FORM");
+    }, 2000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [stage, statusError]);
+
+  useEffect(() => {
     if (!SBT_ADDRESS || SBT_ADDRESS === "0x0000000000000000000000000000000000000000") {
       console.error(
         "[Arbitra] CRITICAL: NEXT_PUBLIC_SBT_ADDRESS is not set. SBT reads will fail. Set this in Vercel environment variables.",
@@ -263,7 +274,6 @@ export default function RegisterPage() {
         if (!hasSBT) {
           setStatusMessage("Could not verify SBT status. Proceeding to registration...");
           setStatusError("SBT check timed out or returned no verified token. You can continue with KYB registration.");
-          setStage("KYB_FORM");
           return;
         }
 
@@ -290,7 +300,6 @@ export default function RegisterPage() {
           setStatusMessage("Could not verify SBT status. Proceeding to registration...");
           setStatusError("SBT check failed. Please confirm you are on Sepolia and try again if this persists.");
           setError("Unable to verify current account status.");
-          setStage("KYB_FORM");
         }
       } finally {
         if (active) {
@@ -673,7 +682,28 @@ export default function RegisterPage() {
                       marginTop: 16,
                     }}
                   >
-                    {statusError}
+                    <div>{statusError}</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusMessage("Continuing to registration...");
+                        setStage("KYB_FORM");
+                      }}
+                      style={{
+                        marginTop: 12,
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        border: "1px solid rgba(255,186,0,0.35)",
+                        background: "rgba(255,186,0,0.12)",
+                        color: "#FFF3D1",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        fontFamily: "Satoshi, sans-serif",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Continue to KYB Registration
+                    </button>
                   </div>
                 )}
               </GlassCard>
