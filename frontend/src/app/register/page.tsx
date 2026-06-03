@@ -9,6 +9,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useAccount,
+  useChainId,
   useConnect,
   usePublicClient,
   useWaitForTransactionReceipt,
@@ -60,6 +61,22 @@ function extractErrorMessage(error: unknown): string {
     if (candidate.cause?.message) return candidate.cause.message;
   }
   return "Unexpected transaction failure.";
+}
+
+const SBT_CHECK_TIMEOUT_MS = 10_000;
+
+async function checkSBTWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await Promise.race([
+      readFn(),
+      new Promise<boolean>((_, reject) => {
+        setTimeout(() => reject(new Error("SBT check timed out")), SBT_CHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    console.warn("[Arbitra] SBT check failed or timed out, defaulting to false:", error);
+    return false;
+  }
 }
 
 interface KybFieldErrors {
@@ -163,16 +180,19 @@ export default function RegisterPage() {
 
   const { wallet, isLoggedIn, isInitializing, login, authError } = useWeb3Auth();
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
   const [stage, setStage] = useState<Stage>("AUTH_CHOICE");
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<KybFieldErrors>({});
   const [isLoading, setIsLoading] = useState(false);
   const [kybStep, setKybStep] = useState(0);
   const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Preparing your account status...");
 
   const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState("United States");
@@ -189,6 +209,7 @@ export default function RegisterPage() {
   const walletConnectConnector = connectors.find((connector) => connector.id === "walletConnect");
   const activeWallet = wallet ?? (isConnected && address ? address : null);
   const hasAuthenticatedWallet = isLoggedIn || isConnected;
+  const isCorrectNetwork = !isConnected || chainId === 11155111;
 
   const {
     isSuccess: isSbtReceiptSuccess,
@@ -207,7 +228,15 @@ export default function RegisterPage() {
   }, [authError, isInitializing]);
 
   useEffect(() => {
-    if (!hasAuthenticatedWallet || !activeWallet || isInitializing || !publicClient) return;
+    if (!SBT_ADDRESS || SBT_ADDRESS === "0x0000000000000000000000000000000000000000") {
+      console.error(
+        "[Arbitra] CRITICAL: NEXT_PUBLIC_SBT_ADDRESS is not set. SBT reads will fail. Set this in Vercel environment variables.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasAuthenticatedWallet || !activeWallet || isInitializing || !publicClient || !isCorrectNetwork) return;
 
     const client = publicClient;
     const walletAddress = activeWallet;
@@ -216,21 +245,29 @@ export default function RegisterPage() {
     async function checkExistingSBTAndRoute() {
       setStage("WALLET_READY");
       setIsCheckingCredentials(true);
+      setStatusError(null);
+      setStatusMessage("Preparing your account status...");
 
       try {
-        const hasSBT = (await client.readContract({
-          address: SBT_ADDRESS,
-          abi: SBT_ABI,
-          functionName: "hasValidSBT",
-          args: [walletAddress],
-        })) as boolean;
+        const hasSBT = await checkSBTWithTimeout(async () => (
+          await client.readContract({
+            address: SBT_ADDRESS,
+            abi: SBT_ABI,
+            functionName: "hasValidSBT",
+            args: [walletAddress],
+          }) as boolean
+        ));
 
         if (!active) return;
 
         if (!hasSBT) {
+          setStatusMessage("Could not verify SBT status. Proceeding to registration...");
+          setStatusError("SBT check timed out or returned no verified token. You can continue with KYB registration.");
           setStage("KYB_FORM");
           return;
         }
+
+        setStatusMessage("Verified SBT. Checking encrypted compliance...");
 
         const hasFHE = (await client.readContract({
           address: IDENTITY_ADDRESS,
@@ -250,6 +287,8 @@ export default function RegisterPage() {
       } catch (credentialError) {
         console.error("[Register] Credential check failed:", credentialError);
         if (active) {
+          setStatusMessage("Could not verify SBT status. Proceeding to registration...");
+          setStatusError("SBT check failed. Please confirm you are on Sepolia and try again if this persists.");
           setError("Unable to verify current account status.");
           setStage("KYB_FORM");
         }
@@ -265,7 +304,7 @@ export default function RegisterPage() {
     return () => {
       active = false;
     };
-  }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath]);
+  }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath, isCorrectNetwork]);
 
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;
@@ -322,6 +361,7 @@ export default function RegisterPage() {
   async function handleEmailLogin() {
     setIsLoading(true);
     setError(null);
+    setStatusError(null);
 
     try {
       await login("email");
@@ -335,6 +375,7 @@ export default function RegisterPage() {
 
   async function handleWalletLogin(connectorId: "injected" | "walletConnect") {
     setError(null);
+    setStatusError(null);
 
     try {
       const connector = connectors.find((item) => item.id === connectorId);
@@ -355,6 +396,7 @@ export default function RegisterPage() {
       }
 
       document.cookie = `arbitra_session=${connectedWallet}; path=/; max-age=86400; SameSite=Strict`;
+      setStatusMessage("Preparing your account status...");
       setStage("WALLET_READY");
     } catch (walletError) {
       console.error(walletError);
@@ -506,6 +548,36 @@ export default function RegisterPage() {
     >
       <div style={{ width: "100%", maxWidth: 560 }}>
         <AnimatePresence mode="wait">
+          {isConnected && !isCorrectNetwork && (
+            <motion.div
+              key="wrong-network"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
+            >
+              <GlassCard className="p-8" glow="cyan">
+                <h2 style={headingStyle}>Wrong Network</h2>
+                <p style={{ ...bodyStyle, marginBottom: 18 }}>
+                  Please switch your wallet to <strong>Sepolia Testnet</strong> (chain ID 11155111) to continue.
+                </p>
+                <div
+                  style={{
+                    background: "rgba(255,186,0,0.08)",
+                    border: "1px solid rgba(255,186,0,0.24)",
+                    borderRadius: 12,
+                    padding: 14,
+                    color: "#FFCF6B",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Connected wallet: {truncAddr(activeWallet ?? "")}
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
+
           {stage === "AUTH_CHOICE" && (
             <motion.div
               key="auth-choice"
@@ -587,7 +659,23 @@ export default function RegisterPage() {
                 <p style={{ ...bodyStyle, marginBottom: 22 }}>
                   Wallet Connected: {truncAddr(activeWallet ?? "")}
                 </p>
-                {isCheckingCredentials ? <Spinner /> : <p style={bodyStyle}>Preparing your account status...</p>}
+                {isCheckingCredentials ? <Spinner /> : null}
+                <p style={bodyStyle}>{statusMessage}</p>
+                {statusError && (
+                  <div
+                    style={{
+                      background: "rgba(255,186,0,0.1)",
+                      border: "1px solid rgba(255,186,0,0.2)",
+                      borderRadius: 12,
+                      padding: 12,
+                      color: "#FFCF6B",
+                      fontSize: 13,
+                      marginTop: 16,
+                    }}
+                  >
+                    {statusError}
+                  </div>
+                )}
               </GlassCard>
             </motion.div>
           )}
