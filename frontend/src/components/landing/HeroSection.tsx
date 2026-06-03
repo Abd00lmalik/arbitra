@@ -361,7 +361,7 @@ export function HeroSection() {
                   transition: "box-shadow 0.2s"
                 }}
               >
-                Login with Email →
+                Login
               </motion.span>
             </Link>
             <Link href="/dashboard" style={{ textDecoration: "none" }}>

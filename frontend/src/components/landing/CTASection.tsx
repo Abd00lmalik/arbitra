@@ -100,7 +100,7 @@ export function CTASection() {
                 cursor: "pointer"
               }}
             >
-              Login with Email →
+              Login
             </motion.span>
           </Link>
 

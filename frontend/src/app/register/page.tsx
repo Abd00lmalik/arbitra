@@ -531,7 +531,7 @@ export default function RegisterPage() {
 
                 <div style={{ display: "grid", gap: 14 }}>
                   <button onClick={handleEmailLogin} disabled={isLoading || isInitializing} style={primaryBtnStyle}>
-                    {isLoading || isInitializing ? <Spinner /> : "Continue with Email"}
+                    {isLoading || isInitializing ? <Spinner /> : "Login"}
                   </button>
                   {browserWalletConnector && (
                     <button onClick={() => handleWalletLogin("injected")} style={secondaryBtnStyle}>
