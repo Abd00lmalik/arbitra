@@ -1,6 +1,6 @@
 /**
  * @file FaucetButton.tsx
- * @description Premium onboarding help modal guiding users through Sepolia ETH, mock USDT, cUSDT wrapping, and Arbitra operator approval.
+ * @description Premium onboarding help modal guiding users through Sepolia ETH, test USDC, confidential USDC setup, and Arbitra operator approval.
  */
 
 "use client";
@@ -202,7 +202,7 @@ export function FaucetButton() {
                     </div>
                   </div>
 
-                  {/* Step 2: Get Mock USDT */}
+                  {/* Step 2: Get Test USDC */}
                   <div style={{ display: "flex", gap: "16px" }}>
                     <div style={{
                       width: "36px",
@@ -223,26 +223,26 @@ export function FaucetButton() {
                     </div>
                     <div style={{ textAlign: "left" }}>
                       <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
-                        2. Request Test USDT
+                        2. Request Test USDC
                       </h4>
                       <p style={{ fontSize: "12px", color: "#8B9CC8", marginTop: "4px", lineHeight: "1.5" }}>
-                        Retrieve standard mock USDT tokens on Sepolia. These tokens are the basis for Zama&apos;s FHE wrappers.
+                        Retrieve Sepolia USDC for settlement and marketplace participation.
                       </p>
                       <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                         <a
-                          href="https://faucet.testnet.zama.org"
+                          href="https://faucet.circle.com/"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="neon-btn-secondary text-[11px] px-3 py-1.5 rounded-lg text-decoration-none"
                           style={{ fontSize: "10px", display: "inline-block" }}
                         >
-                          Zama Faucet
+                          Circle Faucet
                         </a>
                       </div>
                     </div>
                   </div>
 
-                  {/* Step 3: Wrap to cUSDT */}
+                  {/* Step 3: Prepare Confidential USDC */}
                   <div style={{ display: "flex", gap: "16px" }}>
                     <div style={{
                       width: "36px",
@@ -266,10 +266,10 @@ export function FaucetButton() {
                     </div>
                     <div style={{ textAlign: "left" }}>
                       <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
-                        3. Wrap USDT into cUSDT
+                        3. Prepare Confidential USDC
                       </h4>
                       <p style={{ fontSize: "12px", color: "#8B9CC8", marginTop: "4px", lineHeight: "1.5" }}>
-                        Shield your mock USDT into Confidential USDT (cUSDT) ERC-7984 tokens using Zama&apos;s secure wrapping interface.
+                        Move your test USDC into the confidential wrapper used by Arbitra so marketplace flows can settle with shielded balances.
                       </p>
                       <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                         <a
@@ -309,7 +309,7 @@ export function FaucetButton() {
                         4. Authorize Arbitra Operator Approval
                       </h4>
                       <p style={{ fontSize: "12px", color: "#8B9CC8", marginTop: "4px", lineHeight: "1.5" }}>
-                        To factor invoices or settle claims, you must authorize the Arbitra contract as a valid spender of your shielded cUSDT balances.
+                        To factor invoices or settle claims, you must authorize the Arbitra contract as a valid spender of your shielded USDC balances.
                       </p>
 
                       <div style={{ marginTop: "12px" }}>

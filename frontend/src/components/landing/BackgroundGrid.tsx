@@ -1,6 +1,6 @@
 /**
  * @file BackgroundGrid.tsx
- * @description Renders the animated background grid, scanlines, scroll progress bar, floating security orb, and floating cUSDT faucet pill.
+ * @description Renders the animated background grid, scanlines, scroll progress bar, floating security orb, and floating USDC faucet pill.
  */
 
 "use client";

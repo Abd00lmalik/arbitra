@@ -80,7 +80,7 @@ export function TrustBar() {
             Settled via
           </span>
           <span style={{ fontSize: "14px", fontWeight: 700, color: "#00FF88", fontFamily: "Satoshi, sans-serif" }}>
-            cUSDT Sepolia
+            USDC Sepolia
           </span>
         </div>
 
