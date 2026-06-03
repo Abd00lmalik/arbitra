@@ -142,30 +142,22 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         });
 
         const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
-        const configuredNetwork =
-          (process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK ??
-            WEB3AUTH_NETWORK.SAPPHIRE_DEVNET) as typeof WEB3AUTH_NETWORK[keyof typeof WEB3AUTH_NETWORK];
-        if (typeof window !== "undefined") {
-          (window as any).__arbitraWeb3AuthEnv = {
-            hasClientId: !!web3AuthClientId,
-            clientIdLength: web3AuthClientId?.length ?? 0,
-            startsWithPlaceholder: !!web3AuthClientId?.includes("your_"),
-            configuredNetwork,
-          };
-        }
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
         if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
-          throw new Error("NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is missing or invalid");
+          throw new Error(
+            "[Web3Auth] NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is not set. Add it to Vercel Environment Variables and redeploy.",
+          );
         }
 
         const instance = new Web3Auth({
           clientId:        web3AuthClientId,
-          web3AuthNetwork: configuredNetwork,
+          web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
           privateKeyProvider,
           uiConfig: {
             appName:             "Arbitra",
-            appUrl:              window.location.origin,
+            appUrl:              appUrl,
             theme:               { primary: "#00F0FF" },
-            loginMethodsOrder:   ["email_passwordless"],
+            loginMethodsOrder:   ["google", "email_passwordless"],
             defaultLanguage:     "en",
             modalZIndex:         "99999",
           },
@@ -175,7 +167,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           privateKeyProvider,
           adapterSettings: {
             clientId: web3AuthClientId,
-            network: configuredNetwork,
+            network: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
             uxMode: "popup",
           },
         });
