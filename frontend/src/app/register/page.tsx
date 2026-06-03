@@ -51,6 +51,17 @@ interface KYBResult {
   attestation_hash_bytes32: `0x${string}`;
 }
 
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as { shortMessage?: string; message?: string; cause?: { message?: string } };
+    if (candidate.shortMessage) return candidate.shortMessage;
+    if (candidate.message) return candidate.message;
+    if (candidate.cause?.message) return candidate.cause.message;
+  }
+  return "Unexpected transaction failure.";
+}
+
 interface KybFieldErrors {
   companyName?: string;
   country?: string;
@@ -259,7 +270,6 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;
     setIsMintingSBT(false);
-    setSbtTxHash(undefined);
     setStage("SBT_MINTED");
   }, [isSbtReceiptSuccess]);
 
@@ -267,7 +277,7 @@ export default function RegisterPage() {
     if (!sbtReceiptError) return;
     setIsMintingSBT(false);
     setSbtTxHash(undefined);
-    setError(sbtReceiptError instanceof Error ? sbtReceiptError.message : "SBT minting failed.");
+    setError(extractErrorMessage(sbtReceiptError));
   }, [sbtReceiptError]);
 
   useEffect(() => {
@@ -281,8 +291,18 @@ export default function RegisterPage() {
     if (!fheReceiptError) return;
     setIsEncryptingFHE(false);
     setFheTxHash(undefined);
-    setError(fheReceiptError instanceof Error ? fheReceiptError.message : "FHE compliance transaction failed.");
+    setError(extractErrorMessage(fheReceiptError));
   }, [fheReceiptError]);
+
+  useEffect(() => {
+    if (stage !== "FHE_SYNCED") return;
+
+    const redirectTimer = window.setTimeout(() => {
+      router.push(nextPath);
+    }, 2000);
+
+    return () => window.clearTimeout(redirectTimer);
+  }, [stage, router, nextPath]);
 
   useEffect(() => {
     if (stage !== "KYB_PENDING") return;
@@ -397,6 +417,11 @@ export default function RegisterPage() {
   async function handleMintSBT() {
     if (!activeWallet || !kybResult) return;
 
+    if (!kybResult.signature || !kybResult.verification_id_bytes32 || !kybResult.attestation_hash_bytes32) {
+      setError("KYB verification data is incomplete. Please restart the verification flow.");
+      return;
+    }
+
     setIsMintingSBT(true);
     setError(null);
 
@@ -409,16 +434,17 @@ export default function RegisterPage() {
           activeWallet,
           kybResult.verification_id_bytes32,
           kybResult.attestation_hash_bytes32,
-          kybResult.risk_score,
+          Number(kybResult.risk_score),
           BigInt(kybResult.verified_at),
           kybResult.signature,
         ],
+        chainId: 11155111,
       });
       setSbtTxHash(hash);
     } catch (mintError) {
       console.error(mintError);
       setIsMintingSBT(false);
-      setError(mintError instanceof Error ? mintError.message : "SBT minting failed.");
+      setError(`SBT minting failed: ${extractErrorMessage(mintError)}`);
     }
   }
 
@@ -793,8 +819,31 @@ export default function RegisterPage() {
                 </div>
 
                 <button onClick={handleMintSBT} disabled={isMintingSBT} style={primaryBtnStyle}>
-                  {isMintingSBT ? <Spinner /> : "Mint Soulbound Token"}
+                  {isMintingSBT
+                    ? <><Spinner /> Confirm in wallet...</>
+                    : sbtTxHash
+                      ? <><Spinner /> Minting on Sepolia...</>
+                      : "Mint Soulbound Token"}
                 </button>
+                {sbtTxHash && (
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${sbtTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "#00F0FF",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: "underline",
+                      textUnderlineOffset: 3,
+                      display: "block",
+                      marginTop: 14,
+                      textAlign: "center",
+                    }}
+                  >
+                    View transaction on Sepolia Etherscan
+                  </a>
+                )}
               </GlassCard>
             </motion.div>
           )}
@@ -831,6 +880,9 @@ export default function RegisterPage() {
                 <h2 style={headingStyle}>Access unlocked</h2>
                 <p style={{ ...bodyStyle, marginBottom: 20 }}>
                   Marketplace access is now available. Your compliance profile is encrypted and your SBT is active.
+                </p>
+                <p style={{ ...bodyStyle, marginBottom: 20 }}>
+                  Redirecting you to the dashboard...
                 </p>
                 <button onClick={() => router.push(nextPath)} style={primaryBtnStyle}>
                   Enter Dashboard
