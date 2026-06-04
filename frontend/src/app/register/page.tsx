@@ -40,16 +40,22 @@ type Stage =
   | "FHE_SYNCED";
 
 interface KYBResult {
+  success?: boolean;
+  requiresClientMint?: boolean;
   verification_id: string;
   company_status: string;
   sanctions_flag: boolean;
   pep_flag: boolean;
   risk_score: number;
   verified_at: number;
-  signature: `0x${string}`;
+  signature?: `0x${string}`;
   oracle_signature?: string;
   verification_id_bytes32: `0x${string}`;
   attestation_hash_bytes32: `0x${string}`;
+  txHash?: `0x${string}`;
+  signerAddress?: `0x${string}`;
+  mintFallbackReason?: string;
+  message?: string;
 }
 
 function extractErrorMessage(error: unknown): string {
@@ -73,6 +79,41 @@ async function parseJsonResponse(response: Response): Promise<Record<string, unk
     console.error("[Register] Failed to parse KYB API response as JSON.", error, responseText);
     return null;
   }
+}
+
+async function pollForReceipt(txHash: `0x${string}`, maxAttempts = 30): Promise<boolean> {
+  const rpcUrl =
+    process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
+    "https://ethereum-sepolia-rpc.publicnode.com";
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_getTransactionReceipt",
+          params: [txHash],
+          id: attempt + 1,
+        }),
+      });
+
+      const data = await response.json() as {
+        result?: { status?: string | null } | null;
+      };
+
+      if (data.result) {
+        return data.result.status === "0x1";
+      }
+    } catch (error) {
+      console.error("[Register] Receipt polling failed. Retrying...", error);
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 3000));
+  }
+
+  throw new Error("Transaction not confirmed after 90 seconds. Check Sepolia Etherscan.");
 }
 
 const SBT_CHECK_TIMEOUT_MS = 10_000;
@@ -462,7 +503,10 @@ export default function RegisterPage() {
       });
 
       const data = await parseJsonResponse(response);
-      if (!response.ok || !data?.signature) {
+      const requiresClientMint = data?.requiresClientMint === true;
+      const hasServerSubmittedTx = typeof data?.txHash === "string";
+
+      if (!response.ok || (!requiresClientMint && !hasServerSubmittedTx && !data?.signature)) {
         const apiError =
           typeof data?.error === "string"
             ? data.error
@@ -474,10 +518,29 @@ export default function RegisterPage() {
         throw new Error(apiError);
       }
 
-      setKybResult(data as unknown as KYBResult);
+      const kybPayload = data as unknown as KYBResult;
+      setKybResult(kybPayload);
       setKybStep(0);
+
+      if (!kybPayload.requiresClientMint && kybPayload.txHash) {
+        setSbtTxHash(kybPayload.txHash);
+        setIsMintingSBT(true);
+        setStatusMessage("Transaction submitted. Waiting for Sepolia confirmation...");
+        setStage("KYB_APPROVED");
+
+        const confirmed = await pollForReceipt(kybPayload.txHash);
+        if (!confirmed) {
+          throw new Error("On-chain transaction reverted. Please try again.");
+        }
+
+        setIsMintingSBT(false);
+        setStage("SBT_MINTED");
+        return;
+      }
+
       setStage("KYB_PENDING");
     } catch (submissionError) {
+      setIsMintingSBT(false);
       setError(submissionError instanceof Error ? submissionError.message : "KYB processing failed.");
     } finally {
       setIsLoading(false);
@@ -957,11 +1020,16 @@ export default function RegisterPage() {
 
                 <button onClick={handleMintSBT} disabled={isMintingSBT} style={primaryBtnStyle}>
                   {isMintingSBT
-                    ? <><Spinner /> Confirm in wallet...</>
+                    ? <><Spinner /> Waiting for Sepolia confirmation...</>
                     : sbtTxHash
                       ? <><Spinner /> Minting on Sepolia...</>
                       : "Mint Soulbound Token"}
                 </button>
+                {kybResult?.requiresClientMint && kybResult.mintFallbackReason && (
+                  <p style={{ color: "#FFCF6B", fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+                    {kybResult.mintFallbackReason}
+                  </p>
+                )}
                 {sbtTxHash && (
                   <a
                     href={`https://sepolia.etherscan.io/tx/${sbtTxHash}`}

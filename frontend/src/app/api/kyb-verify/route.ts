@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { createPublicClient, defineChain, http } from "viem";
+import { createPublicClient, createWalletClient, defineChain, formatEther, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   KYB_ORACLE_ABI,
@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 
 const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const DEFAULT_SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 
 const sepolia = defineChain({
   id: 11155111,
@@ -198,10 +199,14 @@ export async function POST(req: NextRequest) {
 
     const verificationIdBytes32 = `0x${verificationIdHash.padStart(64, "0")}` as `0x${string}`;
     const attestationHashBytes32 = `0x${attestationHash.padStart(64, "0")}` as `0x${string}`;
+    const rpcUrl =
+      process.env.SEPOLIA_RPC_URL ||
+      process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
+      DEFAULT_SEPOLIA_RPC_URL;
 
     const publicClient = createPublicClient({
       chain: sepolia,
-      transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com"),
+      transport: http(rpcUrl),
     });
 
     const nonce = await publicClient.readContract({
@@ -243,22 +248,98 @@ export async function POST(req: NextRequest) {
 
     console.log("[KYB API] Signature generated successfully.");
 
-    return NextResponse.json({
-      verification_id: kybResult.verification_id,
-      company_status: kybResult.company_status,
-      sanctions_flag: kybResult.sanctions_flag,
-      pep_flag: kybResult.pep_flag,
-      risk_score: kybResult.risk_score,
-      oracle_signature: kybResult.oracle_signature,
-      signature,
-      verified_at: timestamp,
-      verification_id_bytes32: verificationIdBytes32,
-      attestation_hash_bytes32: attestationHashBytes32,
-      kybApproved: true,
-      kybAttestationHash: attestationHashBytes32,
-      signerAddress: account.address,
-      message: "Business verified. Signature generated.",
-    });
+    const walletBalance = await publicClient.getBalance({ address: account.address });
+    console.log("[KYB API] Server wallet balance:", `${formatEther(walletBalance)} ETH`);
+
+    if (walletBalance === 0n) {
+      console.error("[KYB API] Server wallet has no ETH for gas. Falling back to client-side mint.");
+      return NextResponse.json({
+        success: true,
+        requiresClientMint: true,
+        verification_id: kybResult.verification_id,
+        company_status: kybResult.company_status,
+        sanctions_flag: kybResult.sanctions_flag,
+        pep_flag: kybResult.pep_flag,
+        risk_score: kybResult.risk_score,
+        oracle_signature: kybResult.oracle_signature,
+        signature,
+        verified_at: timestamp,
+        verification_id_bytes32: verificationIdBytes32,
+        attestation_hash_bytes32: attestationHashBytes32,
+        kybApproved: true,
+        kybAttestationHash: attestationHashBytes32,
+        signerAddress: account.address,
+        mintFallbackReason: "Server wallet has no Sepolia ETH for gas. Please fund the verifier wallet or mint from a funded wallet.",
+        message: "Business verified. Client wallet confirmation required.",
+      });
+    }
+
+    try {
+      const walletClient = createWalletClient({
+        account,
+        chain: sepolia,
+        transport: http(rpcUrl),
+      });
+
+      const txHash = await walletClient.writeContract({
+        address: KYB_ORACLE_ADDRESS as `0x${string}`,
+        abi: KYB_ORACLE_ABI,
+        functionName: "submitKYBAttestation",
+        args: [
+          wallet as `0x${string}`,
+          verificationIdBytes32,
+          attestationHashBytes32,
+          kybResult.risk_score,
+          BigInt(timestamp),
+          signature,
+        ],
+        gas: 300000n,
+      });
+
+      console.log("[KYB API] Submitted attestation on-chain:", txHash);
+
+      return NextResponse.json({
+        success: true,
+        requiresClientMint: false,
+        txHash,
+        verification_id: kybResult.verification_id,
+        company_status: kybResult.company_status,
+        sanctions_flag: kybResult.sanctions_flag,
+        pep_flag: kybResult.pep_flag,
+        risk_score: kybResult.risk_score,
+        oracle_signature: kybResult.oracle_signature,
+        verified_at: timestamp,
+        verification_id_bytes32: verificationIdBytes32,
+        attestation_hash_bytes32: attestationHashBytes32,
+        kybApproved: true,
+        kybAttestationHash: attestationHashBytes32,
+        signerAddress: account.address,
+        message: "Business verified. Attestation submitted on-chain.",
+      });
+    } catch (txError) {
+      const txMessage = txError instanceof Error ? txError.message : String(txError);
+      console.error("[KYB API] On-chain submission failed. Falling back to client-side mint.", txMessage);
+
+      return NextResponse.json({
+        success: true,
+        requiresClientMint: true,
+        verification_id: kybResult.verification_id,
+        company_status: kybResult.company_status,
+        sanctions_flag: kybResult.sanctions_flag,
+        pep_flag: kybResult.pep_flag,
+        risk_score: kybResult.risk_score,
+        oracle_signature: kybResult.oracle_signature,
+        signature,
+        verified_at: timestamp,
+        verification_id_bytes32: verificationIdBytes32,
+        attestation_hash_bytes32: attestationHashBytes32,
+        kybApproved: true,
+        kybAttestationHash: attestationHashBytes32,
+        signerAddress: account.address,
+        mintFallbackReason: `Server-side mint failed (${txMessage}). Please confirm the mint transaction in a funded wallet.`,
+        message: "Business verified. Client wallet confirmation required.",
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[KYB API] Unhandled error:", {
