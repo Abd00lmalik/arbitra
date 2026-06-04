@@ -254,7 +254,7 @@ export default function RegisterPage() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "/dashboard";
 
-  const { wallet, isLoggedIn, isInitializing, login, authError } = useWeb3Auth();
+  const { wallet, isLoggedIn, isInitializing, login, authError, getProvider } = useWeb3Auth();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
@@ -627,7 +627,7 @@ export default function RegisterPage() {
     setStatusMessage("Encrypting compliance data...");
 
     try {
-      await getZamaSDK();
+      await getZamaSDK(getProvider());
 
       const taxIdDigits = taxID.replace(/\D/g, "");
       if (!taxIdDigits || taxIdDigits.length > 9) {

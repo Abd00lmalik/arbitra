@@ -36,16 +36,24 @@ export function ZamaProvider({ children }: Props) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const resolveProvider = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    return (window as any).web3authProvider ?? (window as any).ethereum ?? null;
+  }, []);
+
   const init = useCallback(async () => {
-    if (typeof window === "undefined" || !window.ethereum) {
-      setError("No Ethereum provider detected. Install MetaMask.");
+    const provider = resolveProvider();
+    if (!provider) {
+      setInstance(null);
+      setIsReady(false);
+      setError(null);
       return;
     }
 
     try {
       /* Dynamic import ensures WASM is not loaded during SSR */
       const { getFhevmInstance } = await import("@/lib/zama");
-      const inst = await getFhevmInstance(window.ethereum);
+      const inst = await getFhevmInstance(provider);
       setInstance(inst);
       setIsReady(true);
       setError(null);
@@ -65,6 +73,27 @@ export function ZamaProvider({ children }: Props) {
     if (!mounted) return;
     init();
   }, [mounted, init]);
+
+  useEffect(() => {
+    if (!mounted || typeof window === "undefined") return;
+
+    const poll = window.setInterval(() => {
+      const provider = resolveProvider();
+      const hasInstance = provider !== null;
+      if (!hasInstance && (instance || isReady || error)) {
+        setInstance(null);
+        setIsReady(false);
+        setError(null);
+        return;
+      }
+
+      if (hasInstance && !instance && !isReady) {
+        void init();
+      }
+    }, 1000);
+
+    return () => window.clearInterval(poll);
+  }, [mounted, resolveProvider, init, instance, isReady, error]);
 
   /* Do not render until mounted to prevent SSR hydration mismatch */
   if (!mounted) return null;

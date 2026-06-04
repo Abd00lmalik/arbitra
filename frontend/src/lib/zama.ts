@@ -7,30 +7,76 @@
 export type FhevmInstance = any;
 
 let sdkInstance: any | null = null;
+let sdkInitPromise: Promise<any> | null = null;
+let sdkProviderRef: any | null = null;
+
+const SEPOLIA_CHAIN_ID = "0xaa36a7";
+
+function resolveBrowserProvider(preferredProvider?: any) {
+  if (preferredProvider) return preferredProvider;
+  if (typeof window === "undefined") return null;
+  return (window as any).web3authProvider ?? (window as any).ethereum ?? null;
+}
+
+async function assertSepoliaProvider(provider: any) {
+  if (!provider || typeof provider.request !== "function") return;
+
+  const chainId = await provider.request({ method: "eth_chainId" });
+  if (typeof chainId === "string" && chainId.toLowerCase() !== SEPOLIA_CHAIN_ID) {
+    throw new Error("FHEVM encryption is only available on Sepolia. Switch your wallet to chain 11155111 and try again.");
+  }
+}
+
+export function resetZamaSDK() {
+  sdkInstance = null;
+  sdkInitPromise = null;
+  sdkProviderRef = null;
+}
 
 export async function getZamaSDK(network?: any) {
   if (typeof window === "undefined") {
     throw new Error("FHEVM SDK is only available in the browser.");
   }
-  if (sdkInstance) return sdkInstance;
 
   try {
-    const resolvedNetwork = network ?? (window as any).web3authProvider ?? (window as any).ethereum;
+    const resolvedNetwork = resolveBrowserProvider(network);
     if (!resolvedNetwork) {
       throw new Error("No wallet provider detected for FHE encryption.");
     }
+    await assertSepoliaProvider(resolvedNetwork);
+
+    if (sdkInstance && sdkProviderRef === resolvedNetwork) {
+      return sdkInstance;
+    }
+
+    if (sdkInitPromise && sdkProviderRef === resolvedNetwork) {
+      return await sdkInitPromise;
+    }
+
+    if (sdkProviderRef && sdkProviderRef !== resolvedNetwork) {
+      resetZamaSDK();
+    }
+
+    sdkProviderRef = resolvedNetwork;
 
     /* Load relayer-sdk 0.4.1 /web */
-    const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
-    await initSDK();
-    const instance = await createInstance({
-      ...SepoliaConfig,
-      relayerUrl: "https://relayer.testnet.zama.org",
-      network: resolvedNetwork,
-    });
-    sdkInstance = instance;
-    return sdkInstance;
+    sdkInitPromise = (async () => {
+      const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
+      await initSDK();
+      const instance = await createInstance({
+        ...SepoliaConfig,
+        network: resolvedNetwork,
+      });
+      sdkInstance = instance;
+      return sdkInstance;
+    })();
+
+    return await sdkInitPromise;
   } catch (e) {
+    sdkInitPromise = null;
+    if (!sdkInstance) {
+      sdkProviderRef = null;
+    }
     console.error("[Arbitra] FHEVM init failed:", e);
     throw new Error(e instanceof Error ? e.message : "FHEVM SDK initialization failed.");
   }
