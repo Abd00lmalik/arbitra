@@ -648,15 +648,36 @@ export default function RegisterPage() {
         }),
       });
 
-      const data = await parseJsonResponse(response);
+      console.log("[FHE] compliance-store response status:", response.status);
+      const responseText = await response.text();
+      console.log("[FHE] compliance-store raw response:", responseText);
+
+      let data: Record<string, unknown> | null = null;
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText) as Record<string, unknown>;
+        } catch (parseError) {
+          console.error("[FHE] Failed to parse compliance-store response JSON:", parseError);
+          throw new Error(`Server returned invalid JSON: ${responseText.slice(0, 200)}`);
+        }
+      }
+
       if (!response.ok || typeof data?.txHash !== "string") {
         const apiError =
           typeof data?.error === "string"
             ? data.error
-            : "Encrypted compliance submission failed.";
+            : typeof data?.detail === "string"
+              ? data.detail
+              : `Encrypted compliance submission failed with HTTP ${response.status}.`;
+        console.error("[FHE] compliance-store failed:", {
+          status: response.status,
+          error: apiError,
+          detail: data?.detail,
+        });
         throw new Error(apiError);
       }
 
+      console.log("[FHE] Compliance stored! txHash:", data.txHash, "elapsedMs:", data.elapsedMs);
       setStatusMessage("Encrypted compliance submitted. Waiting for Sepolia confirmation...");
       setFheTxHash(data.txHash as `0x${string}`);
     } catch (fheError) {
@@ -1107,6 +1128,22 @@ export default function RegisterPage() {
                 <p style={{ ...bodyStyle, marginBottom: 20 }}>
                   KYB is approved and the SBT is minted. FHE encryption is now enabled for Tax ID, KYB status, and risk score.
                 </p>
+                {error && (
+                  <div
+                    style={{
+                      background: "rgba(255,45,107,0.1)",
+                      border: "1px solid rgba(255,45,107,0.2)",
+                      borderRadius: 12,
+                      padding: 12,
+                      color: "#FF5E8C",
+                      fontSize: 13,
+                      marginBottom: 16,
+                    }}
+                  >
+                    {error}
+                  </div>
+                )}
+                <p style={{ ...bodyStyle, marginBottom: 16 }}>{statusMessage}</p>
                 <button
                   onClick={() => {
                     console.log("[FHE] Button clicked", {

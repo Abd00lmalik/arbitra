@@ -8,6 +8,7 @@ import {
 } from "@/lib/contracts";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -75,22 +76,51 @@ function toHex(value: Uint8Array | string): `0x${string}` {
   return (`0x${Array.from(value).map((part) => part.toString(16).padStart(2, "0")).join("")}`) as `0x${string}`;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms.`)), timeoutMs);
+    }),
+  ]);
+}
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   let requestBody: ComplianceStoreRequestBody | null = null;
 
   try {
+    console.log("[Compliance API] Starting compliance-store request", {
+      identityAddress: IDENTITY_ADDRESS,
+      envIdentityAddress: process.env.NEXT_PUBLIC_IDENTITY_ADDRESS,
+      hasVerifierKey: Boolean(process.env.VERIFIER_PRIVATE_KEY),
+      hasSepoliaRpc: Boolean(process.env.SEPOLIA_RPC_URL || process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL),
+    });
+
     const normalizedVerifierKey = normalizeVerifierKey(process.env.VERIFIER_PRIVATE_KEY);
     if (!normalizedVerifierKey) {
       return jsonError("Server configuration error: verifier key not configured.", 500);
     }
 
     if (!IDENTITY_ADDRESS || IDENTITY_ADDRESS === ZERO_ADDRESS) {
-      return jsonError("Server configuration error: identity contract address not configured.", 500);
+      return jsonError(
+        "Server configuration error: identity contract address not configured.",
+        500,
+        "Set NEXT_PUBLIC_IDENTITY_ADDRESS to 0x928742F2f286187B79E154e0A27a0b82EF2cEaf7 in Vercel.",
+      );
     }
 
     const account = privateKeyToAccount(normalizedVerifierKey);
     if (account.address.toLowerCase() !== EXPECTED_VERIFIER_ADDRESS.toLowerCase()) {
-      return jsonError("Server configuration error: verifier key does not match the authorized relayer signer.", 500);
+      console.error("[Compliance API] Verifier signer mismatch", {
+        actualSigner: account.address,
+        expectedSigner: EXPECTED_VERIFIER_ADDRESS,
+      });
+      return jsonError(
+        "Server configuration error: verifier key does not match the authorized relayer signer.",
+        500,
+        `Expected ${EXPECTED_VERIFIER_ADDRESS}, got ${account.address}.`,
+      );
     }
 
     requestBody = await req.json().catch(() => null);
@@ -123,6 +153,13 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
       DEFAULT_SEPOLIA_RPC_URL;
 
+    console.log("[Compliance API] Request payload accepted", {
+      wallet,
+      riskScore,
+      rpcUrl,
+      relayerAddress: account.address,
+    });
+
     const publicClient = createPublicClient({
       chain: sepolia,
       transport: http(rpcUrl),
@@ -134,16 +171,32 @@ export async function POST(req: NextRequest) {
       return jsonError("Server relayer has no Sepolia ETH for gas.", 503);
     }
 
-    const sdk = await createInstance({
-      ...SepoliaConfig,
-      network: rpcUrl,
+    console.log("[Compliance API] Initializing relayer SDK...");
+    const sdk = await withTimeout(
+      createInstance({
+        ...SepoliaConfig,
+        network: rpcUrl,
+      }),
+      20_000,
+      "Relayer SDK initialization",
+    );
+    console.log("[Compliance API] Relayer SDK initialized", {
+      elapsedMs: Date.now() - startedAt,
     });
 
     const encryptedInput = sdk.createEncryptedInput(IDENTITY_ADDRESS, account.address);
     encryptedInput.add32(BigInt(taxIDInt));
     encryptedInput.addBool(kybApproved);
     encryptedInput.add8(BigInt(riskScore));
-    const encrypted = await encryptedInput.encrypt();
+    console.log("[Compliance API] Encrypting compliance payload...");
+    const encrypted = await withTimeout(
+      encryptedInput.encrypt(),
+      25_000,
+      "Compliance encryption",
+    );
+    console.log("[Compliance API] Encryption complete", {
+      elapsedMs: Date.now() - startedAt,
+    });
 
     const walletClient = createWalletClient({
       account,
@@ -151,6 +204,7 @@ export async function POST(req: NextRequest) {
       transport: http(rpcUrl),
     });
 
+    console.log("[Compliance API] Submitting relayed compliance transaction...");
     const txHash = await walletClient.writeContract({
       address: IDENTITY_ADDRESS,
       abi: IDENTITY_ABI,
@@ -167,12 +221,16 @@ export async function POST(req: NextRequest) {
       gas: 500000n,
     });
 
-    console.log("[Compliance API] Submitted encrypted compliance on-chain:", txHash);
+    console.log("[Compliance API] Submitted encrypted compliance on-chain:", {
+      txHash,
+      elapsedMs: Date.now() - startedAt,
+    });
 
     return NextResponse.json({
       success: true,
       txHash,
       relayerAddress: account.address,
+      elapsedMs: Date.now() - startedAt,
       message: "Encrypted compliance submitted on-chain.",
     });
   } catch (error) {
@@ -181,7 +239,8 @@ export async function POST(req: NextRequest) {
       message,
       wallet: requestBody?.wallet,
       identityAddress: IDENTITY_ADDRESS,
+      elapsedMs: Date.now() - startedAt,
     });
-    return jsonError(`Encrypted compliance submission failed: ${message}`, 500);
+    return jsonError("Encrypted compliance submission failed.", 500, message);
   }
 }
