@@ -10,6 +10,19 @@ const nextConfig = {
   ],
   experimental: {
     esmExternals: "loose",
+    outputFileTracingIncludes: {
+      "/api/compliance-store": [
+        "./node_modules/@zama-fhe/relayer-sdk/lib/tfhe_bg.wasm",
+        "./node_modules/@zama-fhe/relayer-sdk/lib/kms_lib_bg.wasm",
+        "./node_modules/node-tfhe/**/*",
+        "./node_modules/node-tkms/**/*",
+      ],
+    },
+    serverComponentsExternalPackages: [
+      "@zama-fhe/relayer-sdk",
+      "node-tfhe",
+      "node-tkms",
+    ],
   },
   typescript: {
     ignoreBuildErrors: true,

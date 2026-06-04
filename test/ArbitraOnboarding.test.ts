@@ -47,7 +47,7 @@ describe("Arbitra Onboarding E2E Lifecycle", function () {
 
         /* 4. Deploy ArbitraIdentity */
         const IdentityFactory = await ethers.getContractFactory("ArbitraIdentity", deployer);
-        identityContract = await IdentityFactory.deploy(deployer.address, sbtAddr);
+        identityContract = await IdentityFactory.deploy(deployer.address, sbtAddr, oracleBackend.address);
         await identityContract.waitForDeployment();
         identityAddr = await identityContract.getAddress();
     });
@@ -443,6 +443,66 @@ describe("Arbitra Onboarding E2E Lifecycle", function () {
             expect(handles.taxIDHandle).to.equal(ethers.hexlify(enc.handles[0]));
             expect(handles.kybHandle).to.equal(ethers.hexlify(enc.handles[1]));
             expect(handles.riskHandle).to.equal(ethers.hexlify(enc.handles[2]));
+        });
+
+        it("should allow the authorized relayer to submit encrypted compliance for a verified wallet", async function () {
+            await oracleContract.connect(supplier).submitKYBAttestation(
+                supplier.address,
+                verificationId,
+                attestationHash,
+                riskScore,
+                timestamp,
+                signature
+            );
+
+            const input = fhevm.createEncryptedInput(identityAddr, oracleBackend.address);
+            input.add32(123456789n);
+            input.addBool(true);
+            input.add8(BigInt(riskScore));
+            const enc = await input.encrypt();
+
+            await expect(
+                identityContract.connect(oracleBackend).submitEncryptedComplianceFor(
+                    supplier.address,
+                    enc.handles[0], enc.inputProof,
+                    enc.handles[1], enc.inputProof,
+                    enc.handles[2], enc.inputProof
+                )
+            ).to.emit(identityContract, "EncryptedComplianceSubmitted")
+             .withArgs(supplier.address, (t: bigint) => t > 0n);
+
+            expect(await identityContract.hasEncryptedCompliance(supplier.address)).to.be.true;
+
+            const handles = await identityContract.getEncryptedHandles(supplier.address);
+            expect(handles.taxIDHandle).to.equal(ethers.hexlify(enc.handles[0]));
+            expect(handles.kybHandle).to.equal(ethers.hexlify(enc.handles[1]));
+            expect(handles.riskHandle).to.equal(ethers.hexlify(enc.handles[2]));
+        });
+
+        it("should revert if an unauthorized account tries to relay encrypted compliance", async function () {
+            await oracleContract.connect(supplier).submitKYBAttestation(
+                supplier.address,
+                verificationId,
+                attestationHash,
+                riskScore,
+                timestamp,
+                signature
+            );
+
+            const input = fhevm.createEncryptedInput(identityAddr, supplier.address);
+            input.add32(123456789n);
+            input.addBool(true);
+            input.add8(BigInt(riskScore));
+            const enc = await input.encrypt();
+
+            await expect(
+                identityContract.connect(bystander).submitEncryptedComplianceFor(
+                    supplier.address,
+                    enc.handles[0], enc.inputProof,
+                    enc.handles[1], enc.inputProof,
+                    enc.handles[2], enc.inputProof
+                )
+            ).to.be.revertedWith("ArbitraIdentity: unauthorized relayer");
         });
     });
 });

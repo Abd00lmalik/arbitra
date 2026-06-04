@@ -28,7 +28,6 @@ import {
   SBT_ADDRESS,
   truncAddr,
 } from "@/lib/contracts";
-import { encryptBool, encryptUint32, encryptUint8, getZamaSDK } from "@/lib/zama";
 
 type Stage =
   | "AUTH_CHOICE"
@@ -624,11 +623,9 @@ export default function RegisterPage() {
 
     setIsEncryptingFHE(true);
     setError(null);
-    setStatusMessage("Encrypting compliance data...");
+    setStatusMessage("Submitting encrypted compliance...");
 
     try {
-      await getZamaSDK(getProvider());
-
       const taxIdDigits = taxID.replace(/\D/g, "");
       if (!taxIdDigits || taxIdDigits.length > 9) {
         throw new Error("Invalid Tax ID format.");
@@ -639,26 +636,29 @@ export default function RegisterPage() {
         throw new Error("Tax ID must fit into a 32-bit unsigned integer.");
       }
 
-      console.log("[FHE] Encrypting tax ID, KYB status, and risk score");
-      const encTax = await encryptUint32(BigInt(taxIDInt), activeWallet, IDENTITY_ADDRESS);
-      const encKyb = await encryptBool(effectiveKybResult.company_status === "verified", activeWallet, IDENTITY_ADDRESS);
-      const encRisk = await encryptUint8(BigInt(effectiveKybResult.risk_score), activeWallet, IDENTITY_ADDRESS);
-
-      console.log("[FHE] Submitting encrypted compliance transaction");
-      const hash = await writeContractAsync({
-        address: IDENTITY_ADDRESS,
-        abi: IDENTITY_ABI,
-        functionName: "submitEncryptedCompliance",
-        args: [
-          encTax.handle,
-          encTax.proof,
-          encKyb.handle,
-          encKyb.proof,
-          encRisk.handle,
-          encRisk.proof,
-        ],
+      console.log("[FHE] Requesting gasless encrypted compliance submission");
+      const response = await fetch("/api/compliance-store", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: activeWallet,
+          taxID: taxIdDigits,
+          kybApproved: effectiveKybResult.company_status === "verified",
+          riskScore: effectiveKybResult.risk_score,
+        }),
       });
-      setFheTxHash(hash);
+
+      const data = await parseJsonResponse(response);
+      if (!response.ok || typeof data?.txHash !== "string") {
+        const apiError =
+          typeof data?.error === "string"
+            ? data.error
+            : "Encrypted compliance submission failed.";
+        throw new Error(apiError);
+      }
+
+      setStatusMessage("Encrypted compliance submitted. Waiting for Sepolia confirmation...");
+      setFheTxHash(data.txHash as `0x${string}`);
     } catch (fheError) {
       console.error("[FHE] Encrypt compliance failed:", fheError);
       setIsEncryptingFHE(false);

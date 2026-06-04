@@ -613,6 +613,20 @@ export const IDENTITY_ABI = [
     outputs: [],
   },
   {
+    type: "function", name: "submitEncryptedComplianceFor",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "wallet",        type: "address" },
+      { name: "encTaxID",      type: "bytes32" },
+      { name: "proofTaxID",    type: "bytes"   },
+      { name: "encKybStatus",  type: "bytes32" },
+      { name: "proofKyb",      type: "bytes"   },
+      { name: "encRisk",       type: "bytes32" },
+      { name: "proofRisk",     type: "bytes"   },
+    ],
+    outputs: [],
+  },
+  {
     type: "function", name: "hasEncryptedCompliance",
     stateMutability: "view",
     inputs: [{ name: "wallet", type: "address" }],
