@@ -76,6 +76,10 @@ function toHex(value: Uint8Array | string): `0x${string}` {
   return (`0x${Array.from(value).map((part) => part.toString(16).padStart(2, "0")).join("")}`) as `0x${string}`;
 }
 
+function withGasBuffer(estimatedGas: bigint): bigint {
+  return (estimatedGas * 12n) / 10n;
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return await Promise.race([
     promise,
@@ -204,21 +208,38 @@ export async function POST(req: NextRequest) {
       transport: http(rpcUrl),
     });
 
+    const contractArgs = [
+      wallet as `0x${string}`,
+      toHex(encrypted.handles[0]),
+      toHex(encrypted.inputProof),
+      toHex(encrypted.handles[1]),
+      toHex(encrypted.inputProof),
+      toHex(encrypted.handles[2]),
+      toHex(encrypted.inputProof),
+    ] as const;
+
+    console.log("[Compliance API] Estimating gas for relayed compliance transaction...");
+    const estimatedGas = await publicClient.estimateContractGas({
+      address: IDENTITY_ADDRESS,
+      abi: IDENTITY_ABI,
+      functionName: "submitEncryptedComplianceFor",
+      args: contractArgs,
+      account: account.address,
+    });
+    const gasLimit = withGasBuffer(estimatedGas);
+    console.log("[Compliance API] Gas estimate complete", {
+      estimatedGas: estimatedGas.toString(),
+      gasLimit: gasLimit.toString(),
+      elapsedMs: Date.now() - startedAt,
+    });
+
     console.log("[Compliance API] Submitting relayed compliance transaction...");
     const txHash = await walletClient.writeContract({
       address: IDENTITY_ADDRESS,
       abi: IDENTITY_ABI,
       functionName: "submitEncryptedComplianceFor",
-      args: [
-        wallet as `0x${string}`,
-        toHex(encrypted.handles[0]),
-        toHex(encrypted.inputProof),
-        toHex(encrypted.handles[1]),
-        toHex(encrypted.inputProof),
-        toHex(encrypted.handles[2]),
-        toHex(encrypted.inputProof),
-      ],
-      gas: 500000n,
+      args: contractArgs,
+      gas: gasLimit,
     });
 
     console.log("[Compliance API] Submitted encrypted compliance on-chain:", {
