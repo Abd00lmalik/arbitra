@@ -15,13 +15,18 @@ export async function getZamaSDK(network?: any) {
   if (sdkInstance) return sdkInstance;
 
   try {
+    const resolvedNetwork = network ?? (window as any).web3authProvider ?? (window as any).ethereum;
+    if (!resolvedNetwork) {
+      throw new Error("No wallet provider detected for FHE encryption.");
+    }
+
     /* Load relayer-sdk 0.4.1 /web */
     const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
     await initSDK();
     const instance = await createInstance({
       ...SepoliaConfig,
       relayerUrl: "https://relayer.testnet.zama.org",
-      network: network ?? (window.ethereum as any),
+      network: resolvedNetwork,
     });
     sdkInstance = instance;
     return sdkInstance;
