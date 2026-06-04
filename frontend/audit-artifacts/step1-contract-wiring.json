@@ -4,7 +4,7 @@
   "identityAddress": "0x0acB010354BF16546750f751D4fb965D9Ae96b77",
   "sbtOwner": "0x73092e88D49946ac32b6Eb1a394f81bb553e411a",
   "sbtLinkedOracle": "0x3086b17235929EC1D83A5301E7466EC280178be7",
-  "oracleBackend": "0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9",
+  "oracleBackend": "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E",
   "identityLinkedSbt": "0x7cd528c9A8EcdAA3ACF9d463cEeCcF9041d38Fa5",
   "identityOwner": "0x73092e88D49946ac32b6Eb1a394f81bb553e411a"
 }

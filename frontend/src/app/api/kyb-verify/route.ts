@@ -9,7 +9,7 @@ import {
 
 export const runtime = "nodejs";
 
-const EXPECTED_VERIFIER_ADDRESS = "0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9";
+const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const sepolia = defineChain({
