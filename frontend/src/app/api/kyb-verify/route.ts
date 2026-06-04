@@ -9,6 +9,9 @@ import {
 
 export const runtime = "nodejs";
 
+const EXPECTED_VERIFIER_ADDRESS = "0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 const sepolia = defineChain({
   id: 11155111,
   name: "Sepolia",
@@ -47,6 +50,35 @@ interface MockKYBOracleResult {
   oracle_signature: string;
 }
 
+interface KybRequestBody {
+  wallet: string;
+  companyName: string;
+  country: string;
+  registrationNumber: string;
+  taxID: string;
+}
+
+function jsonError(message: string, status: number, detail?: string) {
+  return NextResponse.json(
+    detail ? { error: message, detail } : { error: message },
+    { status },
+  );
+}
+
+function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null {
+  if (!rawKey) return null;
+
+  const trimmedKey = rawKey.trim();
+  if (!trimmedKey) return null;
+
+  const normalizedKey = trimmedKey.startsWith("0x") ? trimmedKey : `0x${trimmedKey}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(normalizedKey)) {
+    throw new Error("VERIFIER_PRIVATE_KEY must be a 32-byte hex string.");
+  }
+
+  return normalizedKey as `0x${string}`;
+}
+
 function runMockKYBPipeline(input: {
   companyName: string;
   country: string;
@@ -69,7 +101,7 @@ function runMockKYBPipeline(input: {
   const inputHash = createHash("sha256")
     .update(input.companyName + input.country + input.registrationNumber + input.taxID)
     .digest("hex");
-  const hashByte = parseInt(inputHash.slice(0, 2), 16);
+  const hashByte = Number.parseInt(inputHash.slice(0, 2), 16);
   riskScore = Math.min(75, riskScore + (hashByte % 20));
 
   return {
@@ -83,62 +115,90 @@ function runMockKYBPipeline(input: {
 }
 
 export async function POST(req: NextRequest) {
-  const verifierKey = process.env.VERIFIER_PRIVATE_KEY as `0x${string}` | undefined;
-  if (!verifierKey) {
-    return NextResponse.json({ error: "VERIFIER_PRIVATE_KEY not set" }, { status: 500 });
-  }
-
-  const body = await req.json().catch(() => null);
-  if (!body) {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { wallet, companyName, country, registrationNumber, taxID } = body as {
-    wallet: string;
-    companyName: string;
-    country: string;
-    registrationNumber: string;
-    taxID: string;
-  };
-
-  if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
-    return NextResponse.json({ error: "Invalid wallet address" }, { status: 400 });
-  }
-
-  if (!companyName?.trim() || !country?.trim() || !registrationNumber?.trim() || !taxID?.trim()) {
-    return NextResponse.json({ error: "All KYB fields required" }, { status: 400 });
-  }
-
-  const kybResult = runMockKYBPipeline({ companyName, country, registrationNumber, taxID });
-
-  if (kybResult.company_status !== "verified") {
-    return NextResponse.json({
-      error: "Business verification failed. Please check your registration details.",
-      verification_id: kybResult.verification_id,
-      company_status: kybResult.company_status,
-      oracle_signature: kybResult.oracle_signature,
-    }, { status: 422 });
-  }
-
-  const verificationIdHash = createHash("sha256")
-    .update(kybResult.verification_id)
-    .digest("hex");
-
-  const attestationPayload = JSON.stringify({
-    wallet,
-    verificationId: kybResult.verification_id,
-    companyStatus: kybResult.company_status,
-    sanctionsFlag: kybResult.sanctions_flag,
-    pepFlag: kybResult.pep_flag,
-    riskScore: kybResult.risk_score,
-    timestamp: Date.now(),
-  });
-  const attestationHash = createHash("sha256").update(attestationPayload).digest("hex");
-
-  const verificationIdBytes32 = `0x${verificationIdHash.padStart(64, "0")}` as `0x${string}`;
-  const attestationHashBytes32 = `0x${attestationHash.padStart(64, "0")}` as `0x${string}`;
+  let requestBody: KybRequestBody | null = null;
 
   try {
+    const normalizedVerifierKey = normalizeVerifierKey(process.env.VERIFIER_PRIVATE_KEY);
+    if (!normalizedVerifierKey) {
+      console.error("[KYB API] FATAL: VERIFIER_PRIVATE_KEY is not set in the environment.");
+      return jsonError("Server configuration error: verifier key not configured.", 500);
+    }
+
+    if (!KYB_ORACLE_ADDRESS || KYB_ORACLE_ADDRESS === ZERO_ADDRESS) {
+      console.error("[KYB API] FATAL: NEXT_PUBLIC_KYB_ORACLE_ADDRESS is missing or zero.");
+      return jsonError("Server configuration error: KYB oracle address not configured.", 500);
+    }
+
+    let account;
+    try {
+      account = privateKeyToAccount(normalizedVerifierKey);
+    } catch (error) {
+      console.error("[KYB API] FATAL: Invalid VERIFIER_PRIVATE_KEY format.", error);
+      return jsonError("Server configuration error: invalid verifier key format.", 500);
+    }
+
+    console.log("[KYB API] Signer address:", account.address);
+
+    if (account.address.toLowerCase() !== EXPECTED_VERIFIER_ADDRESS.toLowerCase()) {
+      console.error("[KYB API] FATAL: VERIFIER_PRIVATE_KEY derives to an unexpected signer.", {
+        signerAddress: account.address,
+        expectedSignerAddress: EXPECTED_VERIFIER_ADDRESS,
+      });
+      return jsonError("Server configuration error: verifier key does not match the authorized oracle signer.", 500);
+    }
+
+    requestBody = await req.json().catch(() => null);
+    if (!requestBody) {
+      return jsonError("Invalid JSON request body.", 400);
+    }
+
+    const { wallet, companyName, country, registrationNumber, taxID } = requestBody;
+
+    console.log("[KYB API] Incoming request:", JSON.stringify({
+      wallet,
+      companyName,
+      country,
+      registrationNumber,
+    }));
+
+    if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
+      return jsonError("Invalid wallet address.", 400);
+    }
+
+    if (!companyName?.trim() || !country?.trim() || !registrationNumber?.trim() || !taxID?.trim()) {
+      return jsonError("All KYB fields are required.", 400);
+    }
+
+    const kybResult = runMockKYBPipeline({ companyName, country, registrationNumber, taxID });
+
+    if (kybResult.company_status !== "verified") {
+      return NextResponse.json({
+        error: "Business verification failed. Please check your registration details.",
+        verification_id: kybResult.verification_id,
+        company_status: kybResult.company_status,
+        oracle_signature: kybResult.oracle_signature,
+      }, { status: 422 });
+    }
+
+    const verificationIdHash = createHash("sha256")
+      .update(kybResult.verification_id)
+      .digest("hex");
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const attestationPayload = JSON.stringify({
+      wallet,
+      verificationId: kybResult.verification_id,
+      companyStatus: kybResult.company_status,
+      sanctionsFlag: kybResult.sanctions_flag,
+      pepFlag: kybResult.pep_flag,
+      riskScore: kybResult.risk_score,
+      timestamp,
+    });
+    const attestationHash = createHash("sha256").update(attestationPayload).digest("hex");
+
+    const verificationIdBytes32 = `0x${verificationIdHash.padStart(64, "0")}` as `0x${string}`;
+    const attestationHashBytes32 = `0x${attestationHash.padStart(64, "0")}` as `0x${string}`;
+
     const publicClient = createPublicClient({
       chain: sepolia,
       transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com"),
@@ -151,8 +211,7 @@ export async function POST(req: NextRequest) {
       args: [wallet as `0x${string}`],
     }) as bigint;
 
-    const account = privateKeyToAccount(verifierKey);
-    const timestamp = Math.floor(Date.now() / 1000);
+    console.log("[KYB API] Oracle nonce:", nonce.toString());
 
     const signature = await account.signTypedData({
       domain: {
@@ -182,6 +241,8 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    console.log("[KYB API] Signature generated successfully.");
+
     return NextResponse.json({
       verification_id: kybResult.verification_id,
       company_status: kybResult.company_status,
@@ -195,13 +256,16 @@ export async function POST(req: NextRequest) {
       attestation_hash_bytes32: attestationHashBytes32,
       kybApproved: true,
       kybAttestationHash: attestationHashBytes32,
+      signerAddress: account.address,
       message: "Business verified. Signature generated.",
     });
   } catch (error) {
-    console.error("[kyb-verify] signature generation error:", error);
-    return NextResponse.json({
-      error: "Oracle attestation signature generation failed.",
-      detail: String(error),
-    }, { status: 502 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[KYB API] Unhandled error:", {
+      message,
+      wallet: requestBody?.wallet,
+      kybOracleAddress: KYB_ORACLE_ADDRESS,
+    });
+    return jsonError(`Oracle attestation failed: ${message}`, 500);
   }
 }

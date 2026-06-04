@@ -63,6 +63,18 @@ function extractErrorMessage(error: unknown): string {
   return "Unexpected transaction failure.";
 }
 
+async function parseJsonResponse(response: Response): Promise<Record<string, unknown> | null> {
+  const responseText = await response.text();
+  if (!responseText) return null;
+
+  try {
+    return JSON.parse(responseText) as Record<string, unknown>;
+  } catch (error) {
+    console.error("[Register] Failed to parse KYB API response as JSON.", error, responseText);
+    return null;
+  }
+}
+
 const SBT_CHECK_TIMEOUT_MS = 10_000;
 
 async function checkSBTWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
@@ -449,13 +461,20 @@ export default function RegisterPage() {
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
+      const data = await parseJsonResponse(response);
+      if (!response.ok || !data?.signature) {
+        const apiError =
+          typeof data?.error === "string"
+            ? data.error
+            : response.ok
+              ? "Oracle attestation signature generation failed."
+              : "KYB validation failed.";
+        console.error("[Register] KYB API error:", apiError, "Status:", response.status, data);
         setStage("WALLET_READY");
-        throw new Error(data.error || "KYB validation failed.");
+        throw new Error(apiError);
       }
 
-      setKybResult(data);
+      setKybResult(data as unknown as KYBResult);
       setKybStep(0);
       setStage("KYB_PENDING");
     } catch (submissionError) {

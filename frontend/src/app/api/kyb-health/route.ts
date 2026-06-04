@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { privateKeyToAccount } from "viem/accounts";
+
+export const runtime = "nodejs";
+
+const EXPECTED_VERIFIER_ADDRESS = "0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9";
+
+function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null {
+  if (!rawKey) return null;
+
+  const trimmedKey = rawKey.trim();
+  if (!trimmedKey) return null;
+
+  const normalizedKey = trimmedKey.startsWith("0x") ? trimmedKey : `0x${trimmedKey}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(normalizedKey)) {
+    throw new Error("VERIFIER_PRIVATE_KEY must be a 32-byte hex string.");
+  }
+
+  return normalizedKey as `0x${string}`;
+}
+
+export async function GET() {
+  /*
+   * Temporary production diagnostic endpoint.
+   * Remove after verifying the deployed VERIFIER_PRIVATE_KEY configuration.
+   */
+  try {
+    const normalizedVerifierKey = normalizeVerifierKey(process.env.VERIFIER_PRIVATE_KEY);
+    if (!normalizedVerifierKey) {
+      return NextResponse.json({
+        status: "error",
+        issue: "VERIFIER_PRIVATE_KEY not set",
+        expectedSignerAddress: EXPECTED_VERIFIER_ADDRESS,
+      });
+    }
+
+    const account = privateKeyToAccount(normalizedVerifierKey);
+    const matches = account.address.toLowerCase() === EXPECTED_VERIFIER_ADDRESS.toLowerCase();
+
+    return NextResponse.json({
+      status: matches ? "ok" : "wrong_key",
+      signerAddress: account.address,
+      expectedSignerAddress: EXPECTED_VERIFIER_ADDRESS,
+      matches,
+    });
+  } catch (error) {
+    return NextResponse.json({
+      status: "invalid_key_format",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
