@@ -11,11 +11,20 @@ let sdkInitPromise: Promise<any> | null = null;
 let sdkProviderRef: any | null = null;
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
+const DEFAULT_SEPOLIA_RPC_URL = "https://sepolia.drpc.org";
 
 function resolveBrowserProvider(preferredProvider?: any) {
   if (preferredProvider) return preferredProvider;
   if (typeof window === "undefined") return null;
   return (window as any).web3authProvider ?? (window as any).ethereum ?? null;
+}
+
+function getSepoliaRpcUrl() {
+  return (
+    process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ||
+    process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
+    DEFAULT_SEPOLIA_RPC_URL
+  );
 }
 
 async function assertSepoliaProvider(provider: any) {
@@ -62,11 +71,15 @@ export async function getZamaSDK(network?: any) {
     /* Load relayer-sdk 0.4.1 /web */
     sdkInitPromise = (async () => {
       const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
+      const sepoliaRpcUrl = getSepoliaRpcUrl();
+      console.info("[FHE] Initializing Zama SDK on Sepolia");
+      console.info("[FHE] Using RPC:", sepoliaRpcUrl);
       await initSDK();
       const instance = await createInstance({
         ...SepoliaConfig,
-        network: resolvedNetwork,
+        network: sepoliaRpcUrl,
       });
+      console.info("[FHE] Instance created successfully");
       sdkInstance = instance;
       return sdkInstance;
     })();

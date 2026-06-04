@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { FhevmInstance } from "@/lib/zama";
 
 interface ZamaContextValue {
@@ -35,6 +35,7 @@ export function ZamaProvider({ children }: Props) {
   const [instance, setInstance] = useState<FhevmInstance | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attemptedProviderRef = useRef<any>(null);
 
   const resolveProvider = useCallback(() => {
     if (typeof window === "undefined") return null;
@@ -44,11 +45,18 @@ export function ZamaProvider({ children }: Props) {
   const init = useCallback(async () => {
     const provider = resolveProvider();
     if (!provider) {
+      attemptedProviderRef.current = null;
       setInstance(null);
       setIsReady(false);
       setError(null);
       return;
     }
+
+    if (attemptedProviderRef.current === provider && (instance || error || isReady)) {
+      return;
+    }
+
+    attemptedProviderRef.current = provider;
 
     try {
       /* Dynamic import ensures WASM is not loaded during SSR */
@@ -81,13 +89,14 @@ export function ZamaProvider({ children }: Props) {
       const provider = resolveProvider();
       const hasInstance = provider !== null;
       if (!hasInstance && (instance || isReady || error)) {
+        attemptedProviderRef.current = null;
         setInstance(null);
         setIsReady(false);
         setError(null);
         return;
       }
 
-      if (hasInstance && !instance && !isReady) {
+      if (hasInstance && attemptedProviderRef.current !== provider) {
         void init();
       }
     }, 1000);
