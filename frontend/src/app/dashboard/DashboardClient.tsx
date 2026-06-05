@@ -12,9 +12,12 @@ import { useAccount, useReadContract } from "wagmi";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
+import { LockedPage } from "@/components/shared/LockedPage";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import {
   fromMicro,
+  IDENTITY_ABI,
+  IDENTITY_ADDRESS,
   InvoiceStatus,
   shortAddress,
   SBT_ABI,
@@ -218,6 +221,13 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
     query: { enabled: !!wallet },
   });
+  const { data: hasEncryptedCompliance } = useReadContract({
+    address: IDENTITY_ADDRESS as `0x${string}`,
+    abi: IDENTITY_ABI,
+    functionName: "hasEncryptedCompliance",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet && hasSBT === true },
+  });
 
   const invoices = realInvoices ?? [];
   const totalOnChain = invoiceCount ? Number(invoiceCount) : 0;
@@ -227,6 +237,15 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const available = invoices.filter((item) => item.status === InvoiceStatus.Pending || item.status === InvoiceStatus.Attested).length;
   const factored = invoices.filter((item) => item.status === InvoiceStatus.Factored).length;
   const settled = invoices.filter((item) => item.status === InvoiceStatus.Settled).length;
+  const isVerifiedBusiness = hasSBT === true && hasEncryptedCompliance === true;
+
+  if (wallet && hasSBT !== true) {
+    return <LockedPage title="Dashboard Locked" message="Complete business verification to access the dashboard." />;
+  }
+
+  if (wallet && hasEncryptedCompliance !== true) {
+    return <LockedPage title="Dashboard Locked" message="Encrypted compliance is required before dashboard access." />;
+  }
 
   return (
     <AppLayout
@@ -241,8 +260,8 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                 <div style={{ color: "#00F0FF", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
                   Wallet Connected: {shortAddress(wallet)}
                 </div>
-                <div style={{ color: hasSBT ? "#00FF88" : "#FFCF6B", fontSize: 14, fontWeight: 700 }}>
-                  Account Status: {hasSBT ? "Verified Business" : "Unverified Business"}
+                <div style={{ color: isVerifiedBusiness ? "#00FF88" : "#FFCF6B", fontSize: 14, fontWeight: 700 }}>
+                  Account Status: {isVerifiedBusiness ? "Verified Business" : "Compliance Required"}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -276,7 +295,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                 >
                   Request Financing
                 </Link>
-                {hasSBT === false && (
+                {!isVerifiedBusiness && (
                   <Link
                     href="/register?next=/dashboard"
                     style={{
@@ -289,7 +308,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                       fontSize: 13,
                     }}
                   >
-                    Start Verification
+                    Complete Compliance
                   </Link>
                 )}
               </div>
@@ -339,7 +358,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
               </div>
             )}
 
-            {wallet && hasSBT === false && (
+            {wallet && !isVerifiedBusiness && (
               <div
                 style={{
                   background: "rgba(255,186,0,0.06)",
@@ -369,11 +388,11 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                         margin: 0,
                       }}
                     >
-                      Invoice Marketplace Locked {"\u2014"} Business Verification Required to Continue
+                      Dashboard Locked - Encrypted Compliance Required to Continue
                     </p>
                     <p style={{ color: "#8B9CC8", fontSize: 12, marginTop: 3, margin: 0 }}>
                       Account Status:{" "}
-                      <span style={{ color: "#FFBA00", fontWeight: 600 }}>Unverified Business</span>
+                      <span style={{ color: "#FFBA00", fontWeight: 600 }}>Compliance Required</span>
                     </p>
                   </div>
                 </div>

@@ -1,6 +1,12 @@
 "use client";
 
-export function LockedPage({ message }: { message: string }) {
+export function LockedPage({
+  message,
+  title = "Access Locked",
+}: {
+  message: string;
+  title?: string;
+}) {
   return (
     <div
       style={{
@@ -41,7 +47,7 @@ export function LockedPage({ message }: { message: string }) {
             marginBottom: 8,
           }}
         >
-          Marketplace Locked
+          {title}
         </h2>
         <p
           style={{

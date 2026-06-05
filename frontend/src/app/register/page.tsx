@@ -275,7 +275,7 @@ export default function RegisterPage() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "/dashboard";
 
-  const { wallet, isLoggedIn, isInitializing, login, authError, getProvider } = useWeb3Auth();
+  const { wallet, isLoggedIn, isInitializing, login, logout, authError, getProvider } = useWeb3Auth();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
@@ -390,7 +390,11 @@ export default function RegisterPage() {
           return;
         }
 
-        router.replace(nextPath);
+        setKybResult((current) => current ?? buildFallbackKybResult("", walletAddress));
+        setStatusMessage("Encrypted compliance is required before dashboard access. Please store your compliance profile to continue.");
+        setStatusError(null);
+        setError(null);
+        setStage("SBT_MINTED");
       } catch (credentialError) {
         console.error("[Register] Credential check failed:", credentialError);
         if (active) {
@@ -507,6 +511,21 @@ export default function RegisterPage() {
     } catch (walletError) {
       console.error(walletError);
       setError(walletError instanceof Error ? walletError.message : "Wallet connection failed.");
+    }
+  }
+
+  async function handleResetSignIn() {
+    setIsLoading(true);
+    setError(null);
+    setStatusError(null);
+    setStatusMessage("Resetting your sign-in session...");
+
+    try {
+      await logout();
+    } catch (resetError) {
+      console.error("[Register] Sign-in reset failed:", resetError);
+      setIsLoading(false);
+      setError(resetError instanceof Error ? resetError.message : "Could not reset sign-in. Please refresh and try again.");
     }
   }
 
@@ -1188,7 +1207,8 @@ export default function RegisterPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => router.push(nextPath)}
+                  onClick={() => void handleResetSignIn()}
+                  disabled={isLoading || isEncryptingFHE}
                   style={{
                     width: "100%",
                     marginTop: 12,
@@ -1198,11 +1218,11 @@ export default function RegisterPage() {
                     fontSize: 12,
                     textDecoration: "underline",
                     textUnderlineOffset: 3,
-                    cursor: "pointer",
+                    cursor: isLoading || isEncryptingFHE ? "not-allowed" : "pointer",
                     fontFamily: "Satoshi, sans-serif",
                   }}
                 >
-                  Skip for now and go to dashboard
+                  Reset sign-in and start fresh
                 </button>
               </GlassCard>
             </motion.div>

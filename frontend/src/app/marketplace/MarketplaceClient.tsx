@@ -20,7 +20,7 @@ import {
 } from "@/hooks/useArbitraRegistry";
 import { useRole } from "@/providers/RoleProvider";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
-import { InvoiceStatus, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
+import { IDENTITY_ABI, IDENTITY_ADDRESS, InvoiceStatus, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
 import Link from "next/link";
 
 type FilterTab = "all" | "available" | "factored" | "repaid";
@@ -37,13 +37,24 @@ export default function MarketplaceClient() {
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
     query: { enabled: !!wallet },
   });
+  const { data: hasEncryptedCompliance } = useReadContract({
+    address: IDENTITY_ADDRESS as `0x${string}`,
+    abi: IDENTITY_ABI,
+    functionName: "hasEncryptedCompliance",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet && hasSBT === true },
+  });
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const invoices = realInvoices ?? [];
 
-  if (wallet && hasSBT === false) {
-    return <LockedPage message="Complete business verification to access the marketplace." />;
+  if (wallet && hasSBT !== true) {
+    return <LockedPage title="Marketplace Locked" message="Complete business verification to access the marketplace." />;
+  }
+
+  if (wallet && hasEncryptedCompliance !== true) {
+    return <LockedPage title="Marketplace Locked" message="Encrypted compliance is required before marketplace access." />;
   }
 
   const filtered = invoices.filter((inv) => {

@@ -14,7 +14,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { FHEBadge } from "@/components/ui/FHEBadge";
 import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
-import { SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
+import { IDENTITY_ABI, IDENTITY_ADDRESS, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
 
 export default function UploadClient() {
   const { wallet: web3authWallet } = useWeb3Auth();
@@ -27,9 +27,20 @@ export default function UploadClient() {
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
     query: { enabled: !!wallet },
   });
+  const { data: hasEncryptedCompliance } = useReadContract({
+    address: IDENTITY_ADDRESS as `0x${string}`,
+    abi: IDENTITY_ABI,
+    functionName: "hasEncryptedCompliance",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet && hasSBT === true },
+  });
 
-  if (wallet && hasSBT === false) {
-    return <LockedPage message="Complete business verification to access the marketplace." />;
+  if (wallet && hasSBT !== true) {
+    return <LockedPage title="Upload Locked" message="Complete business verification to request financing." />;
+  }
+
+  if (wallet && hasEncryptedCompliance !== true) {
+    return <LockedPage title="Upload Locked" message="Encrypted compliance is required before invoice financing." />;
   }
 
   return (
