@@ -72,6 +72,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState<boolean>(false);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [logisticsFile, setLogisticsFile] = useState<File | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -104,10 +106,29 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
   }, []);
 
-  /* Process PDF File and Call AI parsing API */
-  const processFile = async (file: File) => {
-    if (file.type !== "application/pdf") {
+  const readFileBase64 = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+
+  const isLogisticsFile = (file: File) =>
+    file.type === "text/xml" ||
+    file.type === "application/xml" ||
+    file.name.toLowerCase().endsWith(".xml") ||
+    file.name.toLowerCase().endsWith(".json");
+
+  /* Process invoice and logistics proof files through the AI parsing API. */
+  const processFiles = async (pdfFile: File, proofFile: File | null) => {
+    if (pdfFile.type !== "application/pdf") {
       setErrorMsg("Please upload a valid PDF invoice document.");
+      return;
+    }
+
+    if (proofFile && !isLogisticsFile(proofFile)) {
+      setErrorMsg("Logistics proof must be XML or JSON.");
       return;
     }
 
@@ -115,35 +136,36 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setErrorMsg(null);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(",")[1];
+      const base64 = await readFileBase64(pdfFile);
+      const logisticsProof = proofFile ? await readFileBase64(proofFile) : undefined;
         
-        const res = await fetch("/api/parse-invoice", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pdf: base64 }),
-        });
+      const res = await fetch("/api/parse-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdf: base64,
+          logisticsProof,
+          logisticsFileName: proofFile?.name,
+        }),
+      });
 
-        if (!res.ok) {
-          throw new Error("Failed to parse invoice via Gemini AI.");
-        }
+      if (!res.ok) {
+        throw new Error("Failed to parse invoice via Gemini AI.");
+      }
 
-        const data = await res.json();
+      const data = await res.json();
         
-        setInvoice({
-          faceValue: BigInt(data.faceValue),
-          dueDate: BigInt(data.dueDate),
-          fingerprint: BigInt(data.fingerprint),
-          baseRate: BigInt(data.baseRate),
-          reputationMultiplier: BigInt(data.reputationMultiplier),
-          debtor: data.debtor,
-        });
+      setInvoice({
+        faceValue: BigInt(data.faceValue),
+        dueDate: BigInt(data.dueDate),
+        fingerprint: BigInt(data.fingerprint),
+        baseRate: BigInt(data.baseRate),
+        reputationMultiplier: BigInt(data.reputationMultiplier),
+        debtor: data.debtor,
+      });
 
-        setWizardStep(2);
-        setIsParsing(false);
-      };
-      reader.readAsDataURL(file);
+      setWizardStep(2);
+      setIsParsing(false);
     } catch (e: any) {
       console.error(e);
       setErrorMsg(e.message || "An error occurred during invoice parsing.");
@@ -157,15 +179,32 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     e.stopPropagation();
     setIsDragActive(false);
     
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files);
+      const pdfFile = files.find((file) => file.type === "application/pdf") ?? files[0];
+      const proofFile = files.find((file) => file !== pdfFile && isLogisticsFile(file)) ?? null;
+      setInvoiceFile(pdfFile);
+      setLogisticsFile(proofFile);
+      processFiles(pdfFile, proofFile);
     }
   }, []);
 
   /* Input File Change handler */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      processFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setInvoiceFile(file);
+      processFiles(file, logisticsFile);
+    }
+  };
+
+  const handleLogisticsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setLogisticsFile(file);
+      if (invoiceFile) {
+        processFiles(invoiceFile, file);
+      }
     }
   };
 
@@ -435,7 +474,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             <div className="text-center">
               <h3 className="text-sm font-semibold text-white mb-1">Upload Invoice PDF</h3>
               <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                Upload your trade invoice document. Our Gemini Flash model will securely extract parameters in real-time.
+                Upload the invoice PDF and, optionally, an XML or JSON delivery receipt for logistics proof binding.
               </p>
             </div>
 
@@ -470,9 +509,25 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
                   <span className="text-xs text-white font-medium">Drag & drop your invoice PDF</span>
-                  <span className="text-[10px] text-slate-600">or click to browse from device</span>
+                  <span className="text-[10px] text-slate-600">or include PDF + XML/JSON delivery proof together</span>
                 </div>
               )}
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/2 border border-white/5">
+              <label htmlFor="logistics-input" className="block text-xs text-slate-400 mb-2">
+                Optional logistics proof XML/JSON
+              </label>
+              <input
+                id="logistics-input"
+                type="file"
+                accept=".xml,.json,application/xml,text/xml,application/json"
+                className="text-xs text-slate-500"
+                onChange={handleLogisticsFileChange}
+              />
+              <p className="text-[10px] text-slate-600 mt-2">
+                {logisticsFile ? `Bound proof: ${logisticsFile.name}` : "The proof hash is included in the encrypted duplicate fingerprint."}
+              </p>
             </div>
 
             {errorMsg && (
@@ -575,7 +630,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 Re-upload
               </button>
               <NeonButton variant="primary" onClick={handleNextStep2} disabled={isCheckingDuplicate} className="flex-[2] text-xs">
-                {isCheckingDuplicate ? "Checking encrypted fingerprint..." : "Confirm Details &rarr;"}
+                {isCheckingDuplicate ? "Performing cryptographic duplicate check..." : "Submit and Run Fraud Check"}
               </NeonButton>
             </div>
           </motion.div>

@@ -19,7 +19,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/Spinner";
-import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import {
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
@@ -140,6 +139,7 @@ async function pollForReceipt(txHash: `0x${string}`, maxAttempts = 30): Promise<
 }
 
 const SBT_CHECK_TIMEOUT_MS = 10_000;
+const DEFAULT_OPTIONAL_TAX_ID = "0";
 
 async function checkSBTWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
   try {
@@ -160,6 +160,27 @@ interface KybFieldErrors {
   country?: string;
   registrationNumber?: string;
   taxID?: string;
+}
+
+function cleanTaxId(value: string): string {
+  return value.replace(/[\s\-.]/g, "");
+}
+
+function isValidOptionalTaxId(value: string): boolean {
+  const cleaned = cleanTaxId(value);
+  if (!cleaned) return true;
+  return /^[A-Za-z0-9]{5,30}$/.test(cleaned);
+}
+
+function taxIdToComplianceValue(value: string): string {
+  const cleaned = cleanTaxId(value);
+  if (!cleaned) return DEFAULT_OPTIONAL_TAX_ID;
+
+  let numeric = 0n;
+  for (const char of cleaned.toUpperCase()) {
+    numeric = (numeric * 36n + BigInt(Number.parseInt(char, 36))) % 4_294_967_295n;
+  }
+  return numeric.toString();
 }
 
 const headingStyle: React.CSSProperties = {
@@ -369,8 +390,7 @@ export default function RegisterPage() {
           return;
         }
 
-        setKybResult((current) => current ?? buildFallbackKybResult(taxID, walletAddress));
-        setStage("SBT_MINTED");
+        router.replace(nextPath);
       } catch (credentialError) {
         console.error("[Register] Credential check failed:", credentialError);
         if (active) {
@@ -496,7 +516,9 @@ export default function RegisterPage() {
     if (!companyName.trim()) nextFieldErrors.companyName = "Company name is required.";
     if (!country.trim()) nextFieldErrors.country = "Country is required.";
     if (!registrationNumber.trim()) nextFieldErrors.registrationNumber = "Registration number is required.";
-    if (!taxID.trim()) nextFieldErrors.taxID = "Tax ID is required.";
+    if (!isValidOptionalTaxId(taxID)) {
+      nextFieldErrors.taxID = "Tax ID must be 5-30 alphanumeric characters when provided.";
+    }
 
     setFieldErrors(nextFieldErrors);
     if (Object.keys(nextFieldErrors).length > 0) {
@@ -522,7 +544,7 @@ export default function RegisterPage() {
           companyName,
           country,
           registrationNumber,
-          taxID,
+          taxID: cleanTaxId(taxID),
         }),
       });
 
@@ -627,15 +649,10 @@ export default function RegisterPage() {
     setStatusMessage("Submitting encrypted compliance...");
 
     try {
-      const taxIdDigits = taxID.replace(/\D/g, "");
-      if (!taxIdDigits || taxIdDigits.length > 9) {
-        throw new Error("Invalid Tax ID format.");
+      if (!isValidOptionalTaxId(taxID)) {
+        throw new Error("Tax ID must be 5-30 alphanumeric characters when provided.");
       }
-
-      const taxIDInt = Number.parseInt(taxIdDigits, 10);
-      if (!Number.isSafeInteger(taxIDInt)) {
-        throw new Error("Tax ID must fit into a 32-bit unsigned integer.");
-      }
+      const complianceTaxId = taxIdToComplianceValue(taxID);
 
       console.log("[FHE] Requesting gasless encrypted compliance submission");
       const response = await fetch("/api/compliance-store", {
@@ -643,7 +660,7 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wallet: activeWallet,
-          taxID: taxIdDigits,
+          taxID: complianceTaxId,
           kybApproved: effectiveKybResult.company_status === "verified",
           riskScore: effectiveKybResult.risk_score,
         }),
@@ -984,7 +1001,12 @@ export default function RegisterPage() {
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Tax ID</label>
+                      <label style={labelStyle}>
+                        Tax ID / Business Registration Number
+                        <span style={{ color: "#4F6495", marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>
+                          optional
+                        </span>
+                      </label>
                       <input
                         value={taxID}
                         onChange={(event) => {
@@ -995,6 +1017,7 @@ export default function RegisterPage() {
                           ...inputStyle,
                           border: fieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
+                        placeholder="e.g. 12-3456789, RC123456, or VATGB123456789"
                       />
                       {fieldErrors.taxID && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
@@ -1132,9 +1155,6 @@ export default function RegisterPage() {
                 <p style={{ ...bodyStyle, marginBottom: 20 }}>
                   KYB is approved and the SBT is minted. FHE encryption is now enabled for Tax ID, KYB status, and risk score.
                 </p>
-                <div style={{ marginBottom: 18 }}>
-                  <WalletAddressCard walletAddress={activeWallet} />
-                </div>
                 {error && (
                   <div
                     style={{
@@ -1165,6 +1185,24 @@ export default function RegisterPage() {
                   style={primaryBtnStyle}
                 >
                   {isEncryptingFHE ? <Spinner /> : "Encrypt and store compliance"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(nextPath)}
+                  style={{
+                    width: "100%",
+                    marginTop: 12,
+                    background: "transparent",
+                    border: "none",
+                    color: "#8B9CC8",
+                    fontSize: 12,
+                    textDecoration: "underline",
+                    textUnderlineOffset: 3,
+                    cursor: "pointer",
+                    fontFamily: "Satoshi, sans-serif",
+                  }}
+                >
+                  Skip for now and go to dashboard
                 </button>
               </GlassCard>
             </motion.div>

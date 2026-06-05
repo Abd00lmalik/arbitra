@@ -45,7 +45,7 @@ const sepolia = defineChain({
 
 interface ComplianceStoreRequestBody {
   wallet: string;
-  taxID: string;
+  taxID?: string;
   kybApproved: boolean;
   riskScore: number;
 }
@@ -137,8 +137,8 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid wallet address.", 400);
     }
 
-    const taxIdDigits = taxID.replace(/\D/g, "");
-    if (!taxIdDigits || taxIdDigits.length > 9) {
+    const taxIdDigits = String(taxID ?? "0").replace(/\D/g, "");
+    if (taxIdDigits.length > 10) {
       return jsonError("Invalid Tax ID format.", 400);
     }
 
@@ -146,9 +146,9 @@ export async function POST(req: NextRequest) {
       return jsonError("Risk score must be an integer between 0 and 255.", 400);
     }
 
-    const taxIDInt = Number.parseInt(taxIdDigits, 10);
-    if (!Number.isSafeInteger(taxIDInt)) {
-      return jsonError("Tax ID must fit into a 32-bit unsigned integer.", 400);
+    const taxIDInt = taxIdDigits ? Number.parseInt(taxIdDigits, 10) : 0;
+    if (!Number.isSafeInteger(taxIDInt) || taxIDInt > 4_294_967_295) {
+      return jsonError("Tax ID value must fit into a 32-bit unsigned integer.", 400);
     }
 
     const rpcUrl =

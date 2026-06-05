@@ -56,7 +56,7 @@ interface KybRequestBody {
   companyName: string;
   country: string;
   registrationNumber: string;
-  taxID: string;
+  taxID?: string;
 }
 
 function jsonError(message: string, status: number, detail?: string) {
@@ -166,11 +166,11 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid wallet address.", 400);
     }
 
-    if (!companyName?.trim() || !country?.trim() || !registrationNumber?.trim() || !taxID?.trim()) {
-      return jsonError("All KYB fields are required.", 400);
+    if (!companyName?.trim() || !country?.trim() || !registrationNumber?.trim()) {
+      return jsonError("Company name, country, and registration number are required.", 400);
     }
 
-    const kybResult = runMockKYBPipeline({ companyName, country, registrationNumber, taxID });
+    const kybResult = runMockKYBPipeline({ companyName, country, registrationNumber, taxID: taxID ?? "" });
 
     if (kybResult.company_status !== "verified") {
       return NextResponse.json({

@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const pdfBase64 = body.pdf;
+    const logisticsProofBase64 = typeof body.logisticsProof === "string" ? body.logisticsProof : undefined;
+    const logisticsFileName = typeof body.logisticsFileName === "string" ? body.logisticsFileName : undefined;
 
     if (!pdfBase64 || typeof pdfBase64 !== "string") {
       return NextResponse.json(
@@ -20,7 +22,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await parseInvoicePDF(pdfBase64);
+    const result = await parseInvoicePDF(pdfBase64, {
+      logisticsProofBase64,
+      logisticsFileName,
+    });
 
     return NextResponse.json({
       faceValue: result.faceValue.toString(),

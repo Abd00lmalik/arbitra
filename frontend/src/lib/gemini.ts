@@ -85,7 +85,11 @@ export async function generateRiskAssessment(
  * Extracts face value, due date, debtor, and generates a unique fingerprint.
  */
 export async function parseInvoicePDF(
-  pdfBase64: string
+  pdfBase64: string,
+  logisticsProof?: {
+    logisticsProofBase64?: string;
+    logisticsFileName?: string;
+  }
 ): Promise<{
   faceValue: bigint;
   dueDate: bigint;
@@ -94,8 +98,10 @@ export async function parseInvoicePDF(
   reputationMultiplier: bigint;
   debtor: string;
 }> {
+  const logisticsProofHash = buildLogisticsProofHash(logisticsProof?.logisticsProofBase64);
+
   if (!GEMINI_API_KEY) {
-    return getMockParsedInvoice();
+    return getMockParsedInvoice(logisticsProofHash);
   }
 
   const prompt = `You are an institutional trade finance underwriting agent.
@@ -156,8 +162,15 @@ Return ONLY valid JSON in this exact structure:
 
     /* Hash the invoice number string into a positive 63-bit integer for the FHE fingerprint */
     let hash = 5381n;
-    for (let i = 0; i < invoiceNumber.length; i++) {
-      hash = (hash * 33n) + BigInt(invoiceNumber.charCodeAt(i));
+    const uniqueMaterial = [
+      invoiceNumber,
+      parsed.supplierTaxId || "",
+      parsed.debtorTaxId || "",
+      logisticsProofHash,
+      logisticsProof?.logisticsFileName || "",
+    ].join("|");
+    for (let i = 0; i < uniqueMaterial.length; i++) {
+      hash = (hash * 33n) + BigInt(uniqueMaterial.charCodeAt(i));
     }
     const fingerprint = hash & 0x7fffffffffffffffn;
 
@@ -173,8 +186,17 @@ Return ONLY valid JSON in this exact structure:
     };
   } catch (e) {
     console.error("[Gemini PDF] Failed to parse PDF, returning mock:", e);
-    return getMockParsedInvoice();
+    return getMockParsedInvoice(logisticsProofHash);
   }
+}
+
+function buildLogisticsProofHash(proofBase64?: string): string {
+  if (!proofBase64) return "NO_LOGISTICS_PROOF";
+  let hash = 5381n;
+  for (let i = 0; i < proofBase64.length; i++) {
+    hash = (hash * 33n + BigInt(proofBase64.charCodeAt(i))) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16);
 }
 
 function buildPrompt(input: RiskAssessmentInput): string {
@@ -216,15 +238,16 @@ Return ONLY valid JSON in this exact format:
 }`;
 }
 
-function getMockParsedInvoice() {
+function getMockParsedInvoice(logisticsProofHash = "NO_LOGISTICS_PROOF") {
   const randomAmount = 1000 + Math.floor(Math.random() * 9000);
   const futureDays = 15 + Math.floor(Math.random() * 45);
   const dueDateSec = Math.floor(Date.now() / 1000) + futureDays * 86400;
   const invNum = `INV-2026-${1000 + Math.floor(Math.random() * 9000)}`;
 
   let hash = 5381n;
-  for (let i = 0; i < invNum.length; i++) {
-    hash = (hash * 33n) + BigInt(invNum.charCodeAt(i));
+  const uniqueMaterial = `${invNum}|${logisticsProofHash}`;
+  for (let i = 0; i < uniqueMaterial.length; i++) {
+    hash = (hash * 33n) + BigInt(uniqueMaterial.charCodeAt(i));
   }
   const fingerprint = hash & 0x7fffffffffffffffn;
 

@@ -5,7 +5,7 @@
 
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAccount, useReadContract } from "wagmi";
@@ -204,6 +204,7 @@ function StatCard({ label, value, sub, color = "#00F0FF" }: StatCardProps) {
 }
 
 function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
+  const [walletOpen, setWalletOpen] = useState(false);
   const { address, isConnected } = useAccount();
   const { data: realInvoices } = useRealInvoiceList();
   const { data: invoiceCount } = useInvoiceCount();
@@ -244,23 +245,99 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
                   Account Status: {hasSBT ? "Verified Business" : "Unverified Business"}
                 </div>
               </div>
-              {hasSBT === false && (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setWalletOpen(true)}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#C9D4F0",
+                    borderRadius: 10,
+                    padding: "10px 16px",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  My Wallet
+                </button>
                 <Link
-                  href="/register?next=/dashboard"
+                  href="/upload"
                   style={{
                     textDecoration: "none",
                     padding: "10px 16px",
                     borderRadius: 10,
-                    background: "#FFBA00",
+                    background: "#00F0FF",
                     color: "#020714",
                     fontWeight: 800,
                     fontSize: 13,
                   }}
                 >
-                  Start Verification
+                  Request Financing
                 </Link>
-              )}
+                {hasSBT === false && (
+                  <Link
+                    href="/register?next=/dashboard"
+                    style={{
+                      textDecoration: "none",
+                      padding: "10px 16px",
+                      borderRadius: 10,
+                      background: "#FFBA00",
+                      color: "#020714",
+                      fontWeight: 800,
+                      fontSize: 13,
+                    }}
+                  >
+                    Start Verification
+                  </Link>
+                )}
+              </div>
             </div>
+
+            {walletOpen && (
+              <div
+                onClick={() => setWalletOpen(false)}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 80,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "flex-end",
+                  padding: "76px 24px 24px",
+                  background: "rgba(2,7,20,0.45)",
+                  backdropFilter: "blur(6px)",
+                }}
+              >
+                <div
+                  onClick={(event) => event.stopPropagation()}
+                  style={{
+                    width: "min(390px, 100%)",
+                    borderRadius: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <span style={{ color: "#EEF2FF", fontSize: 14, fontWeight: 800 }}>My Wallet</span>
+                    <button
+                      type="button"
+                      onClick={() => setWalletOpen(false)}
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.10)",
+                        borderRadius: 10,
+                        color: "#8B9CC8",
+                        cursor: "pointer",
+                        padding: "6px 10px",
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <WalletAddressCard walletAddress={wallet} />
+                </div>
+              </div>
+            )}
 
             {wallet && hasSBT === false && (
               <div
@@ -320,8 +397,6 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
             )}
           </div>
         </GlassCard>
-
-        <WalletAddressCard walletAddress={wallet} />
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Total On-Chain" value={totalOnChain} sub="Invoices in registry" color="#00FF88" />
