@@ -247,10 +247,39 @@ export async function POST(req: NextRequest) {
       elapsedMs: Date.now() - startedAt,
     });
 
+    console.log("[Compliance API] Waiting for compliance transaction receipt...");
+    const receipt = await withTimeout(
+      publicClient.waitForTransactionReceipt({ hash: txHash }),
+      60_000,
+      "Compliance transaction confirmation",
+    );
+
+    if (receipt.status !== "success") {
+      console.error("[Compliance API] Compliance transaction reverted", {
+        txHash,
+        blockNumber: receipt.blockNumber?.toString(),
+        gasUsed: receipt.gasUsed?.toString(),
+      });
+      return jsonError(
+        "Encrypted compliance transaction reverted on Sepolia.",
+        500,
+        `txHash: ${txHash}`,
+      );
+    }
+
+    console.log("[Compliance API] Compliance transaction confirmed", {
+      txHash,
+      blockNumber: receipt.blockNumber?.toString(),
+      gasUsed: receipt.gasUsed?.toString(),
+      elapsedMs: Date.now() - startedAt,
+    });
+
     return NextResponse.json({
       success: true,
       txHash,
       relayerAddress: account.address,
+      blockNumber: receipt.blockNumber?.toString(),
+      gasUsed: receipt.gasUsed?.toString(),
       elapsedMs: Date.now() - startedAt,
       message: "Encrypted compliance submitted on-chain.",
     });

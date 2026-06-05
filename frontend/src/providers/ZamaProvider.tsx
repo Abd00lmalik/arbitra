@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { useAccount, useChainId } from "wagmi";
 import type { FhevmInstance } from "@/lib/zama";
 
 interface ZamaContextValue {
@@ -31,6 +32,8 @@ interface Props {
  * Returns null until mounted so wagmi + relayer SDK only evaluate on the client.
  */
 export function ZamaProvider({ children }: Props) {
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
   const [mounted, setMounted] = useState(false);
   const [instance, setInstance] = useState<FhevmInstance | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -49,6 +52,25 @@ export function ZamaProvider({ children }: Props) {
       setInstance(null);
       setIsReady(false);
       setError(null);
+      return;
+    }
+
+    if (!isConnected) {
+      attemptedProviderRef.current = null;
+      setInstance(null);
+      setIsReady(false);
+      setError(null);
+      return;
+    }
+
+    if (chainId !== 11155111) {
+      attemptedProviderRef.current = null;
+      setInstance(null);
+      setIsReady(false);
+      setError(null);
+      console.info("[ZamaProvider] Wallet not on Sepolia yet, skipping FHE init", {
+        chainId,
+      });
       return;
     }
 
@@ -71,7 +93,7 @@ export function ZamaProvider({ children }: Props) {
       setError(`FHEVM init failed: ${msg}`);
       setIsReady(false);
     }
-  }, []);
+  }, [chainId, error, instance, isConnected, isReady, resolveProvider]);
 
   useEffect(() => {
     setMounted(true);
@@ -80,14 +102,14 @@ export function ZamaProvider({ children }: Props) {
   useEffect(() => {
     if (!mounted) return;
     init();
-  }, [mounted, init]);
+  }, [mounted, init, chainId, isConnected]);
 
   useEffect(() => {
     if (!mounted || typeof window === "undefined") return;
 
     const poll = window.setInterval(() => {
       const provider = resolveProvider();
-      const hasInstance = provider !== null;
+      const hasInstance = provider !== null && isConnected && chainId === 11155111;
       if (!hasInstance && (instance || isReady || error)) {
         attemptedProviderRef.current = null;
         setInstance(null);
@@ -102,7 +124,7 @@ export function ZamaProvider({ children }: Props) {
     }, 1000);
 
     return () => window.clearInterval(poll);
-  }, [mounted, resolveProvider, init, instance, isReady, error]);
+  }, [mounted, resolveProvider, init, instance, isReady, error, isConnected, chainId]);
 
   /* Do not render until mounted to prevent SSR hydration mismatch */
   if (!mounted) return null;
