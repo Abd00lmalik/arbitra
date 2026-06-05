@@ -252,6 +252,15 @@ export const REGISTRY_ABI = [
     outputs: [],
   },
   {
+    type: "function", name: "checkDuplicate",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "encFingerprint", type: "bytes32" },
+      { name: "proof",          type: "bytes"   },
+    ],
+    outputs: [{ name: "isDuplicate", type: "bytes32" }],
+  },
+  {
     type: "function", name: "grantRiskAssessmentAccess",
     stateMutability: "nonpayable",
     inputs: [{ name: "invoiceId", type: "uint256" }],
@@ -304,9 +313,9 @@ export const REGISTRY_ABI = [
       { name: "status",             type: "uint8"   },
       { name: "geminiUnderwritingEnabled", type: "bool" },
       { name: "debtorAttestationHash",     type: "bytes32" },
+      { name: "collateralStaked",   type: "bool"    },
       { name: "debtorEmailHash",    type: "bytes32" },
       { name: "isEmailVerified",    type: "bool"    },
-      { name: "collateralStaked",   type: "bool"    },
     ],
   },
   {

@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/Spinner";
+import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import {
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
@@ -678,8 +679,11 @@ export default function RegisterPage() {
       }
 
       console.log("[FHE] Compliance stored! txHash:", data.txHash, "elapsedMs:", data.elapsedMs);
-      setStatusMessage("Encrypted compliance submitted. Waiting for Sepolia confirmation...");
+      setStatusMessage("Encrypted compliance confirmed on Sepolia.");
       setFheTxHash(data.txHash as `0x${string}`);
+      setIsEncryptingFHE(false);
+      setError(null);
+      setStage("FHE_SYNCED");
     } catch (fheError) {
       console.error("[FHE] Encrypt compliance failed:", fheError);
       setIsEncryptingFHE(false);
@@ -1128,6 +1132,9 @@ export default function RegisterPage() {
                 <p style={{ ...bodyStyle, marginBottom: 20 }}>
                   KYB is approved and the SBT is minted. FHE encryption is now enabled for Tax ID, KYB status, and risk score.
                 </p>
+                <div style={{ marginBottom: 18 }}>
+                  <WalletAddressCard walletAddress={activeWallet} />
+                </div>
                 {error && (
                   <div
                     style={{

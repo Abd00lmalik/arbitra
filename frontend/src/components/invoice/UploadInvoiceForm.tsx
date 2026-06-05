@@ -7,7 +7,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { useAccount, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
@@ -23,11 +23,12 @@ import {
 import { useZama } from "@/providers/ZamaProvider";
 import {
   ARBITRA_REGISTRY_ADDRESS,
+  ARBITRA_REGISTRY_ABI,
   COLLATERAL_VAULT_ADDRESS,
   toMicroUnits,
   fromMicroUnits,
 } from "@/lib/contracts";
-import { encryptFiveUint64 } from "@/lib/zama";
+import { encryptFiveUint64, encryptUint64, userDecryptHandles } from "@/lib/zama";
 
 interface UploadInvoiceFormProps {
   onSuccess?: (invoiceId: bigint) => void;
@@ -56,6 +57,7 @@ type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
   const { instance, isReady: zamaReady } = useZama();
   const { uploadInvoice } = useUploadInvoice();
   
@@ -69,6 +71,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [encryptionSubstep, setEncryptionSubstep] = useState<EncryptionSubstep>("idle");
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
   const [isParsing, setIsParsing] = useState<boolean>(false);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState<boolean>(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -171,7 +174,61 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setInvoice(prev => ({ ...prev, debtor: e.target.value }));
   };
 
-  const handleNextStep2 = () => {
+  const runEncryptedDuplicatePreflight = async (fingerprint: bigint) => {
+    if (!instance || !address || !walletClient || !publicClient) {
+      throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
+    }
+
+    const { handle, inputProof } = await encryptUint64(
+      instance,
+      fingerprint,
+      ARBITRA_REGISTRY_ADDRESS,
+      address
+    );
+
+    const duplicateSimulation = await publicClient.simulateContract({
+      account: address,
+      address: ARBITRA_REGISTRY_ADDRESS,
+      abi: ARBITRA_REGISTRY_ABI,
+      functionName: "checkDuplicate",
+      args: [handle, inputProof],
+    });
+    const duplicateHandle = duplicateSimulation.result as `0x${string}`;
+    const duplicateTxHash = await walletClient.writeContract(duplicateSimulation.request);
+    const duplicateReceipt = await publicClient.waitForTransactionReceipt({ hash: duplicateTxHash });
+    if (duplicateReceipt.status !== "success") {
+      throw new Error("Encrypted duplicate check transaction reverted.");
+    }
+
+    const signerAdapter = {
+      getAddress: async () => address,
+      signTypedData: (
+        domain: object,
+        types: object,
+        value: object
+      ) => {
+        const primaryType = Object.keys(types).find((key) => key !== "EIP712Domain") ?? "";
+        return walletClient.signTypedData({
+          account: address,
+          domain: domain as any,
+          types: types as any,
+          primaryType: primaryType as any,
+          message: value as any,
+        });
+      },
+    };
+    const duplicateValues = await userDecryptHandles(
+      instance,
+      [{ handle: duplicateHandle, contractAddress: ARBITRA_REGISTRY_ADDRESS }],
+      signerAdapter
+    );
+
+    if (duplicateValues[duplicateHandle] === true) {
+      throw new Error("Duplicate invoice fingerprint detected. This invoice appears to have already been registered.");
+    }
+  };
+
+  const handleNextStep2 = async () => {
     setErrorMsg(null);
     if (!invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
       setErrorMsg("Buyer address must be a valid Ethereum address.");
@@ -182,9 +239,18 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setErrorMsg("Please enter a valid debtor email address.");
       return;
     }
-    setWizardStep(3);
-    refetchUSDC();
-    refetchAllowance();
+
+    setIsCheckingDuplicate(true);
+    try {
+      await runEncryptedDuplicatePreflight(invoice.fingerprint);
+      setWizardStep(3);
+      refetchUSDC();
+      refetchAllowance();
+    } catch (e: any) {
+      setErrorMsg(e.message || "Encrypted duplicate check failed.");
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
   };
 
   /* Step 3 Collateral lock execution */
@@ -218,7 +284,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   /* Step 4 Progressive local encryption and submit */
   const runProgressiveEncryption = async () => {
-    if (!instance || !address || !walletClient) {
+    if (!instance || !address || !walletClient || !publicClient) {
       setErrorMsg("FHEVM SDK or Wallet signer not available.");
       setWizardStep(5);
       return;
@@ -508,8 +574,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               <button onClick={() => setWizardStep(1)} className="flex-1 neon-btn-ghost text-xs rounded-xl py-2.5">
                 Re-upload
               </button>
-              <NeonButton variant="primary" onClick={handleNextStep2} className="flex-[2] text-xs">
-                Confirm Details &rarr;
+              <NeonButton variant="primary" onClick={handleNextStep2} disabled={isCheckingDuplicate} className="flex-[2] text-xs">
+                {isCheckingDuplicate ? "Checking encrypted fingerprint..." : "Confirm Details &rarr;"}
               </NeonButton>
             </div>
           </motion.div>

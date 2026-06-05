@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { useAccount, useReadContract } from "wagmi";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import {
   fromMicro,
@@ -319,6 +320,8 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
             )}
           </div>
         </GlassCard>
+
+        <WalletAddressCard walletAddress={wallet} />
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Total On-Chain" value={totalOnChain} sub="Invoices in registry" color="#00FF88" />
