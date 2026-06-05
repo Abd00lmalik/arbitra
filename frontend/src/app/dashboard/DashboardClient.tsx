@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { useAccount, useReadContract } from "wagmi";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import { LockedPage } from "@/components/shared/LockedPage";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import {
@@ -207,7 +208,6 @@ function StatCard({ label, value, sub, color = "#00F0FF" }: StatCardProps) {
 
 function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const [walletOpen, setWalletOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const { address, isConnected } = useAccount();
   const { data: realInvoices } = useRealInvoiceList();
   const { data: invoiceCount } = useInvoiceCount();
@@ -317,164 +317,37 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
             {walletOpen && (
               <>
                 <div
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9998]"
                   onClick={() => setWalletOpen(false)}
-                  style={{
-                    position: "fixed",
-                    inset: 0,
-                    zIndex: 1000,
-                    background: "rgba(2, 7, 20, 0.75)",
-                    backdropFilter: "blur(4px)",
-                    WebkitBackdropFilter: "blur(4px)",
-                  }}
+                  aria-hidden="true"
                 />
 
                 <div
-                  style={{
-                    position: "fixed",
-                    top: "50%",
-                    left: "50%",
-                    transform: "translate(-50%, -50%)",
-                    zIndex: 1001,
-                    width: "min(440px, 90vw)",
-                    background: "rgba(10, 16, 38, 0.97)",
-                    backdropFilter: "blur(24px)",
-                    WebkitBackdropFilter: "blur(24px)",
-                    border: "1px solid rgba(0, 240, 255, 0.2)",
-                    borderRadius: 20,
-                    padding: "28px 28px 32px",
-                    boxShadow: "0 0 60px rgba(0, 240, 255, 0.1), 0 32px 64px rgba(0,0,0,0.6)",
-                  }}
+                  className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] w-full max-w-sm px-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="My Wallet"
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                    <h2 style={{
-                      color: "#EEF2FF", fontSize: 18, fontWeight: 800,
-                      fontFamily: "Satoshi, sans-serif", margin: 0,
-                    }}>
-                      My Wallet
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={() => setWalletOpen(false)}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: "50%",
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.10)",
-                        color: "#8B9CC8",
-                        fontSize: 18,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontFamily: "sans-serif",
-                      }}
-                    >
-                      {"\u00d7"}
-                    </button>
-                  </div>
-
-                  <div style={{
-                    background: "rgba(0,240,255,0.05)",
-                    border: "1px solid rgba(0,240,255,0.15)",
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    marginBottom: 14,
-                  }}>
-                    <p style={{
-                      color: "#3D4E7A", fontSize: 11, fontWeight: 600,
-                      textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5,
-                    }}>
-                      Wallet Address
-                    </p>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <p style={{
-                        color: "#00F0FF", fontSize: 12, fontWeight: 500,
-                        fontFamily: "JetBrains Mono, monospace",
-                        wordBreak: "break-all", flex: 1, margin: 0,
-                      }}>
-                        {wallet}
-                      </p>
+                  <div
+                    className="rounded-2xl border border-white/10 bg-[#0d1117] shadow-[0_0_80px_rgba(0,240,255,0.12)] p-6 space-y-5"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-semibold text-white tracking-tight">
+                        My Wallet
+                      </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(wallet ?? "");
-                          setCopied(true);
-                          setTimeout(() => setCopied(false), 1500);
-                        }}
-                        style={{
-                          background: copied ? "rgba(0,255,136,0.1)" : "rgba(255,255,255,0.05)",
-                          border: `1px solid ${copied ? "rgba(0,255,136,0.3)" : "rgba(255,255,255,0.1)"}`,
-                          borderRadius: 8,
-                          padding: "5px 10px",
-                          color: copied ? "#00FF88" : "#8B9CC8",
-                          fontSize: 11,
-                          cursor: "pointer",
-                          whiteSpace: "nowrap",
-                          fontFamily: "Satoshi, sans-serif",
-                          fontWeight: 600,
-                          flexShrink: 0,
-                        }}
+                        onClick={() => setWalletOpen(false)}
+                        className="text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
+                        aria-label="Close"
                       >
-                        {copied ? "Copied!" : "Copy"}
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
                       </button>
                     </div>
-                  </div>
-
-                  <div style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    marginBottom: 18,
-                  }}>
-                    <p style={{
-                      color: "#3D4E7A", fontSize: 11, fontWeight: 600,
-                      textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5,
-                    }}>
-                      USDC Balance (Sepolia)
-                    </p>
-                    <p style={{
-                      color: "#EEF2FF", fontSize: 22, fontWeight: 800,
-                      fontFamily: "Satoshi, sans-serif", margin: 0,
-                    }}>
-                      ${usdcHuman}
-                    </p>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <a
-                      href="https://faucet.circle.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        gap: 7, height: 42,
-                        background: "rgba(0,240,255,0.08)",
-                        border: "1px solid rgba(0,240,255,0.25)",
-                        borderRadius: 11, textDecoration: "none",
-                        color: "#00F0FF", fontSize: 13, fontWeight: 600,
-                        fontFamily: "Satoshi, sans-serif",
-                      }}
-                    >
-                      Get Test USDC (Circle Faucet) {"\u2197"}
-                    </a>
-                    <a
-                      href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        gap: 7, height: 42,
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.09)",
-                        borderRadius: 11, textDecoration: "none",
-                        color: "#8B9CC8", fontSize: 13, fontWeight: 600,
-                        fontFamily: "Satoshi, sans-serif",
-                      }}
-                    >
-                      Get Sepolia ETH (Gas) {"\u2197"}
-                    </a>
+                    <WalletAddressCard walletAddress={wallet} />
                   </div>
                 </div>
               </>

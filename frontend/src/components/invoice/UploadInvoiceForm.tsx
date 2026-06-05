@@ -107,14 +107,6 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
   }, []);
 
-  const readFileBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = () => reject(new Error(`Failed to read ${file.name}.`));
-      reader.readAsDataURL(file);
-    });
-
   const isLogisticsFile = (file: File) =>
     file.type === "text/xml" ||
     file.type === "application/xml" ||
@@ -137,24 +129,22 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setErrorMsg(null);
 
     try {
-      const base64 = await readFileBase64(pdfFile);
-      const logisticsProof = proofFile ? await readFileBase64(proofFile) : undefined;
+      const formData = new FormData();
+      formData.append("pdf", pdfFile);
+      if (proofFile) {
+        formData.append("xml", proofFile);
+      }
         
       const res = await fetch("/api/parse-invoice", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pdf: base64,
-          logisticsProof,
-          logisticsFileName: proofFile?.name,
-        }),
+        body: formData,
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to parse invoice via Gemini AI.");
-      }
-
       const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to parse invoice via Gemini AI.");
+      }
         
       setInvoice({
         faceValue: BigInt(data.faceValue),
