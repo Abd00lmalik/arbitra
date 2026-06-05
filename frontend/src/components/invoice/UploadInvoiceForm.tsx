@@ -23,9 +23,9 @@ import {
 import { useZama } from "@/providers/ZamaProvider";
 import {
   ARBITRA_REGISTRY_ADDRESS,
-  ARBITRA_REGISTRY_ABI,
   COLLATERAL_VAULT_ADDRESS,
-  toMicroUnits,
+  FINGERPRINT_REGISTRY_ABI,
+  FINGERPRINT_REGISTRY_ADDRESS,
   fromMicroUnits,
 } from "@/lib/contracts";
 import { encryptFiveUint64, encryptUint64, userDecryptHandles } from "@/lib/zama";
@@ -71,7 +71,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [encryptionSubstep, setEncryptionSubstep] = useState<EncryptionSubstep>("idle");
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
   const [isParsing, setIsParsing] = useState<boolean>(false);
-  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState<boolean>(false);
+  const [isFraudChecking, setIsFraudChecking] = useState<boolean>(false);
+  const [fraudCheckStep, setFraudCheckStep] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [logisticsFile, setLogisticsFile] = useState<File | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -218,25 +219,53 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
     }
 
-    const { handle, inputProof } = await encryptUint64(
+    setFraudCheckStep("Encrypting invoice fingerprint...");
+    const encHash = await encryptUint64(
       instance,
       fingerprint,
-      ARBITRA_REGISTRY_ADDRESS,
+      FINGERPRINT_REGISTRY_ADDRESS,
       address
     );
 
-    const duplicateSimulation = await publicClient.simulateContract({
+    setFraudCheckStep("Encrypting invoice face value...");
+    const encFaceValue = await encryptUint64(
+      instance,
+      invoice.faceValue,
+      FINGERPRINT_REGISTRY_ADDRESS,
+      address
+    );
+
+    setFraudCheckStep("Performing Cryptographic Duplicity and Collusion Verifications...");
+    const uniquenessSimulation = await publicClient.simulateContract({
       account: address,
-      address: ARBITRA_REGISTRY_ADDRESS,
-      abi: ARBITRA_REGISTRY_ABI,
-      functionName: "checkDuplicate",
-      args: [handle, inputProof],
+      address: FINGERPRINT_REGISTRY_ADDRESS,
+      abi: FINGERPRINT_REGISTRY_ABI,
+      functionName: "checkInvoiceUniqueness",
+      args: [
+        encHash.handle,
+        encHash.inputProof,
+        encFaceValue.handle,
+        encFaceValue.inputProof,
+      ],
     });
-    const duplicateHandle = duplicateSimulation.result as `0x${string}`;
-    const duplicateTxHash = await walletClient.writeContract(duplicateSimulation.request);
+    const duplicateTxHash = await walletClient.writeContract(uniquenessSimulation.request);
+
+    setFraudCheckStep("Waiting for Sepolia confirmation...");
     const duplicateReceipt = await publicClient.waitForTransactionReceipt({ hash: duplicateTxHash });
     if (duplicateReceipt.status !== "success") {
       throw new Error("Encrypted duplicate check transaction reverted.");
+    }
+
+    setFraudCheckStep("Reading duplicate check handle...");
+    const duplicateHandle = await publicClient.readContract({
+      address: FINGERPRINT_REGISTRY_ADDRESS,
+      abi: FINGERPRINT_REGISTRY_ABI,
+      functionName: "getDuplicateCheckHandle",
+      args: [address],
+    }) as `0x${string}`;
+
+    if (!duplicateHandle || duplicateHandle === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      throw new Error("Fingerprint registry did not return a duplicate check handle.");
     }
 
     const signerAdapter = {
@@ -256,15 +285,19 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         });
       },
     };
+
+    setFraudCheckStep("Decrypting fraud check result...");
     const duplicateValues = await userDecryptHandles(
       instance,
-      [{ handle: duplicateHandle, contractAddress: ARBITRA_REGISTRY_ADDRESS }],
+      [{ handle: duplicateHandle, contractAddress: FINGERPRINT_REGISTRY_ADDRESS }],
       signerAdapter
     );
 
-    if (duplicateValues[duplicateHandle] === true) {
-      throw new Error("Duplicate invoice fingerprint detected. This invoice appears to have already been registered.");
+    if (duplicateValues[duplicateHandle] === true || duplicateValues[duplicateHandle] === 1n) {
+      throw new Error("Duplicate Financing Detected: This invoice has already been registered on-chain. Double-financing has been blocked by the FHE duplicate check.");
     }
+
+    setFraudCheckStep("Invoice verified unique. No duplicate found.");
   };
 
   const handleNextStep2 = async () => {
@@ -279,7 +312,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       return;
     }
 
-    setIsCheckingDuplicate(true);
+    setIsFraudChecking(true);
     try {
       await runEncryptedDuplicatePreflight(invoice.fingerprint);
       setWizardStep(3);
@@ -287,8 +320,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchAllowance();
     } catch (e: any) {
       setErrorMsg(e.message || "Encrypted duplicate check failed.");
+      setFraudCheckStep(null);
     } finally {
-      setIsCheckingDuplicate(false);
+      setIsFraudChecking(false);
     }
   };
 
@@ -629,10 +663,40 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               <button onClick={() => setWizardStep(1)} className="flex-1 neon-btn-ghost text-xs rounded-xl py-2.5">
                 Re-upload
               </button>
-              <NeonButton variant="primary" onClick={handleNextStep2} disabled={isCheckingDuplicate} className="flex-[2] text-xs">
-                {isCheckingDuplicate ? "Performing cryptographic duplicate check..." : "Submit and Run Fraud Check"}
+              <NeonButton variant="primary" onClick={handleNextStep2} disabled={isFraudChecking} className="flex-[2] text-xs">
+                {isFraudChecking ? "Running Fraud Check..." : "Submit and Run Fraud Check"}
               </NeonButton>
             </div>
+
+            {isFraudChecking && (
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "rgba(2,7,20,0.85)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: 16, borderRadius: 20, zIndex: 10,
+                padding: 24,
+              }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: "50%",
+                  border: "2.5px solid rgba(0,240,255,0.15)",
+                  borderTopColor: "#00F0FF",
+                  animation: "spin 0.9s linear infinite",
+                }} />
+                <p style={{
+                  color: "#00F0FF", fontSize: 15, fontWeight: 600,
+                  fontFamily: "Satoshi, sans-serif", textAlign: "center",
+                  maxWidth: 340, lineHeight: 1.6,
+                }}>
+                  {fraudCheckStep ?? "Performing Cryptographic Duplicity and Collusion Verifications..."}
+                </p>
+                <p style={{ color: "#3D4E7A", fontSize: 12, fontFamily: "Satoshi, sans-serif", textAlign: "center" }}>
+                  Running FHE.eq duplicate check on encrypted invoice hashes
+                </p>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -899,6 +963,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         @keyframes reverse-spin {
           from { transform: rotate(360deg); }
           to { transform: rotate(0deg); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </GlassCard>

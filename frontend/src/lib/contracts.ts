@@ -426,6 +426,47 @@ export const REGISTRY_ABI = [
 /* Compatibility alias */
 export const ARBITRA_REGISTRY_ABI = REGISTRY_ABI;
 
+export const FINGERPRINT_REGISTRY_ABI = [
+  {
+    type: "function", name: "checkInvoiceUniqueness",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "encHash",        type: "bytes32" },
+      { name: "proofHash",      type: "bytes"   },
+      { name: "encFaceValue",   type: "bytes32" },
+      { name: "proofFaceValue", type: "bytes"   },
+    ],
+    outputs: [{ name: "duplicateResultHandle", type: "bytes32" }],
+  },
+  {
+    type: "function", name: "confirmAndRegister",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function", name: "getDuplicateCheckHandle",
+    stateMutability: "view",
+    inputs: [{ name: "supplier", type: "address" }],
+    outputs: [{ name: "handle", type: "bytes32" }],
+  },
+  {
+    type: "event", name: "DuplicateCheckInitiated",
+    inputs: [
+      { name: "supplier",  type: "address", indexed: true },
+      { name: "timestamp", type: "uint256" },
+    ],
+  },
+  {
+    type: "event", name: "FingerprintRegistered",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "supplier",  type: "address", indexed: true },
+      { name: "timestamp", type: "uint256" },
+    ],
+  },
+] as const;
+
 /* ── USDC ERC-20 ABI (standard — no confidential extensions) ── */
 export const USDC_ABI = [
   {

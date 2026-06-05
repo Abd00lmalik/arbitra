@@ -101,7 +101,7 @@ export async function parseInvoicePDF(
   const logisticsProofHash = buildLogisticsProofHash(logisticsProof?.logisticsProofBase64);
 
   if (!GEMINI_API_KEY) {
-    return getMockParsedInvoice(logisticsProofHash);
+    throw new Error("GEMINI_API_KEY is not configured. Invoice PDF parsing cannot run.");
   }
 
   const prompt = `You are an institutional trade finance underwriting agent.
@@ -111,9 +111,11 @@ Return ONLY valid JSON in this exact structure:
   "amount": <number, the invoice total amount in USD, e.g., 1250.50>,
   "dueDate": "<YYYY-MM-DD, the maturity date of the invoice>",
   "invoiceNumber": "<string, the unique invoice identifier>",
-  "debtorAddress": "<string, a valid Ethereum address for the buyer/debtor, or '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as default>",
-  "suggestedBaseRateBps": <integer, suggested base rate in basis points, default 300 (3%)>,
-  "suggestedReputationMultiplier": <integer, multiplier based on company size/risk, default 5>
+  "debtorAddress": "<string, a valid Ethereum address for the buyer/debtor, or empty string if not present>",
+  "suggestedBaseRateBps": <integer, suggested base rate in basis points>,
+  "suggestedReputationMultiplier": <integer, multiplier based on company size/risk>,
+  "supplierTaxId": "<string, supplier tax identifier if present, otherwise empty string>",
+  "debtorTaxId": "<string, debtor tax identifier if present, otherwise empty string>"
 }`;
 
   try {
@@ -145,20 +147,48 @@ Return ONLY valid JSON in this exact structure:
     });
 
     if (!response.ok) {
-      console.error("[Gemini PDF] API error:", response.status);
-      return getMockParsedInvoice();
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`Gemini PDF API error ${response.status}: ${errorBody.slice(0, 300)}`);
     }
 
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text || typeof text !== "string") {
+      throw new Error("Gemini did not return invoice JSON text.");
+    }
+
     const parsed = JSON.parse(text);
 
-    const amount = Number(parsed.amount) || 1000.0;
-    const dueDateStr = parsed.dueDate || new Date(Date.now() + 30 * 86400 * 1000).toISOString().split("T")[0];
-    const invoiceNumber = parsed.invoiceNumber || `INV-${Date.now()}`;
-    const debtorAddress = parsed.debtorAddress || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-    const baseRateBps = Number(parsed.suggestedBaseRateBps) || 300;
-    const repMultiplier = Number(parsed.suggestedReputationMultiplier) || 5;
+    const amount = Number(parsed.amount);
+    const dueDateStr = String(parsed.dueDate ?? "");
+    const invoiceNumber = String(parsed.invoiceNumber ?? "");
+    const debtorAddress = String(parsed.debtorAddress ?? "");
+    const baseRateBps = Number(parsed.suggestedBaseRateBps);
+    const repMultiplier = Number(parsed.suggestedReputationMultiplier);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("Gemini response did not include a valid positive invoice amount.");
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDateStr)) {
+      throw new Error("Gemini response did not include a valid YYYY-MM-DD due date.");
+    }
+
+    if (!invoiceNumber) {
+      throw new Error("Gemini response did not include an invoice number.");
+    }
+
+    if (debtorAddress && !/^0x[0-9a-fA-F]{40}$/.test(debtorAddress)) {
+      throw new Error("Gemini response did not include a valid debtor wallet address.");
+    }
+
+    if (!Number.isInteger(baseRateBps) || baseRateBps <= 0) {
+      throw new Error("Gemini response did not include a valid base rate.");
+    }
+
+    if (!Number.isInteger(repMultiplier) || repMultiplier <= 0) {
+      throw new Error("Gemini response did not include a valid reputation multiplier.");
+    }
 
     /* Hash the invoice number string into a positive 63-bit integer for the FHE fingerprint */
     let hash = 5381n;
@@ -175,6 +205,9 @@ Return ONLY valid JSON in this exact structure:
     const fingerprint = hash & 0x7fffffffffffffffn;
 
     const dueDateTimestamp = Math.floor(new Date(dueDateStr).getTime() / 1000);
+    if (!Number.isFinite(dueDateTimestamp) || dueDateTimestamp <= 0) {
+      throw new Error("Gemini response due date could not be converted to a timestamp.");
+    }
 
     return {
       faceValue: BigInt(Math.round(amount * 1_000_000)), /* 6 decimals for USDC */
@@ -185,8 +218,8 @@ Return ONLY valid JSON in this exact structure:
       debtor: debtorAddress,
     };
   } catch (e) {
-    console.error("[Gemini PDF] Failed to parse PDF, returning mock:", e);
-    return getMockParsedInvoice(logisticsProofHash);
+    console.error("[Gemini PDF] Failed to parse PDF:", e);
+    throw e;
   }
 }
 
@@ -236,29 +269,6 @@ Return ONLY valid JSON in this exact format:
   "factors": ["<risk factor 1>", "<risk factor 2>", "<risk factor 3>"],
   "recommendation": "<actionable recommendation for investor>"
 }`;
-}
-
-function getMockParsedInvoice(logisticsProofHash = "NO_LOGISTICS_PROOF") {
-  const randomAmount = 1000 + Math.floor(Math.random() * 9000);
-  const futureDays = 15 + Math.floor(Math.random() * 45);
-  const dueDateSec = Math.floor(Date.now() / 1000) + futureDays * 86400;
-  const invNum = `INV-2026-${1000 + Math.floor(Math.random() * 9000)}`;
-
-  let hash = 5381n;
-  const uniqueMaterial = `${invNum}|${logisticsProofHash}`;
-  for (let i = 0; i < uniqueMaterial.length; i++) {
-    hash = (hash * 33n) + BigInt(uniqueMaterial.charCodeAt(i));
-  }
-  const fingerprint = hash & 0x7fffffffffffffffn;
-
-  return {
-    faceValue: BigInt(randomAmount) * 1000000n,
-    dueDate: BigInt(dueDateSec),
-    fingerprint,
-    baseRate: 300n,
-    reputationMultiplier: 5n,
-    debtor: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as string,
-  };
 }
 
 function getMockRiskAssessment(input: RiskAssessmentInput): RiskAssessmentResult {

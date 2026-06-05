@@ -259,6 +259,62 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(decryptedDup).to.equal(true);
         });
 
+        it("should expose a decryptable supplier duplicate-check handle on fingerprint registry", async function () {
+            const faceValue = 1_000_000_000n;
+            const uniqueFingerprint = 444555666n;
+            const duplicateFingerprint = 777888999n;
+
+            const inputUnique = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputUnique.add64(uniqueFingerprint);
+            const encUniqueHash = await inputUnique.encrypt();
+
+            const inputUniqueFaceValue = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputUniqueFaceValue.add64(faceValue);
+            const encUniqueFaceValue = await inputUniqueFaceValue.encrypt();
+
+            await (await fpRegistry.connect(supplier).checkInvoiceUniqueness(
+                encUniqueHash.handles[0],
+                encUniqueHash.inputProof,
+                encUniqueFaceValue.handles[0],
+                encUniqueFaceValue.inputProof
+            )).wait();
+
+            const uniqueHandle = await fpRegistry.getDuplicateCheckHandle(supplier.address);
+            const uniqueResult = await fhevm.userDecryptEbool(
+                uniqueHandle,
+                fpRegistryAddr,
+                supplier
+            );
+            expect(uniqueResult).to.equal(false);
+
+            await expect(
+                fpRegistry.connect(supplier).confirmAndRegister(42n)
+            ).to.emit(fpRegistry, "FingerprintRegistered");
+
+            const inputDuplicate = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputDuplicate.add64(uniqueFingerprint);
+            const encDuplicateHash = await inputDuplicate.encrypt();
+
+            const inputDuplicateFaceValue = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputDuplicateFaceValue.add64(faceValue);
+            const encDuplicateFaceValue = await inputDuplicateFaceValue.encrypt();
+
+            await (await fpRegistry.connect(supplier).checkInvoiceUniqueness(
+                encDuplicateHash.handles[0],
+                encDuplicateHash.inputProof,
+                encDuplicateFaceValue.handles[0],
+                encDuplicateFaceValue.inputProof
+            )).wait();
+
+            const duplicateHandle = await fpRegistry.getDuplicateCheckHandle(supplier.address);
+            const duplicateResult = await fhevm.userDecryptEbool(
+                duplicateHandle,
+                fpRegistryAddr,
+                supplier
+            );
+            expect(duplicateResult).to.equal(true);
+        });
+
         it("should allow governance to slash collateral on fraud", async function () {
             const faceValue = 1_000_000_000n;
             const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
