@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { createPortal } from "react-dom";
 import { useAccount, useReadContract } from "wagmi";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -238,6 +239,49 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const factored = invoices.filter((item) => item.status === InvoiceStatus.Factored).length;
   const settled = invoices.filter((item) => item.status === InvoiceStatus.Settled).length;
   const isVerifiedBusiness = hasSBT === true && hasEncryptedCompliance === true;
+  const walletModal = walletOpen && typeof document !== "undefined"
+    ? createPortal(
+      <>
+        <div
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm"
+          style={{ zIndex: 2147483646 }}
+          onClick={() => setWalletOpen(false)}
+          aria-hidden="true"
+        />
+
+        <div
+          className="fixed top-1/2 left-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 px-4"
+          style={{ zIndex: 2147483647 }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="My Wallet"
+        >
+          <div
+            className="space-y-5 rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-[0_0_80px_rgba(0,240,255,0.12)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-base font-semibold tracking-tight text-white">
+                My Wallet
+              </span>
+              <button
+                type="button"
+                onClick={() => setWalletOpen(false)}
+                className="rounded-lg p-1 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Close"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <WalletAddressCard walletAddress={wallet} />
+          </div>
+        </div>
+      </>,
+      document.body,
+    )
+    : null;
 
   if (wallet && hasSBT !== true) {
     return <LockedPage title="Dashboard Locked" message="Complete business verification to access the dashboard." />;
@@ -314,45 +358,6 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
               </div>
             </div>
 
-            {walletOpen && (
-              <>
-                <div
-                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9998]"
-                  onClick={() => setWalletOpen(false)}
-                  aria-hidden="true"
-                />
-
-                <div
-                  className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] w-full max-w-sm px-4"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="My Wallet"
-                >
-                  <div
-                    className="rounded-2xl border border-white/10 bg-[#0d1117] shadow-[0_0_80px_rgba(0,240,255,0.12)] p-6 space-y-5"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-base font-semibold text-white tracking-tight">
-                        My Wallet
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setWalletOpen(false)}
-                        className="text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
-                        aria-label="Close"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                    <WalletAddressCard walletAddress={wallet} />
-                  </div>
-                </div>
-              </>
-            )}
-
             {wallet && !isVerifiedBusiness && (
               <div
                 style={{
@@ -425,6 +430,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
           <StatCard label="Settled" value={settled} sub="Completed invoices" color="#7AD9FF" />
         </div>
       </motion.div>
+      {walletModal}
     </AppLayout>
   );
 }

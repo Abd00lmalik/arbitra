@@ -11,6 +11,7 @@ export const maxDuration = 60;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_BASE_RATE_BPS = 300;
 const DEFAULT_REPUTATION_MULTIPLIER = 5;
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 type InvoiceFields = {
   invoiceNumber: string | null;
@@ -50,6 +51,43 @@ Required JSON format:
   "suggestedBaseRateBps": number or null,
   "suggestedReputationMultiplier": number or null
 }`;
+
+const invoiceJsonSchema = {
+  type: "object",
+  properties: {
+    invoiceNumber: { type: ["string", "null"], description: "Invoice number or reference." },
+    supplierName: { type: ["string", "null"], description: "Supplier or seller legal name." },
+    debtorName: { type: ["string", "null"], description: "Buyer or debtor legal name." },
+    debtorEmail: { type: ["string", "null"], description: "Buyer or debtor email address." },
+    invoiceDate: { type: ["string", "null"], description: "Invoice issue date in YYYY-MM-DD format." },
+    dueDate: { type: ["string", "null"], description: "Payment due date in YYYY-MM-DD format." },
+    faceValueUSD: { type: ["number", "null"], description: "Invoice amount in USD as a number." },
+    currency: { type: ["string", "null"], description: "Invoice currency code like USD, EUR, GBP." },
+    description: { type: ["string", "null"], description: "Goods or services description." },
+    debtorAddress: { type: ["string", "null"], description: "Ethereum address only if explicitly present in the document." },
+    supplierTaxId: { type: ["string", "null"], description: "Supplier tax ID or registration number." },
+    debtorTaxId: { type: ["string", "null"], description: "Buyer tax ID or registration number." },
+    suggestedBaseRateBps: { type: ["integer", "null"], description: "Suggested base rate in basis points." },
+    suggestedReputationMultiplier: { type: ["integer", "null"], description: "Suggested reputation multiplier integer." },
+  },
+  required: [
+    "invoiceNumber",
+    "supplierName",
+    "debtorName",
+    "debtorEmail",
+    "invoiceDate",
+    "dueDate",
+    "faceValueUSD",
+    "currency",
+    "description",
+    "debtorAddress",
+    "supplierTaxId",
+    "debtorTaxId",
+    "suggestedBaseRateBps",
+    "suggestedReputationMultiplier",
+  ],
+  additionalProperties: false,
+} as const;
 
 function cleanGeminiJson(rawText: string) {
   return rawText
@@ -139,8 +177,8 @@ function validateAndNormalize(fields: InvoiceFields, logisticsData: Record<strin
   };
 }
 
-async function callGeminiPdf(geminiKey: string, pdfBase64: string) {
-  const geminiRes = await fetch(`${GEMINI_API_URL}/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+async function callGeminiPdf(geminiKey: string, pdfBase64: string, prompt: string) {
+  const geminiRes = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${geminiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -153,21 +191,22 @@ async function callGeminiPdf(geminiKey: string, pdfBase64: string) {
                 data: pdfBase64,
               },
             },
-            { text: extractionPrompt },
+            { text: prompt },
           ],
         },
       ],
       generationConfig: {
         temperature: 0,
-        topP: 1,
         maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+        responseJsonSchema: invoiceJsonSchema,
       },
     }),
   });
 
   if (!geminiRes.ok) {
     const errBody = await geminiRes.text();
-    throw new Error(`Gemini 2.0 Flash API error ${geminiRes.status}: ${errBody}`);
+    throw new Error(`${GEMINI_MODEL} PDF API error ${geminiRes.status}: ${errBody}`);
   }
 
   const geminiData = await geminiRes.json();
@@ -190,7 +229,7 @@ async function callGeminiTextFallback(geminiKey: string, pdfBuffer: Buffer) {
     throw new Error("PDF appears to be empty or image-only. No text extracted.");
   }
 
-  const fallbackRes = await fetch(`${GEMINI_API_URL}/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+  const fallbackRes = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${geminiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -202,19 +241,24 @@ async function callGeminiTextFallback(geminiKey: string, pdfBuffer: Buffer) {
 
 Invoice text content:
 ---
-${invoiceText.slice(0, 6000)}
+${invoiceText.slice(0, 12000)}
 ---`,
             },
           ],
         },
       ],
-      generationConfig: { temperature: 0, maxOutputTokens: 512 },
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+        responseJsonSchema: invoiceJsonSchema,
+      },
     }),
   });
 
   if (!fallbackRes.ok) {
     const errBody = await fallbackRes.text();
-    throw new Error(`Gemini 1.5 Flash fallback error ${fallbackRes.status}: ${errBody}`);
+    throw new Error(`${GEMINI_MODEL} text fallback error ${fallbackRes.status}: ${errBody}`);
   }
 
   const fallbackData = await fallbackRes.json();
@@ -307,23 +351,37 @@ export async function POST(req: NextRequest) {
     let parseMethod: string;
 
     try {
-      invoiceFields = await callGeminiPdf(geminiKey, pdfBase64);
-      parseMethod = "gemini-2.0-flash-native-pdf";
+      invoiceFields = await callGeminiPdf(geminiKey, pdfBase64, extractionPrompt);
+      parseMethod = `${GEMINI_MODEL}-native-pdf`;
     } catch (pathAError) {
-      console.warn("[parse-invoice] Path A failed, trying Path B:", pathAError);
+      console.warn("[parse-invoice] Native PDF pass 1 failed, trying OCR-focused retry:", pathAError);
 
       try {
-        invoiceFields = await callGeminiTextFallback(geminiKey, pdfBuffer);
-        parseMethod = "gemini-1.5-flash-text-fallback";
-      } catch (pathBError) {
-        console.error("[parse-invoice] Both paths failed:", pathBError);
-        return NextResponse.json(
-          {
-            error: "Failed to extract invoice data. Ensure the PDF contains readable text or is a clear scan.",
-            details: String(pathBError),
-          },
-          { status: 422 }
+        invoiceFields = await callGeminiPdf(
+          geminiKey,
+          pdfBase64,
+          `${extractionPrompt}
+
+This PDF may be a scanned invoice. Use the rendered page images and OCR what you can from the document itself.
+Do not guess fields that are not visible.`
         );
+        parseMethod = `${GEMINI_MODEL}-native-pdf-ocr-retry`;
+      } catch (pathBError) {
+        console.warn("[parse-invoice] Native PDF retry failed, trying text fallback:", pathBError);
+
+        try {
+          invoiceFields = await callGeminiTextFallback(geminiKey, pdfBuffer);
+          parseMethod = `${GEMINI_MODEL}-text-fallback`;
+        } catch (pathCError) {
+          console.error("[parse-invoice] All parse paths failed:", pathCError);
+          return NextResponse.json(
+            {
+              error: "Failed to extract invoice data from the uploaded PDF.",
+              details: String(pathCError),
+            },
+            { status: 422 }
+          );
+        }
       }
     }
 
