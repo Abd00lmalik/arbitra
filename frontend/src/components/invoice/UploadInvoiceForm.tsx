@@ -7,7 +7,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
@@ -72,7 +72,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [isFraudChecking, setIsFraudChecking] = useState<boolean>(false);
+  const [fraudCheckAwaitingWallet, setFraudCheckAwaitingWallet] = useState<boolean>(false);
   const [fraudCheckStep, setFraudCheckStep] = useState<string | null>(null);
+  const [fraudCheckTxHash, setFraudCheckTxHash] = useState<`0x${string}` | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [logisticsFile, setLogisticsFile] = useState<File | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -95,6 +97,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
   const isApproved = allowance !== undefined ? BigInt(allowance) >= requiredCollateral : false;
+  const { isLoading: isFraudCheckConfirming, isSuccess: isFraudCheckConfirmed } = useWaitForTransactionReceipt({
+    hash: fraudCheckTxHash ?? undefined,
+    query: { enabled: !!fraudCheckTxHash },
+  });
 
   /* Handle Drag Events */
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -225,7 +231,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       address
     );
 
-    setFraudCheckStep("Performing Cryptographic Duplicity and Collusion Verifications...");
+    setFraudCheckStep("Preparing fraud check transaction...");
     const uniquenessSimulation = await publicClient.simulateContract({
       account: address,
       address: FINGERPRINT_REGISTRY_ADDRESS,
@@ -238,7 +244,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         encFaceValue.inputProof,
       ],
     });
+    setFraudCheckAwaitingWallet(true);
+    setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
     const duplicateTxHash = await walletClient.writeContract(uniquenessSimulation.request);
+    setFraudCheckTxHash(duplicateTxHash);
+    setFraudCheckAwaitingWallet(false);
 
     setFraudCheckStep("Waiting for Sepolia confirmation...");
     const duplicateReceipt = await publicClient.waitForTransactionReceipt({ hash: duplicateTxHash });
@@ -292,6 +302,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   const handleNextStep2 = async () => {
     setErrorMsg(null);
+    setFraudCheckTxHash(null);
+    setFraudCheckStep(null);
+    setFraudCheckAwaitingWallet(false);
     if (!invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
       setErrorMsg("Buyer address must be a valid Ethereum address.");
       return;
@@ -309,8 +322,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchUSDC();
       refetchAllowance();
     } catch (e: any) {
-      setErrorMsg(e.message || "Encrypted duplicate check failed.");
+      const message = e?.shortMessage || e?.message || "Encrypted duplicate check failed.";
+      setErrorMsg(message);
       setFraudCheckStep(null);
+      setFraudCheckAwaitingWallet(false);
     } finally {
       setIsFraudChecking(false);
     }
@@ -649,14 +664,44 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
             )}
 
+            {fraudCheckTxHash && (
+              <a
+                href={`https://sepolia.etherscan.io/tx/${fraudCheckTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-center text-xs text-cyan-400 underline"
+              >
+                View fraud check transaction on Etherscan
+              </a>
+            )}
+
             <div className="flex gap-3">
               <button onClick={() => setWizardStep(1)} className="flex-1 neon-btn-ghost text-xs rounded-xl py-2.5">
                 Re-upload
               </button>
-              <NeonButton variant="primary" onClick={handleNextStep2} disabled={isFraudChecking} className="flex-[2] text-xs">
-                {isFraudChecking ? "Running Fraud Check..." : "Submit and Run Fraud Check"}
+              <NeonButton
+                variant="primary"
+                onClick={handleNextStep2}
+                disabled={isFraudChecking || fraudCheckAwaitingWallet || isFraudCheckConfirming || isFraudCheckConfirmed}
+                className="flex-[2] text-xs"
+              >
+                {fraudCheckAwaitingWallet
+                  ? "Confirm in your wallet..."
+                  : isFraudCheckConfirming
+                    ? "Confirming on Sepolia..."
+                    : isFraudCheckConfirmed
+                      ? "Fraud check submitted!"
+                      : isFraudChecking
+                        ? "Running Fraud Check..."
+                        : "Submit and Run Fraud Check"}
               </NeonButton>
             </div>
+
+            {fraudCheckAwaitingWallet && (
+              <p className="text-center text-xs text-cyan-400/80">
+                Check your wallet - a transaction approval is waiting.
+              </p>
+            )}
 
             {isFraudChecking && (
               <div style={{
@@ -683,7 +728,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   {fraudCheckStep ?? "Performing Cryptographic Duplicity and Collusion Verifications..."}
                 </p>
                 <p style={{ color: "#3D4E7A", fontSize: 12, fontFamily: "Satoshi, sans-serif", textAlign: "center" }}>
-                  Running FHE.eq duplicate check on encrypted invoice hashes
+                  {fraudCheckAwaitingWallet
+                    ? "Approve the transaction from your funded embedded wallet."
+                    : isFraudCheckConfirming
+                      ? "Waiting for Sepolia to confirm the signed fraud check."
+                      : "Running FHE.eq duplicate check on encrypted invoice hashes"}
                 </p>
               </div>
             )}
