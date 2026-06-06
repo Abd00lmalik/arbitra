@@ -59,6 +59,25 @@ function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
 }
 
+function formatFraudCheckError(error: unknown) {
+  const rawMessage =
+    typeof error === "object" && error !== null && "shortMessage" in error && typeof (error as { shortMessage?: unknown }).shortMessage === "string"
+      ? (error as { shortMessage: string }).shortMessage
+      : error instanceof Error
+        ? error.message
+        : String(error);
+
+  const insufficientFundsMatch = rawMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
+  if (insufficientFundsMatch) {
+    const haveWei = BigInt(insufficientFundsMatch[1]);
+    const wantWei = BigInt(insufficientFundsMatch[2]);
+    const shortfallWei = wantWei > haveWei ? wantWei - haveWei : 0n;
+    return `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(haveWei)} ETH. Required: ${formatEthAmount(wantWei)} ETH. Add about ${formatEthAmount(shortfallWei)} ETH more on Sepolia and try again.`;
+  }
+
+  return rawMessage || "Encrypted duplicate check failed.";
+}
+
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
@@ -347,7 +366,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchUSDC();
       refetchAllowance();
     } catch (e: any) {
-      const message = e?.shortMessage || e?.message || "Encrypted duplicate check failed.";
+      const message = formatFraudCheckError(e);
       setErrorMsg(message);
       setFraudCheckStep(null);
       setFraudCheckAwaitingWallet(false);
