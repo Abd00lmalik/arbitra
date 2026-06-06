@@ -59,7 +59,7 @@ function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
 }
 
-function formatFraudCheckError(error: unknown) {
+function formatGasAwareError(error: unknown) {
   const rawMessage =
     typeof error === "object" && error !== null && "shortMessage" in error && typeof (error as { shortMessage?: unknown }).shortMessage === "string"
       ? (error as { shortMessage: string }).shortMessage
@@ -366,7 +366,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchUSDC();
       refetchAllowance();
     } catch (e: any) {
-      const message = formatFraudCheckError(e);
+      const message = formatGasAwareError(e);
       setErrorMsg(message);
       setFraudCheckStep(null);
       setFraudCheckAwaitingWallet(false);
@@ -383,7 +383,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       await new Promise(resolve => setTimeout(resolve, 2000));
       refetchAllowance();
     } catch (e: any) {
-      setErrorMsg(e.message || "Approval failed.");
+      setErrorMsg(formatGasAwareError(e) || "Approval failed.");
     }
   };
 
@@ -400,7 +400,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setWizardStep(4);
       runProgressiveEncryption();
     } catch (e: any) {
-      setErrorMsg(e.message || "Collateral staking failed.");
+      setErrorMsg(formatGasAwareError(e) || "Collateral staking failed.");
     }
   };
 
@@ -488,7 +488,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg(err instanceof Error ? err.message : "Encryption transaction failed.");
+      setErrorMsg(formatGasAwareError(err) || "Encryption transaction failed.");
       setWizardStep(5);
     }
   };
