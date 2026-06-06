@@ -9,6 +9,7 @@
 import React, { useState, useCallback } from "react";
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatEther } from "viem";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
@@ -28,7 +29,7 @@ import {
   FINGERPRINT_REGISTRY_ADDRESS,
   fromMicroUnits,
 } from "@/lib/contracts";
-import { encryptFiveUint64, encryptUint64, userDecryptHandles } from "@/lib/zama";
+import { encryptFiveUint64, encryptTwoUint64, userDecryptHandles } from "@/lib/zama";
 
 interface UploadInvoiceFormProps {
   onSuccess?: (invoiceId: bigint) => void;
@@ -53,6 +54,10 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
  */
 
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
+
+function formatEthAmount(value: bigint) {
+  return Number.parseFloat(formatEther(value)).toFixed(4);
+}
 
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
@@ -215,35 +220,55 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
     }
 
-    setFraudCheckStep("Encrypting invoice fingerprint...");
-    const encHash = await encryptUint64(
+    setFraudCheckStep("Encrypting invoice fingerprint and face value...");
+    const encryptedInputs = await encryptTwoUint64(
       instance,
       fingerprint,
-      FINGERPRINT_REGISTRY_ADDRESS,
-      address
-    );
-
-    setFraudCheckStep("Encrypting invoice face value...");
-    const encFaceValue = await encryptUint64(
-      instance,
       invoice.faceValue,
       FINGERPRINT_REGISTRY_ADDRESS,
       address
     );
 
-    setFraudCheckStep("Preparing fraud check transaction...");
+    setFraudCheckStep("Estimating Sepolia gas cost...");
     const uniquenessSimulation = await publicClient.simulateContract({
       account: address,
       address: FINGERPRINT_REGISTRY_ADDRESS,
       abi: FINGERPRINT_REGISTRY_ABI,
       functionName: "checkInvoiceUniqueness",
       args: [
-        encHash.handle,
-        encHash.inputProof,
-        encFaceValue.handle,
-        encFaceValue.inputProof,
+        encryptedInputs.handle1,
+        encryptedInputs.inputProof,
+        encryptedInputs.handle2,
+        encryptedInputs.inputProof,
       ],
     });
+
+    const estimatedGas = await publicClient.estimateContractGas({
+      account: address,
+      address: FINGERPRINT_REGISTRY_ADDRESS,
+      abi: FINGERPRINT_REGISTRY_ABI,
+      functionName: "checkInvoiceUniqueness",
+      args: [
+        encryptedInputs.handle1,
+        encryptedInputs.inputProof,
+        encryptedInputs.handle2,
+        encryptedInputs.inputProof,
+      ],
+    });
+    const gasPrice = await publicClient.getGasPrice();
+    const walletBalance = await publicClient.getBalance({ address });
+    const estimatedCost = estimatedGas * gasPrice;
+
+    if (walletBalance < estimatedCost) {
+      const shortfall = estimatedCost - walletBalance;
+      throw new Error(
+        `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Estimated cost: ${formatEthAmount(estimatedCost)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
+      );
+    }
+
+    setFraudCheckStep(
+      `Estimated fraud check gas: ${formatEthAmount(estimatedCost)} ETH. Requesting wallet approval...`
+    );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
     const duplicateTxHash = await walletClient.writeContract(uniquenessSimulation.request);
