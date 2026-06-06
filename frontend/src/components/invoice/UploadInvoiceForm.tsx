@@ -25,6 +25,7 @@ import { useZama } from "@/providers/ZamaProvider";
 import {
   ARBITRA_REGISTRY_ADDRESS,
   COLLATERAL_VAULT_ADDRESS,
+  COLLATERAL_VAULT_ABI,
   FINGERPRINT_REGISTRY_ABI,
   FINGERPRINT_REGISTRY_ADDRESS,
   fromMicroUnits,
@@ -395,7 +396,37 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     try {
-      await stakeCollateral(nextInvoiceId, invoice.faceValue);
+      if (!address || !walletClient || !publicClient) {
+        throw new Error("Wallet not connected for collateral staking.");
+      }
+
+      const stakeSimulation = await publicClient.simulateContract({
+        account: address,
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "stakeCollateral",
+        args: [nextInvoiceId, invoice.faceValue],
+      });
+
+      const estimatedGas = await publicClient.estimateContractGas({
+        account: address,
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "stakeCollateral",
+        args: [nextInvoiceId, invoice.faceValue],
+      });
+      const gasPrice = await publicClient.getGasPrice();
+      const walletBalance = await publicClient.getBalance({ address });
+      const estimatedCost = estimatedGas * gasPrice;
+
+      if (walletBalance < estimatedCost) {
+        const shortfall = estimatedCost - walletBalance;
+        throw new Error(
+          `Insufficient ETH for collateral staking gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Required: ${formatEthAmount(estimatedCost)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
+        );
+      }
+
+      await walletClient.writeContract(stakeSimulation.request);
       await new Promise(resolve => setTimeout(resolve, 1500));
       setWizardStep(4);
       runProgressiveEncryption();
