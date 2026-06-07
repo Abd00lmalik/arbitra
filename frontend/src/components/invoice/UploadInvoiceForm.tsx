@@ -9,7 +9,7 @@
 import React, { useState, useCallback } from "react";
 import { useAccount, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatEther } from "viem";
+import { formatEther, parseGwei } from "viem";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
@@ -56,10 +56,24 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
-const FHE_CHECK_UNIQUENESS_GAS_LIMIT = 6_000_000n;
+const FHE_CHECK_UNIQUENESS_GAS_LIMIT = 400_000n;
+const FRAUD_CHECK_EXPECTED_USAGE_BPS = 40n;
+const FALLBACK_SEPOLIA_GAS_PRICE = parseGwei("2");
+const MIN_FRAUD_CHECK_GAS_BUFFER = parseGwei("2") * 120_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
+}
+
+function buildFraudCheckCostPreview(gasPrice: bigint) {
+  const maxReserve = FHE_CHECK_UNIQUENESS_GAS_LIMIT * gasPrice;
+  const expectedCost = (maxReserve * FRAUD_CHECK_EXPECTED_USAGE_BPS) / 100n;
+
+  return {
+    gasPrice,
+    expectedCost,
+    maxReserve,
+  };
 }
 
 function formatGasAwareError(error: unknown) {
@@ -154,6 +168,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
   });
+  const currentGasPrice = publicClient?.chain?.id === 11155111 ? FALLBACK_SEPOLIA_GAS_PRICE : FALLBACK_SEPOLIA_GAS_PRICE;
+  const fraudCheckCostPreview = buildFraudCheckCostPreview(currentGasPrice);
 
   /* Handle Drag Events */
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -292,19 +308,19 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
     });
 
-    const gasPrice = await publicClient.getGasPrice();
+    const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
     const walletBalance = await publicClient.getBalance({ address });
-    const estimatedCost = FHE_CHECK_UNIQUENESS_GAS_LIMIT * gasPrice;
+    const { expectedCost, maxReserve } = buildFraudCheckCostPreview(gasPrice);
 
-    if (walletBalance < estimatedCost) {
-      const shortfall = estimatedCost - walletBalance;
+    if (walletBalance < MIN_FRAUD_CHECK_GAS_BUFFER) {
+      const shortfall = MIN_FRAUD_CHECK_GAS_BUFFER - walletBalance;
       throw new Error(
-        `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Estimated cost: ${formatEthAmount(estimatedCost)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
+        `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Recommended minimum: ${formatEthAmount(MIN_FRAUD_CHECK_GAS_BUFFER)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
       );
     }
 
     setFraudCheckStep(
-      `Reserved fraud check gas: ${formatEthAmount(estimatedCost)} ETH at a fixed 6,000,000 gas limit. Requesting wallet approval...`
+      `Expected fraud check gas cost: ~${formatEthAmount(expectedCost)} ETH. Max gas reserve: ${formatEthAmount(maxReserve)} ETH. Requesting wallet approval...`
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
@@ -791,6 +807,24 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 {errorMsg}
               </div>
             )}
+
+            <div className="space-y-2 rounded-xl border border-white/5 bg-white/2 p-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Expected gas cost</span>
+                <span className="font-mono text-neon-cyan">
+                  ~{formatEthAmount(fraudCheckCostPreview.expectedCost)} ETH
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Max reserved (gas cap)</span>
+                <span className="font-mono text-slate-400">
+                  {formatEthAmount(fraudCheckCostPreview.maxReserve)} ETH
+                </span>
+              </div>
+              <p className="text-[10px] leading-relaxed text-slate-500">
+                The wallet may reserve up to the gas cap, but actual Sepolia cost is typically much lower.
+              </p>
+            </div>
 
             {fraudCheckTxHash && (
               <a

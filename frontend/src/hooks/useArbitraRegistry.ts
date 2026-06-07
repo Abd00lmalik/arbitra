@@ -21,7 +21,7 @@ import {
   type InvoiceHandles,
 } from "@/lib/contracts";
 
-const FHE_UPLOAD_GAS_LIMIT = 8_000_000n;
+const FHE_UPLOAD_GAS_LIMIT = 500_000n;
 const FHE_FACTOR_GAS_LIMIT = 5_000_000n;
 
 /*
