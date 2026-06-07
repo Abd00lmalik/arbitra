@@ -7,7 +7,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatEther } from "viem";
 import { GlassCard } from "../ui/GlassCard";
@@ -122,6 +122,32 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
   const isApproved = allowance !== undefined ? BigInt(allowance) >= requiredCollateral : false;
+  const { data: collateralStatus } = useReadContracts({
+    contracts: [
+      {
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "stakedCollateral",
+        args: [nextInvoiceId],
+      },
+      {
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "invoiceSupplier",
+        args: [nextInvoiceId],
+      },
+    ],
+    query: { enabled: wizardStep === 3 },
+  });
+  const existingStake = collateralStatus?.[0]?.result as bigint | undefined;
+  const existingSupplier = collateralStatus?.[1]?.result as `0x${string}` | undefined;
+  const alreadyStaked = Boolean(
+    address &&
+    existingStake &&
+    existingStake > 0n &&
+    existingSupplier &&
+    existingSupplier.toLowerCase() === address.toLowerCase(),
+  );
   const { isLoading: isFraudCheckConfirming, isSuccess: isFraudCheckConfirmed } = useWaitForTransactionReceipt({
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
@@ -390,6 +416,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   const handleStakeCollateral = async () => {
     setErrorMsg(null);
+    if (alreadyStaked) {
+      setWizardStep(4);
+      void runProgressiveEncryption();
+      return;
+    }
+
     if (usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral) {
       setErrorMsg("Insufficient USDC balance to cover the 5% collateral requirement.");
       return;
@@ -398,6 +430,26 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     try {
       if (!address || !walletClient || !publicClient) {
         throw new Error("Wallet not connected for collateral staking.");
+      }
+
+      const currentStake = await publicClient.readContract({
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "stakedCollateral",
+        args: [nextInvoiceId],
+      }) as bigint;
+      const currentSupplier = await publicClient.readContract({
+        address: COLLATERAL_VAULT_ADDRESS,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: "invoiceSupplier",
+        args: [nextInvoiceId],
+      }) as `0x${string}`;
+
+      if (currentStake > 0n && currentSupplier.toLowerCase() === address.toLowerCase()) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setWizardStep(4);
+        void runProgressiveEncryption();
+        return;
       }
 
       const stakeSimulation = await publicClient.simulateContract({
@@ -429,9 +481,16 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       await walletClient.writeContract(stakeSimulation.request);
       await new Promise(resolve => setTimeout(resolve, 1500));
       setWizardStep(4);
-      runProgressiveEncryption();
+      void runProgressiveEncryption();
     } catch (e: any) {
-      setErrorMsg(formatGasAwareError(e) || "Collateral staking failed.");
+      const message = formatGasAwareError(e);
+      if (message.includes("Arbitra: already staked")) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setWizardStep(4);
+        void runProgressiveEncryption();
+        return;
+      }
+      setErrorMsg(message || "Collateral staking failed.");
     }
   };
 
@@ -513,7 +572,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           setEmailError(emailData.error);
         }
       } catch (e) {
-        setEmailError("Email delivery failed — share the link manually below.");
+        setEmailError("Email delivery failed. Share the link manually below.");
       } finally {
         setSendingEmail(false);
       }
@@ -874,13 +933,23 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 >
                   {approvePending ? "Approving..." : "Approve 5% USDC"}
                 </button>
+              ) : alreadyStaked ? (
+                <button
+                  onClick={() => {
+                    setWizardStep(4);
+                    void runProgressiveEncryption();
+                  }}
+                  className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
+                >
+                  Collateral Already Staked - Continue
+                </button>
               ) : (
                 <button
                   onClick={handleStakeCollateral}
                   disabled={stakePending}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
-                  {stakePending ? "Staking..." : "🔒 Lock Stake & Proceed"}
+                  {stakePending ? "Staking..." : "Lock Stake & Proceed"}
                 </button>
               )}
             </div>
@@ -1020,7 +1089,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                     </p>
                   ) : (
                     <p style={{ color: "#FF2D6B", fontSize: 13, margin: 0 }}>
-                      ⚠ {emailError || "Email delivery failed"} — Share the link below manually.
+                      {emailError || "Email delivery failed"}. Share the link below manually.
                     </p>
                   )}
                 </div>

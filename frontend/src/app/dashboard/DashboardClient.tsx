@@ -358,6 +358,8 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
               </div>
             </div>
 
+            <WalletAddressCard walletAddress={wallet} />
+
             {wallet && !isVerifiedBusiness && (
               <div
                 style={{

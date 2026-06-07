@@ -139,7 +139,6 @@ async function pollForReceipt(txHash: `0x${string}`, maxAttempts = 30): Promise<
 }
 
 const SBT_CHECK_TIMEOUT_MS = 10_000;
-const DEFAULT_OPTIONAL_TAX_ID = "0";
 
 async function checkSBTWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
   try {
@@ -163,24 +162,49 @@ interface KybFieldErrors {
 }
 
 function cleanTaxId(value: string): string {
-  return value.replace(/[\s\-.]/g, "");
+  return value.replace(/[\s\-./]/g, "");
 }
 
-function isValidOptionalTaxId(value: string): boolean {
-  const cleaned = cleanTaxId(value);
-  if (!cleaned) return true;
-  return /^[A-Za-z0-9]{5,30}$/.test(cleaned);
-}
+function validateKYBForm(values: {
+  companyName: string;
+  country: string;
+  registrationNumber: string;
+  taxID: string;
+}): KybFieldErrors {
+  const errors: KybFieldErrors = {};
+  const normalizedRegistrationNumber = values.registrationNumber.replace(/\s/g, "");
+  const normalizedTaxId = cleanTaxId(values.taxID);
 
-function taxIdToComplianceValue(value: string): string {
-  const cleaned = cleanTaxId(value);
-  if (!cleaned) return DEFAULT_OPTIONAL_TAX_ID;
-
-  let numeric = 0n;
-  for (const char of cleaned.toUpperCase()) {
-    numeric = (numeric * 36n + BigInt(Number.parseInt(char, 36))) % 4_294_967_295n;
+  if (!values.companyName.trim()) {
+    errors.companyName = "Company name is required.";
   }
-  return numeric.toString();
+
+  if (!values.country.trim()) {
+    errors.country = "Country is required.";
+  }
+
+  if (!values.registrationNumber.trim()) {
+    errors.registrationNumber = "Business Registration Number is required.";
+  } else if (!/^[A-Za-z0-9\-/]{3,30}$/.test(normalizedRegistrationNumber)) {
+    errors.registrationNumber = "Enter a valid registration number (for example RC-12345678).";
+  }
+
+  if (!values.taxID.trim()) {
+    errors.taxID = "Tax ID is required.";
+  } else if (!/^[A-Za-z0-9./-]{4,30}$/.test(values.taxID.replace(/\s/g, "")) || !/^[A-Za-z0-9]{4,30}$/.test(normalizedTaxId)) {
+    errors.taxID = "Enter a valid Tax ID (for example 12-3456789 or GB123456789).";
+  }
+
+  return errors;
+}
+
+function isValidRequiredTaxId(value: string): boolean {
+  return !validateKYBForm({
+    companyName: "ok",
+    country: "ok",
+    registrationNumber: "RC-123",
+    taxID: value,
+  }).taxID;
 }
 
 const headingStyle: React.CSSProperties = {
@@ -285,7 +309,6 @@ export default function RegisterPage() {
   const [stage, setStage] = useState<Stage>("AUTH_CHOICE");
   const [error, setError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<KybFieldErrors>({});
   const [isLoading, setIsLoading] = useState(false);
   const [kybStep, setKybStep] = useState(0);
   const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
@@ -295,6 +318,7 @@ export default function RegisterPage() {
   const [country, setCountry] = useState("United States");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [taxID, setTaxID] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   const [kybResult, setKybResult] = useState<KYBResult | null>(null);
   const [isMintingSBT, setIsMintingSBT] = useState(false);
@@ -307,6 +331,12 @@ export default function RegisterPage() {
   const activeWallet = wallet ?? (isConnected && address ? address : null);
   const hasAuthenticatedWallet = isLoggedIn || isConnected;
   const isCorrectNetwork = !isConnected || chainId === 11155111;
+  const kybFieldErrors = submitted
+    ? validateKYBForm({ companyName, country, registrationNumber, taxID })
+    : {};
+  const isKybFormValid = Object.keys(
+    validateKYBForm({ companyName, country, registrationNumber, taxID }),
+  ).length === 0;
 
   const {
     isSuccess: isSbtReceiptSuccess,
@@ -530,17 +560,8 @@ export default function RegisterPage() {
   }
 
   async function handleKYBSubmit() {
-    const nextFieldErrors: KybFieldErrors = {};
-
-    if (!companyName.trim()) nextFieldErrors.companyName = "Company name is required.";
-    if (!country.trim()) nextFieldErrors.country = "Country is required.";
-    if (!registrationNumber.trim()) nextFieldErrors.registrationNumber = "Registration number is required.";
-    if (!isValidOptionalTaxId(taxID)) {
-      nextFieldErrors.taxID = "Tax ID must be 5-30 alphanumeric characters when provided.";
-    }
-
-    setFieldErrors(nextFieldErrors);
-    if (Object.keys(nextFieldErrors).length > 0) {
+    setSubmitted(true);
+    if (!isKybFormValid) {
       setError("Please correct the highlighted KYB fields.");
       return;
     }
@@ -563,7 +584,7 @@ export default function RegisterPage() {
           companyName,
           country,
           registrationNumber,
-          taxID: cleanTaxId(taxID),
+          taxID: taxID.trim(),
         }),
       });
 
@@ -668,10 +689,10 @@ export default function RegisterPage() {
     setStatusMessage("Submitting encrypted compliance...");
 
     try {
-      if (!isValidOptionalTaxId(taxID)) {
-        throw new Error("Tax ID must be 5-30 alphanumeric characters when provided.");
+      if (!isValidRequiredTaxId(taxID)) {
+        setSubmitted(true);
+        throw new Error("Tax ID is required before storing encrypted compliance.");
       }
-      const complianceTaxId = taxIdToComplianceValue(taxID);
 
       console.log("[FHE] Requesting gasless encrypted compliance submission");
       const response = await fetch("/api/compliance-store", {
@@ -679,7 +700,7 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wallet: activeWallet,
-          taxID: complianceTaxId,
+          taxID: taxID.trim(),
           kybApproved: effectiveKybResult.company_status === "verified",
           riskScore: effectiveKybResult.risk_score,
         }),
@@ -963,84 +984,74 @@ export default function RegisterPage() {
 
                   <div style={{ display: "grid", gap: 16 }}>
                     <div>
-                      <label style={labelStyle}>Company Name</label>
+                      <label style={labelStyle}>Company Name *</label>
                       <input
                         value={companyName}
-                        onChange={(event) => {
-                          setCompanyName(event.target.value);
-                          setFieldErrors((current) => ({ ...current, companyName: undefined }));
-                        }}
+                        onChange={(event) => setCompanyName(event.target.value)}
                         style={{
                           ...inputStyle,
-                          border: fieldErrors.companyName ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                          border: kybFieldErrors.companyName ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
                       />
-                      {fieldErrors.companyName && (
+                      {kybFieldErrors.companyName && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                          {fieldErrors.companyName}
+                          {kybFieldErrors.companyName}
                         </p>
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Country</label>
+                      <label style={labelStyle}>Country *</label>
                       <input
                         value={country}
-                        onChange={(event) => {
-                          setCountry(event.target.value);
-                          setFieldErrors((current) => ({ ...current, country: undefined }));
-                        }}
+                        onChange={(event) => setCountry(event.target.value)}
                         style={{
                           ...inputStyle,
-                          border: fieldErrors.country ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                          border: kybFieldErrors.country ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
                       />
-                      {fieldErrors.country && (
+                      {kybFieldErrors.country && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                          {fieldErrors.country}
+                          {kybFieldErrors.country}
                         </p>
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Business Registration Number</label>
+                      <label style={labelStyle}>Business Registration Number *</label>
+                      <p style={{ color: "#4F6495", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+                        e.g. RC-12345678 (Nigeria), EIN12-3456789 (US), CRN12345678 (UK)
+                      </p>
                       <input
                         value={registrationNumber}
-                        onChange={(event) => {
-                          setRegistrationNumber(event.target.value);
-                          setFieldErrors((current) => ({ ...current, registrationNumber: undefined }));
-                        }}
+                        onChange={(event) => setRegistrationNumber(event.target.value)}
                         style={{
                           ...inputStyle,
-                          border: fieldErrors.registrationNumber ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                          border: kybFieldErrors.registrationNumber ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
+                        placeholder="RC-12345678"
                       />
-                      {fieldErrors.registrationNumber && (
+                      {kybFieldErrors.registrationNumber && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                          {fieldErrors.registrationNumber}
+                          {kybFieldErrors.registrationNumber}
                         </p>
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>
-                        Tax ID / Business Registration Number
-                        <span style={{ color: "#4F6495", marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>
-                          optional
-                        </span>
-                      </label>
+                      <label style={labelStyle}>Tax ID / VAT Number *</label>
+                      <p style={{ color: "#4F6495", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+                        e.g. 12-3456789 (US EIN), GB123456789 (UK VAT), TINXXXXXXXX
+                      </p>
                       <input
                         value={taxID}
-                        onChange={(event) => {
-                          setTaxID(event.target.value);
-                          setFieldErrors((current) => ({ ...current, taxID: undefined }));
-                        }}
+                        onChange={(event) => setTaxID(event.target.value)}
                         style={{
                           ...inputStyle,
-                          border: fieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                          border: kybFieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
-                        placeholder="e.g. 12-3456789, RC123456, or VATGB123456789"
+                        placeholder="12-3456789"
                       />
-                      {fieldErrors.taxID && (
+                      {kybFieldErrors.taxID && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                          {fieldErrors.taxID}
+                          {kybFieldErrors.taxID}
                         </p>
                       )}
                     </div>
@@ -1189,6 +1200,23 @@ export default function RegisterPage() {
                     {error}
                   </div>
                 )}
+                <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+                  <label style={labelStyle}>Tax ID / VAT Number *</label>
+                  <input
+                    value={taxID}
+                    onChange={(event) => setTaxID(event.target.value)}
+                    style={{
+                      ...inputStyle,
+                      border: kybFieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                    }}
+                    placeholder="12-3456789"
+                  />
+                  {kybFieldErrors.taxID && (
+                    <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 0, marginBottom: 0 }}>
+                      {kybFieldErrors.taxID}
+                    </p>
+                  )}
+                </div>
                 <p style={{ ...bodyStyle, marginBottom: 16 }}>{statusMessage}</p>
                 <button
                   onClick={() => {

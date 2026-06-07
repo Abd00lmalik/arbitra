@@ -1,3 +1,8 @@
+/**
+ * @file route.ts
+ * @description Relays encrypted compliance storage transactions for verified supplier wallets.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, defineChain, formatEther, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -71,6 +76,20 @@ function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null 
   return normalizedKey as `0x${string}`;
 }
 
+function normalizeTaxId(rawTaxId: string | undefined): string {
+  return String(rawTaxId ?? "").trim().replace(/[\s\-./]/g, "");
+}
+
+function encodeTaxIdToUint32(normalizedTaxId: string): bigint {
+  let numeric = 0n;
+
+  for (const char of normalizedTaxId.toUpperCase()) {
+    numeric = (numeric * 36n + BigInt(Number.parseInt(char, 36))) % 4_294_967_295n;
+  }
+
+  return numeric === 0n ? 1n : numeric;
+}
+
 function toHex(value: Uint8Array | string): `0x${string}` {
   if (typeof value === "string") return value as `0x${string}`;
   return (`0x${Array.from(value).map((part) => part.toString(16).padStart(2, "0")).join("")}`) as `0x${string}`;
@@ -137,8 +156,12 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid wallet address.", 400);
     }
 
-    const taxIdDigits = String(taxID ?? "0").replace(/\D/g, "");
-    if (taxIdDigits.length > 10) {
+    const normalizedTaxId = normalizeTaxId(taxID);
+    if (!normalizedTaxId) {
+      return jsonError("Tax ID is required.", 400);
+    }
+
+    if (!/^[A-Za-z0-9]{4,30}$/.test(normalizedTaxId)) {
       return jsonError("Invalid Tax ID format.", 400);
     }
 
@@ -146,10 +169,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Risk score must be an integer between 0 and 255.", 400);
     }
 
-    const taxIDInt = taxIdDigits ? Number.parseInt(taxIdDigits, 10) : 0;
-    if (!Number.isSafeInteger(taxIDInt) || taxIDInt > 4_294_967_295) {
-      return jsonError("Tax ID value must fit into a 32-bit unsigned integer.", 400);
-    }
+    const taxIDInt = encodeTaxIdToUint32(normalizedTaxId);
 
     const rpcUrl =
       process.env.SEPOLIA_RPC_URL ||
@@ -189,7 +209,7 @@ export async function POST(req: NextRequest) {
     });
 
     const encryptedInput = sdk.createEncryptedInput(IDENTITY_ADDRESS, account.address);
-    encryptedInput.add32(BigInt(taxIDInt));
+    encryptedInput.add32(taxIDInt);
     encryptedInput.addBool(kybApproved);
     encryptedInput.add8(BigInt(riskScore));
     console.log("[Compliance API] Encrypting compliance payload...");

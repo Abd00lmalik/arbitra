@@ -1,52 +1,78 @@
 /*
  * @file Web3AuthProvider.tsx
- * @description Web3Auth authentication provider managing sessions, non-custodial wallets, and cookie-based routing guards.
+ * @description Web3Auth authentication provider managing sessions, wallet persistence, and routing guards.
  */
 
 "use client";
 
 import {
   createContext,
-  useContext,
-  useState,
-  useEffect,
   useCallback,
-  ReactNode,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
 } from "react";
 
-/* ── Context Interface ── */
+const WEB3AUTH_SESSION_SECONDS = 86400 * 7;
+const WALLET_STORAGE_PREFIX = "arbitra_wallet_";
+
 interface Web3AuthContextType {
-  wallet:          `0x${string}` | null;
-  email:           string | null;
-  isLoggedIn:      boolean;
-  isInitializing:  boolean;
-  login:           (method?: "email" | "wallet") => Promise<void>;
-  logout:          () => Promise<void>;
-  getProvider:     () => any;
-  getUserInfo:     () => Promise<{ email: string; name: string } | null>;
-  authError:       string | null;
+  wallet: `0x${string}` | null;
+  email: string | null;
+  isLoggedIn: boolean;
+  isInitializing: boolean;
+  login: (method?: "email" | "wallet") => Promise<void>;
+  logout: () => Promise<void>;
+  getProvider: () => any;
+  getUserInfo: () => Promise<{ email: string; name: string } | null>;
+  authError: string | null;
 }
 
 const Web3AuthContext = createContext<Web3AuthContextType>({
-  wallet:          null,
-  email:           null,
-  isLoggedIn:      false,
-  isInitializing:  true,
-  login:           async () => {},
-  logout:          async () => {},
-  getProvider:     () => null,
-  getUserInfo:     async () => null,
-  authError:       null,
+  wallet: null,
+  email: null,
+  isLoggedIn: false,
+  isInitializing: true,
+  login: async () => undefined,
+  logout: async () => undefined,
+  getProvider: () => null,
+  getUserInfo: async () => null,
+  authError: null,
 });
 
-/* ── Cookie helpers (client-side only) ── */
 function setSessionCookie(walletAddress: string) {
-  /* Set cookie accessible by Next.js middleware. Max-age of 24 hours. */
-  document.cookie = `arbitra_session=${walletAddress}; path=/; max-age=86400; SameSite=Strict`;
+  document.cookie = `arbitra_session=${walletAddress}; path=/; max-age=${WEB3AUTH_SESSION_SECONDS}; SameSite=Strict`;
 }
 
 function clearSessionCookie() {
   document.cookie = "arbitra_session=; path=/; max-age=0";
+}
+
+function getWalletStorageKey(adapterName: string | null | undefined) {
+  return `${WALLET_STORAGE_PREFIX}${adapterName ?? "embedded"}`;
+}
+
+async function syncWalletPersistence(
+  walletAddress: `0x${string}`,
+  adapterName: string | null | undefined,
+) {
+  const storageKey = getWalletStorageKey(adapterName);
+  const storedAddress = window.localStorage.getItem(storageKey);
+
+  if (storedAddress && storedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+    console.warn("[Auth] Wallet address changed:", storedAddress, "->", walletAddress);
+    window.localStorage.removeItem("arbitra_role");
+
+    await fetch("/api/clear-onboarding", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oldAddress: storedAddress }),
+    }).catch(() => undefined);
+  }
+
+  window.localStorage.setItem(storageKey, walletAddress);
+  console.log("[Auth] Connected wallet:", walletAddress, "| Network: Sepolia");
 }
 
 async function connectEmbeddedWallet(instance: any, provider: any) {
@@ -61,6 +87,7 @@ async function connectEmbeddedWallet(instance: any, provider: any) {
 
   return {
     walletAddress,
+    adapterName: typeof instance.connectedAdapterName === "string" ? instance.connectedAdapterName : null,
     userInfo: await instance.getUserInfo(),
   };
 }
@@ -77,43 +104,40 @@ async function connectWeb3AuthWagmi() {
   await connect(wagmiConfig, { connector: web3authConnector });
 }
 
-/* ── Provider ── */
 export function Web3AuthProvider({ children }: { children: ReactNode }) {
-  const [web3auth,       setWeb3auth]       = useState<any>(null);
-  const [wallet,         setWallet]         = useState<`0x${string}` | null>(null);
-  const [email,          setEmail]          = useState<string | null>(null);
-  const [isLoggedIn,     setIsLoggedIn]     = useState(false);
+  const [web3auth, setWeb3auth] = useState<any>(null);
+  const [wallet, setWallet] = useState<`0x${string}` | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [providerRef,    setProviderRef]    = useState<any>(null);
-  const [authError,      setAuthError]      = useState<string | null>(null);
+  const [providerRef, setProviderRef] = useState<any>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  /* ── Restore session helper ── */
   const restoreSession = useCallback(async (instance: any) => {
     try {
-      const prov = instance.provider;
-      (window as any).web3authProvider = prov;
-      setProviderRef(prov);
+      const provider = instance.provider;
+      (window as any).web3authProvider = provider;
+      setProviderRef(provider);
       setAuthError(null);
 
-      const { walletAddress, userInfo } = await connectEmbeddedWallet(instance, prov);
-
+      const { walletAddress, adapterName, userInfo } = await connectEmbeddedWallet(instance, provider);
       setWallet(walletAddress);
       setEmail(userInfo?.email ?? null);
       setSessionCookie(walletAddress);
+      await syncWalletPersistence(walletAddress, adapterName);
       await connectWeb3AuthWagmi();
       setIsLoggedIn(true);
-    } catch (e) {
-      console.error("[Web3Auth] session restore error:", e);
+    } catch (error) {
+      console.error("[Web3Auth] session restore error:", error);
       setWallet(null);
       setEmail(null);
       setIsLoggedIn(false);
       setProviderRef(null);
       clearSessionCookie();
-      setAuthError(e instanceof Error ? e.message : "Session restoration failed");
+      setAuthError(error instanceof Error ? error.message : "Session restoration failed");
     }
   }, []);
 
-  /* ── Initialize Web3Auth on client only ── */
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -121,20 +145,19 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        /* Dynamic import to prevent SSR crashes */
         const { Web3Auth } = await import("@web3auth/modal");
         const { AuthAdapter } = await import("@web3auth/auth-adapter");
         const { CHAIN_NAMESPACES, WEB3AUTH_NETWORK } = await import("@web3auth/base");
         const { EthereumPrivateKeyProvider } = await import("@web3auth/ethereum-provider");
 
         const chainConfig = {
-          chainNamespace:   CHAIN_NAMESPACES.EIP155,
-          chainId:          "0xaa36a7",
-          rpcTarget:        process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
-          displayName:      "Sepolia Testnet",
+          chainNamespace: CHAIN_NAMESPACES.EIP155,
+          chainId: "0xaa36a7",
+          rpcTarget: process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
+          displayName: "Sepolia Testnet",
           blockExplorerUrl: "https://sepolia.etherscan.io",
-          ticker:           "ETH",
-          tickerName:       "Ethereum",
+          ticker: "ETH",
+          tickerName: "Ethereum",
         };
 
         const privateKeyProvider = new EthereumPrivateKeyProvider({
@@ -150,17 +173,18 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const instance = new Web3Auth({
-          clientId:        web3AuthClientId,
+          clientId: web3AuthClientId,
           web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
+          sessionTime: WEB3AUTH_SESSION_SECONDS,
           privateKeyProvider,
           uiConfig: {
-            uxMode:              "redirect",
-            appName:             "Arbitra",
-            appUrl:              appUrl,
-            theme:               { primary: "#00F0FF" },
-            loginMethodsOrder:   ["google", "email_passwordless"],
-            defaultLanguage:     "en",
-            modalZIndex:         "99999",
+            uxMode: "redirect",
+            appName: "Arbitra",
+            appUrl,
+            theme: { primary: "#00F0FF" },
+            loginMethodsOrder: ["google", "email_passwordless"],
+            defaultLanguage: "en",
+            modalZIndex: "99999",
           },
         });
 
@@ -178,69 +202,70 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         });
 
         instance.configureAdapter(authAdapter);
-
         await instance.initModal();
         if (cancelled) return;
 
         setWeb3auth(instance);
 
-        if (typeof window !== "undefined" && window.location.hash.includes("openlogin")) {
-          window.history.replaceState(
-            null,
-            "",
-            window.location.pathname + window.location.search,
-          );
+        if (window.location.hash.includes("openlogin")) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
 
-        /* Restore session if already connected */
         if (instance.connected && instance.provider) {
           await restoreSession(instance);
         } else {
-          /* No active session - clear any stale cookie */
           clearSessionCookie();
         }
-      } catch (e) {
-        console.error("[Web3Auth] init error:", e);
-        setAuthError(e instanceof Error ? e.message : "Web3Auth initialization failed");
+      } catch (error) {
+        console.error("[Web3Auth] init error:", error);
+        setAuthError(error instanceof Error ? error.message : "Web3Auth initialization failed");
       } finally {
-        if (!cancelled) setIsInitializing(false);
+        if (!cancelled) {
+          setIsInitializing(false);
+        }
       }
     };
 
-    init();
-    return () => { cancelled = true; };
+    void init();
+
+    return () => {
+      cancelled = true;
+    };
   }, [restoreSession]);
 
-  /* ── Login ── */
   const login = useCallback(async (method: "email" | "wallet" = "email") => {
-    if (!web3auth) throw new Error("Web3Auth not initialized");
+    if (!web3auth) {
+      throw new Error("Web3Auth not initialized");
+    }
 
     setAuthError(null);
 
-    const prov = method === "email"
+    const provider = method === "email"
       ? await web3auth.connect()
       : await web3auth.connect();
 
-    if (!prov) throw new Error("Login cancelled or failed");
+    if (!provider) {
+      throw new Error("Login cancelled or failed");
+    }
 
-    (window as any).web3authProvider = prov;
-    setProviderRef(prov);
+    (window as any).web3authProvider = provider;
+    setProviderRef(provider);
 
-    const { walletAddress, userInfo } = await connectEmbeddedWallet(web3auth, prov);
-
+    const { walletAddress, adapterName, userInfo } = await connectEmbeddedWallet(web3auth, provider);
     setWallet(walletAddress);
     setEmail(userInfo?.email ?? null);
     setSessionCookie(walletAddress);
+    await syncWalletPersistence(walletAddress, adapterName);
     await connectWeb3AuthWagmi();
     setIsLoggedIn(true);
     setAuthError(null);
   }, [web3auth]);
 
-  /* ── Logout ── */
   const logout = useCallback(async () => {
     if (web3auth?.connected) {
       await web3auth.logout();
     }
+
     (window as any).web3authProvider = undefined;
     setWallet(null);
     setEmail(null);
@@ -249,13 +274,12 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
     clearSessionCookie();
 
-    /* Disconnect Wagmi */
     try {
       const { disconnect } = await import("@wagmi/core");
       const { wagmiConfig } = await import("./WagmiProvider");
       await disconnect(wagmiConfig);
-    } catch (e) {
-      console.error("[Web3Auth] Wagmi disconnect failed:", e);
+    } catch (error) {
+      console.error("[Web3Auth] Wagmi disconnect failed:", error);
     }
 
     window.location.href = "/register";
@@ -270,17 +294,19 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
   }, [web3auth]);
 
   return (
-    <Web3AuthContext.Provider value={{
-      wallet,
-      email,
-      isLoggedIn,
-      isInitializing,
-      login,
-      logout,
-      getProvider,
-      getUserInfo,
-      authError,
-    }}>
+    <Web3AuthContext.Provider
+      value={{
+        wallet,
+        email,
+        isLoggedIn,
+        isInitializing,
+        login,
+        logout,
+        getProvider,
+        getUserInfo,
+        authError,
+      }}
+    >
       {children}
     </Web3AuthContext.Provider>
   );
