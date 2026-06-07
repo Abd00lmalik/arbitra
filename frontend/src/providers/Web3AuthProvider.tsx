@@ -17,7 +17,7 @@ import {
 const WEB3AUTH_SESSION_SECONDS = 86400 * 30;
 const EMBEDDED_WALLET_STORAGE_KEY = "arbitra_embedded_wallet";
 const WEB3AUTH_CHAIN_ID = "0xaa36a7";
-const WEB3AUTH_RPC_TARGET = "https://rpc.sepolia.org";
+const WEB3AUTH_RPC_TARGET = "https://ethereum-sepolia-rpc.publicnode.com";
 const WEB3AUTH_NETWORK_NAME = "Ethereum Sepolia";
 
 interface Web3AuthContextType {
