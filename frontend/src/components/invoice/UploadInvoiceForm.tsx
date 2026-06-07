@@ -56,6 +56,8 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
+const FHE_CHECK_UNIQUENESS_GAS_LIMIT = 6_000_000n;
+
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
 }
@@ -275,7 +277,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       address
     );
 
-    setFraudCheckStep("Estimating Sepolia gas cost...");
+    setFraudCheckStep("Preparing Sepolia fraud check transaction...");
     const uniquenessSimulation = await publicClient.simulateContract({
       account: address,
       address: FINGERPRINT_REGISTRY_ADDRESS,
@@ -287,23 +289,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         encryptedInputs.handle2,
         encryptedInputs.inputProof,
       ],
+      gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
     });
 
-    const estimatedGas = await publicClient.estimateContractGas({
-      account: address,
-      address: FINGERPRINT_REGISTRY_ADDRESS,
-      abi: FINGERPRINT_REGISTRY_ABI,
-      functionName: "checkInvoiceUniqueness",
-      args: [
-        encryptedInputs.handle1,
-        encryptedInputs.inputProof,
-        encryptedInputs.handle2,
-        encryptedInputs.inputProof,
-      ],
-    });
     const gasPrice = await publicClient.getGasPrice();
     const walletBalance = await publicClient.getBalance({ address });
-    const estimatedCost = estimatedGas * gasPrice;
+    const estimatedCost = FHE_CHECK_UNIQUENESS_GAS_LIMIT * gasPrice;
 
     if (walletBalance < estimatedCost) {
       const shortfall = estimatedCost - walletBalance;
@@ -313,11 +304,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     setFraudCheckStep(
-      `Estimated fraud check gas: ${formatEthAmount(estimatedCost)} ETH. Requesting wallet approval...`
+      `Reserved fraud check gas: ${formatEthAmount(estimatedCost)} ETH at a fixed 6,000,000 gas limit. Requesting wallet approval...`
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
-    const duplicateTxHash = await walletClient.writeContract(uniquenessSimulation.request);
+    const duplicateTxHash = await walletClient.writeContract({
+      ...uniquenessSimulation.request,
+      gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
+    });
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
 

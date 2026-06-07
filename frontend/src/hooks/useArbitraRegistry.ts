@@ -21,6 +21,9 @@ import {
   type InvoiceHandles,
 } from "@/lib/contracts";
 
+const FHE_UPLOAD_GAS_LIMIT = 8_000_000n;
+const FHE_FACTOR_GAS_LIMIT = 5_000_000n;
+
 /*
  * Hook: read all invoice IDs from the registry.
  */
@@ -134,6 +137,7 @@ export function useFactorInvoice() {
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "factorInvoice",
         args: [invoiceId],
+        gas: FHE_FACTOR_GAS_LIMIT,
       });
     },
     [writeContractAsync]
@@ -178,6 +182,7 @@ export function useUploadInvoice() {
           enableGemini,
           faceValuePlaintext
         ],
+        gas: FHE_UPLOAD_GAS_LIMIT,
       });
     },
     [writeContractAsync]

@@ -14,8 +14,11 @@ import {
   type ReactNode,
 } from "react";
 
-const WEB3AUTH_SESSION_SECONDS = 86400 * 7;
-const WALLET_STORAGE_PREFIX = "arbitra_wallet_";
+const WEB3AUTH_SESSION_SECONDS = 86400 * 30;
+const EMBEDDED_WALLET_STORAGE_KEY = "arbitra_embedded_wallet";
+const WEB3AUTH_CHAIN_ID = "0xaa36a7";
+const WEB3AUTH_RPC_TARGET = "https://rpc.sepolia.org";
+const WEB3AUTH_NETWORK_NAME = "Ethereum Sepolia";
 
 interface Web3AuthContextType {
   wallet: `0x${string}` | null;
@@ -49,30 +52,28 @@ function clearSessionCookie() {
   document.cookie = "arbitra_session=; path=/; max-age=0";
 }
 
-function getWalletStorageKey(adapterName: string | null | undefined) {
-  return `${WALLET_STORAGE_PREFIX}${adapterName ?? "embedded"}`;
-}
-
 async function syncWalletPersistence(
   walletAddress: `0x${string}`,
-  adapterName: string | null | undefined,
 ) {
-  const storageKey = getWalletStorageKey(adapterName);
-  const storedAddress = window.localStorage.getItem(storageKey);
+  const storedAddress = window.localStorage.getItem(EMBEDDED_WALLET_STORAGE_KEY);
 
-  if (storedAddress && storedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
-    console.warn("[Auth] Wallet address changed:", storedAddress, "->", walletAddress);
-    window.localStorage.removeItem("arbitra_role");
-
-    await fetch("/api/clear-onboarding", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ oldAddress: storedAddress }),
-    }).catch(() => undefined);
+  if (!storedAddress) {
+    window.localStorage.setItem(EMBEDDED_WALLET_STORAGE_KEY, walletAddress);
+    console.log("[Auth] New wallet created:", walletAddress);
+    return;
   }
 
-  window.localStorage.setItem(storageKey, walletAddress);
-  console.log("[Auth] Connected wallet:", walletAddress, "| Network: Sepolia");
+  if (storedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+    console.error("[Auth] WALLET CHANGED between sessions!", {
+      previous: storedAddress,
+      current: walletAddress,
+    });
+    window.localStorage.removeItem("arbitra_role");
+    window.localStorage.setItem(EMBEDDED_WALLET_STORAGE_KEY, walletAddress);
+    return;
+  }
+
+  console.log("[Auth] Session restored - same wallet:", walletAddress);
 }
 
 async function connectEmbeddedWallet(instance: any, provider: any) {
@@ -87,7 +88,6 @@ async function connectEmbeddedWallet(instance: any, provider: any) {
 
   return {
     walletAddress,
-    adapterName: typeof instance.connectedAdapterName === "string" ? instance.connectedAdapterName : null,
     userInfo: await instance.getUserInfo(),
   };
 }
@@ -120,11 +120,11 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       setProviderRef(provider);
       setAuthError(null);
 
-      const { walletAddress, adapterName, userInfo } = await connectEmbeddedWallet(instance, provider);
+      const { walletAddress, userInfo } = await connectEmbeddedWallet(instance, provider);
       setWallet(walletAddress);
       setEmail(userInfo?.email ?? null);
       setSessionCookie(walletAddress);
-      await syncWalletPersistence(walletAddress, adapterName);
+      await syncWalletPersistence(walletAddress);
       await connectWeb3AuthWagmi();
       setIsLoggedIn(true);
     } catch (error) {
@@ -147,14 +147,22 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { Web3Auth } = await import("@web3auth/modal");
         const { AuthAdapter } = await import("@web3auth/auth-adapter");
-        const { CHAIN_NAMESPACES, WEB3AUTH_NETWORK } = await import("@web3auth/base");
+        const { ADAPTER_STATUS, CHAIN_NAMESPACES, WEB3AUTH_NETWORK } = await import("@web3auth/base");
         const { EthereumPrivateKeyProvider } = await import("@web3auth/ethereum-provider");
+        const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
+
+        if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
+          throw new Error(
+            "[Web3Auth] NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is not set. Add it to Vercel Environment Variables and redeploy.",
+          );
+        }
 
         const chainConfig = {
           chainNamespace: CHAIN_NAMESPACES.EIP155,
-          chainId: "0xaa36a7",
-          rpcTarget: process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
-          displayName: "Sepolia Testnet",
+          chainId: WEB3AUTH_CHAIN_ID,
+          rpcTarget: WEB3AUTH_RPC_TARGET,
+          displayName: WEB3AUTH_NETWORK_NAME,
           blockExplorerUrl: "https://sepolia.etherscan.io",
           ticker: "ETH",
           tickerName: "Ethereum",
@@ -163,14 +171,6 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         const privateKeyProvider = new EthereumPrivateKeyProvider({
           config: { chainConfig },
         });
-
-        const web3AuthClientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID;
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
-        if (!web3AuthClientId || web3AuthClientId.includes("your_")) {
-          throw new Error(
-            "[Web3Auth] NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is not set. Add it to Vercel Environment Variables and redeploy.",
-          );
-        }
 
         const instance = new Web3Auth({
           clientId: web3AuthClientId,
@@ -211,7 +211,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
 
-        if (instance.connected && instance.provider) {
+        if (instance.status === ADAPTER_STATUS.CONNECTED && instance.provider) {
           await restoreSession(instance);
         } else {
           clearSessionCookie();
@@ -251,11 +251,11 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
     (window as any).web3authProvider = provider;
     setProviderRef(provider);
 
-    const { walletAddress, adapterName, userInfo } = await connectEmbeddedWallet(web3auth, provider);
+    const { walletAddress, userInfo } = await connectEmbeddedWallet(web3auth, provider);
     setWallet(walletAddress);
     setEmail(userInfo?.email ?? null);
     setSessionCookie(walletAddress);
-    await syncWalletPersistence(walletAddress, adapterName);
+    await syncWalletPersistence(walletAddress);
     await connectWeb3AuthWagmi();
     setIsLoggedIn(true);
     setAuthError(null);

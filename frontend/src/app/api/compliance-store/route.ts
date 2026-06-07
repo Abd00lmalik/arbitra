@@ -18,6 +18,7 @@ export const maxDuration = 60;
 const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+const FHE_COMPLIANCE_GAS_LIMIT = 4_000_000n;
 
 const sepolia = defineChain({
   id: 11155111,
@@ -93,10 +94,6 @@ function encodeTaxIdToUint32(normalizedTaxId: string): bigint {
 function toHex(value: Uint8Array | string): `0x${string}` {
   if (typeof value === "string") return value as `0x${string}`;
   return (`0x${Array.from(value).map((part) => part.toString(16).padStart(2, "0")).join("")}`) as `0x${string}`;
-}
-
-function withGasBuffer(estimatedGas: bigint): bigint {
-  return (estimatedGas * 12n) / 10n;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -238,18 +235,8 @@ export async function POST(req: NextRequest) {
       toHex(encrypted.inputProof),
     ] as const;
 
-    console.log("[Compliance API] Estimating gas for relayed compliance transaction...");
-    const estimatedGas = await publicClient.estimateContractGas({
-      address: IDENTITY_ADDRESS,
-      abi: IDENTITY_ABI,
-      functionName: "submitEncryptedComplianceFor",
-      args: contractArgs,
-      account: account.address,
-    });
-    const gasLimit = withGasBuffer(estimatedGas);
-    console.log("[Compliance API] Gas estimate complete", {
-      estimatedGas: estimatedGas.toString(),
-      gasLimit: gasLimit.toString(),
+    console.log("[Compliance API] Using fixed FHE gas limit for relayed compliance transaction...", {
+      gasLimit: FHE_COMPLIANCE_GAS_LIMIT.toString(),
       elapsedMs: Date.now() - startedAt,
     });
 
@@ -259,7 +246,7 @@ export async function POST(req: NextRequest) {
       abi: IDENTITY_ABI,
       functionName: "submitEncryptedComplianceFor",
       args: contractArgs,
-      gas: gasLimit,
+      gas: FHE_COMPLIANCE_GAS_LIMIT,
     });
 
     console.log("[Compliance API] Submitted encrypted compliance on-chain:", {
