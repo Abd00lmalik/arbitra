@@ -13,20 +13,17 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PortfolioDonut } from "@/components/ui/PortfolioDonut";
 import { FHEBadge } from "@/components/ui/FHEBadge";
-import { RoleToggle } from "@/components/shared/RoleToggle";
 import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { InvoiceMiniCard } from "@/components/invoice/InvoiceMiniCard";
 import { InvoiceDetailModal } from "@/components/shared/InvoiceDetailModal";
 import {
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
-import { useRole } from "@/providers/RoleProvider";
 import { InvoiceStatus } from "@/lib/contracts";
 import Link from "next/link";
 
 export default function PortfolioClient() {
   const { address, isConnected } = useAccount();
-  const { role } = useRole();
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const allInvoices = realInvoices ?? [];
@@ -46,8 +43,6 @@ export default function PortfolioClient() {
   ).length;
   const available = mySupplierInvoices.filter((i) => i.status < InvoiceStatus.Factored).length;
   const repaid = mySupplierInvoices.filter((i) => i.status === InvoiceStatus.Settled).length;
-
-  const currentDisplayInvoices = role === "supplier" ? mySupplierInvoices : myInvestorInvoices;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -103,13 +98,8 @@ export default function PortfolioClient() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Header toolbar with role switcher */}
+        {/* Header toolbar */}
         <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4 bg-navy-950/40 p-4 border border-white/5 rounded-2xl">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Switch Mode:</span>
-            <RoleToggle />
-          </div>
-
           <div className="flex items-center gap-3">
             <FaucetLinks />
           </div>
@@ -163,49 +153,64 @@ export default function PortfolioClient() {
             </GlassCard>
 
             {/* Compact grid lists */}
-            <div className="lg:col-span-2 space-y-4">
-              <h2 className="text-sm font-semibold text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>
-                {role === "supplier" ? "Your Uploaded Invoices" : "Your Factored Investments"} ({currentDisplayInvoices.length})
-              </h2>
+            <div className="lg:col-span-2 space-y-6">
+              <div className="space-y-4">
+                <h2 className="text-sm font-semibold text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>
+                  Your Uploaded Invoices ({mySupplierInvoices.length})
+                </h2>
 
-              {currentDisplayInvoices.length === 0 ? (
-                <GlassCard className="p-12 text-center">
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
-                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                  </div>
-                  <div className="text-slate-400 text-sm mb-4">
-                    {role === "supplier" ? "No invoices uploaded yet." : "No factored investments yet."}
-                  </div>
-                  {role === "supplier" ? (
+                {mySupplierInvoices.length === 0 ? (
+                  <GlassCard className="p-8 text-center">
+                    <div className="text-slate-400 text-sm mb-4">
+                      No invoices uploaded yet.
+                    </div>
                     <Link href="/upload">
                       <button className="neon-btn-secondary text-xs px-4 py-2 rounded-lg">
                         Upload your first invoice
                       </button>
                     </Link>
-                  ) : (
+                  </GlassCard>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {mySupplierInvoices.map((inv) => (
+                      <InvoiceMiniCard
+                        key={`supplier-${inv.invoiceId.toString()}`}
+                        invoice={inv}
+                        onClick={() => setSelectedInvoiceId(inv.invoiceId)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-sm font-semibold text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>
+                  Your Factored Investments ({myInvestorInvoices.length})
+                </h2>
+
+                {myInvestorInvoices.length === 0 ? (
+                  <GlassCard className="p-8 text-center">
+                    <div className="text-slate-400 text-sm mb-4">
+                      No factored investments yet.
+                    </div>
                     <Link href="/marketplace">
                       <button className="neon-btn-secondary text-xs px-4 py-2 rounded-lg">
                         Browse marketplace
                       </button>
                     </Link>
-                  )}
-                </GlassCard>
-              ) : (
-                /* Compact clickable cards list */
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {currentDisplayInvoices.map((inv) => (
-                    <InvoiceMiniCard
-                      key={inv.invoiceId.toString()}
-                      invoice={inv}
-                      onClick={() => setSelectedInvoiceId(inv.invoiceId)}
-                    />
-                  ))}
-                </div>
-              )}
+                  </GlassCard>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {myInvestorInvoices.map((inv) => (
+                      <InvoiceMiniCard
+                        key={`investor-${inv.invoiceId.toString()}`}
+                        invoice={inv}
+                        onClick={() => setSelectedInvoiceId(inv.invoiceId)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

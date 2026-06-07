@@ -8,7 +8,6 @@ import "@/styles/globals.css";
 import { Web3AuthProvider } from "@/providers/Web3AuthProvider";
 import { WagmiProvider }    from "@/providers/WagmiProvider";
 import { ZamaProvider }     from "@/providers/ZamaProvider";
-import { RoleProvider }     from "@/providers/RoleProvider";
 import { AuthGate }         from "@/components/shared/AuthGate";
 
 export const metadata: Metadata = {
@@ -48,11 +47,9 @@ export default function RootLayout({
         <Web3AuthProvider>
           <WagmiProvider>
             <ZamaProvider>
-              <RoleProvider>
-                <AuthGate>
-                  {children}
-                </AuthGate>
-              </RoleProvider>
+              <AuthGate>
+                {children}
+              </AuthGate>
             </ZamaProvider>
           </WagmiProvider>
         </Web3AuthProvider>

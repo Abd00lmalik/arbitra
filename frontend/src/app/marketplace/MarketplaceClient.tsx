@@ -18,7 +18,6 @@ import { LockedPage } from "@/components/shared/LockedPage";
 import {
   useRealInvoiceList
 } from "@/hooks/useArbitraRegistry";
-import { useRole } from "@/providers/RoleProvider";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { IDENTITY_ABI, IDENTITY_ADDRESS, InvoiceStatus, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
 import Link from "next/link";
@@ -29,7 +28,6 @@ export default function MarketplaceClient() {
   const { wallet: web3authWallet } = useWeb3Auth();
   const { address, isConnected } = useAccount();
   const wallet = web3authWallet ?? (isConnected && address ? address : null);
-  const { role } = useRole();
   const { data: hasSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
@@ -161,9 +159,6 @@ export default function MarketplaceClient() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-navy-800 border border-white/5 text-xs text-slate-400 font-semibold">
-              Active Mode: <span className="text-white ml-1 font-bold capitalize">{role}</span>
-            </div>
             <FaucetLinks />
           </div>
         </div>

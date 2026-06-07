@@ -17,7 +17,6 @@ import {
   useUploadInvoice,
   useInvoiceCount,
   useApproveUSDC,
-  useStakeCollateral,
   useUSDCBalance,
   useUSDCAllowance
 } from "@/hooks/useArbitraRegistry";
@@ -103,7 +102,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { uploadInvoice } = useUploadInvoice();
   
   const { approveUSDC, isPending: approvePending } = useApproveUSDC();
-  const { stakeCollateral, isPending: stakePending } = useStakeCollateral();
+  const stakePending = false;
   const { data: rawCount } = useInvoiceCount();
   const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(address);
   const nextInvoiceId = rawCount !== undefined ? BigInt(rawCount) + 1n : 1n;
@@ -134,6 +133,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
 
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
@@ -416,8 +416,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const handleApproveCollateral = async () => {
     setErrorMsg(null);
     try {
-      await approveUSDC(COLLATERAL_VAULT_ADDRESS, requiredCollateral);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (!publicClient) {
+        throw new Error("Sepolia public client unavailable for approval confirmation.");
+      }
+
+      const approvalTxHash = await approveUSDC(COLLATERAL_VAULT_ADDRESS, requiredCollateral);
+      await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       refetchAllowance();
     } catch (e: any) {
       setErrorMsg(formatGasAwareError(e) || "Approval failed.");
@@ -456,7 +460,6 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }) as `0x${string}`;
 
       if (currentStake > 0n && currentSupplier.toLowerCase() === address.toLowerCase()) {
-        await new Promise(resolve => setTimeout(resolve, 800));
         setWizardStep(4);
         void runProgressiveEncryption();
         return;
@@ -488,14 +491,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         );
       }
 
-      await walletClient.writeContract(stakeSimulation.request);
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const stakeTxHash = await walletClient.writeContract(stakeSimulation.request);
+      await publicClient.waitForTransactionReceipt({ hash: stakeTxHash });
       setWizardStep(4);
       void runProgressiveEncryption();
     } catch (e: any) {
       const message = formatGasAwareError(e);
       if (message.includes("Arbitra: already staked")) {
-        await new Promise(resolve => setTimeout(resolve, 800));
         setWizardStep(4);
         void runProgressiveEncryption();
         return;
@@ -515,10 +517,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     try {
       setErrorMsg(null);
       setTxHash(null);
+      setVerifyUrl(null);
+      setEmailSentTo(null);
+      setEmailError(null);
 
       /* Substep 1: Verifying params */
       setEncryptionSubstep("params");
-      await new Promise((resolve) => setTimeout(resolve, 1200));
 
       /* Substep 2: ZK proof generation */
       setEncryptionSubstep("zkp");
@@ -535,7 +539,6 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
       /* Substep 3: Permitting signatures */
       setEncryptionSubstep("sign");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const h1 = handle1;
       const h2 = handle2;
@@ -557,9 +560,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         invoice.faceValue
       );
 
-      setTxHash(hash || null);
+      if (!hash) {
+        throw new Error("Upload transaction hash was not returned.");
+      }
+
+      await publicClient.waitForTransactionReceipt({ hash });
+      setTxHash(hash);
       setWizardStep(5);
-      if (onSuccess && hash) {
+      if (onSuccess) {
         onSuccess(nextInvoiceId);
       }
 
@@ -573,9 +581,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             invoiceId: Number(nextInvoiceId),
             debtorEmail,
             supplierName: "A supplier",
+            faceValue: invoice.faceValue.toString(),
+            dueDate: invoice.dueDate.toString(),
           }),
         });
         const emailData = await emailRes.json();
+        if (emailData.verifyUrl) {
+          setVerifyUrl(emailData.verifyUrl);
+        }
         if (emailData.success) {
           setEmailSentTo(emailData.message);
         } else {
@@ -598,6 +611,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setEncryptionSubstep("idle");
     setErrorMsg(null);
     setTxHash(null);
+    setVerifyUrl(null);
+    setEmailSentTo(null);
+    setEmailError(null);
     setInvoice({
       faceValue: 0n,
       dueDate: 0n,
@@ -1138,11 +1154,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                       fontFamily: "JetBrains Mono, monospace",
                       wordBreak: "break-all", flex: 1, margin: 0,
                     }}>
-                      {`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${nextInvoiceId.toString()}?token=[sent-via-email]`}
+                      {verifyUrl ?? `${typeof window !== "undefined" ? window.location.origin : ""}/verify/${nextInvoiceId.toString()}`}
                     </p>
                   </div>
                   <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 6, margin: 0 }}>
-                    The token in the URL is only valid for 72 hours and is only included in the email.
+                    This verification link stays valid for 72 hours and can be shared directly if email delivery fails.
                   </p>
                 </div>
 

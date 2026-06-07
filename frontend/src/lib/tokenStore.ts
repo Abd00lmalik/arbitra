@@ -1,94 +1,94 @@
 /*
  * @file tokenStore.ts
- * @description Secure verification token store backed by Upstash Redis.
- *              Tokens expire after 72 hours. Only SHA-256 hashes of tokens
- *              are stored — never plaintext tokens.
+ * @description Stateless verification token helpers backed by signed JWT payloads.
  */
 
-import { createHash, randomBytes } from "crypto";
-import { Redis }                   from "@upstash/redis";
+import { createHash } from "crypto";
+import { SignJWT, jwtVerify } from "jose";
 
-const TOKEN_TTL_SECONDS = 72 * 60 * 60; /* 72 hours */
+const TOKEN_TTL_SECONDS = 72 * 60 * 60;
 
-/* ── Redis client (Upstash) ── */
-let redis: Redis | null = null;
+type VerifyTokenPayload = {
+  invoiceId: number;
+  debtorEmail: string;
+  faceValue?: string;
+  dueDate?: string;
+};
 
-export function getRedis() {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+function getTokenSecret() {
+  const secret =
+    process.env.VERIFIER_PRIVATE_KEY ||
+    process.env.RESEND_API_KEY ||
+    process.env.GEMINI_API_KEY;
 
-  if (!url || !token) {
-    throw new Error("Upstash Redis is not configured.");
+  if (!secret) {
+    throw new Error("Verification token secret is not configured.");
   }
 
-  if (!redis) {
-    redis = new Redis({ url, token });
-  }
-
-  return redis;
+  return new TextEncoder().encode(secret);
 }
 
-/* ── Key format ── */
-const key = (invoiceId: number, tokenHash: string) =>
-  `arbitra:verify:${invoiceId}:${tokenHash}`;
-
-/* ── Token operations ── */
-
-/** Generate a new secure token and store its hash in Redis along with details */
 export async function createVerifyToken(
   invoiceId: number,
   debtorEmail: string,
   faceValue?: string,
   dueDate?: string
 ): Promise<string> {
-  const raw       = randomBytes(32).toString("hex");
-  const hash      = createHash("sha256").update(raw).digest("hex");
-  const emailHash = createHash("sha256").update(debtorEmail.toLowerCase().trim()).digest("hex");
-  const redis = getRedis();
-
-  await redis.set(
-    key(invoiceId, hash),
-    JSON.stringify({ debtorEmail, emailHash, faceValue, dueDate, createdAt: Date.now() }),
-    { ex: TOKEN_TTL_SECONDS }
-  );
-
-  return raw; /* Return raw token — sent once in email URL, never stored */
+  return new SignJWT({
+    invoiceId,
+    debtorEmail,
+    faceValue,
+    dueDate,
+  })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime(`${TOKEN_TTL_SECONDS}s`)
+    .sign(getTokenSecret());
 }
 
-/** Validate a token and return stored metadata if valid */
 export async function validateVerifyToken(
   invoiceId: number,
   rawToken: string
 ): Promise<{ valid: true; debtorEmail: string; emailHash: string; faceValue?: string; dueDate?: string } | { valid: false }> {
-  if (!rawToken || rawToken.length !== 64) return { valid: false };
+  if (!rawToken) {
+    return { valid: false };
+  }
 
-  const hash  = createHash("sha256").update(rawToken).digest("hex");
-  const redis = getRedis();
-  const data  = await redis.get(key(invoiceId, hash));
+  try {
+    const { payload } = await jwtVerify(rawToken, getTokenSecret());
+    if (Number(payload.invoiceId) !== invoiceId) {
+      return { valid: false };
+    }
 
-  if (!data) return { valid: false };
+    const debtorEmail = typeof payload.debtorEmail === "string" ? payload.debtorEmail : "";
+    if (!debtorEmail) {
+      return { valid: false };
+    }
 
-  const parsed = typeof data === "string" ? JSON.parse(data) : data;
-  return {
-    valid:       true,
-    debtorEmail: parsed.debtorEmail,
-    emailHash:   parsed.emailHash,
-    faceValue:   parsed.faceValue,
-    dueDate:     parsed.dueDate,
-  };
+    const faceValue = typeof payload.faceValue === "string" ? payload.faceValue : undefined;
+    const dueDate = typeof payload.dueDate === "string" ? payload.dueDate : undefined;
+    const emailHash = createHash("sha256").update(debtorEmail.toLowerCase().trim()).digest("hex");
+
+    return {
+      valid: true,
+      debtorEmail,
+      emailHash,
+      faceValue,
+      dueDate,
+    };
+  } catch {
+    return { valid: false };
+  }
 }
 
-/** Delete a token after use (one-time use enforcement) */
 export async function consumeVerifyToken(
   invoiceId: number,
   rawToken: string
 ): Promise<void> {
-  const hash  = createHash("sha256").update(rawToken).digest("hex");
-  const redis = getRedis();
-  await redis.del(key(invoiceId, hash));
+  void invoiceId;
+  void rawToken;
 }
 
-/** Compute email hash for on-chain commitment */
 export function computeEmailHash(email: string): `0x${string}` {
   return ("0x" + createHash("sha256")
     .update(email.toLowerCase().trim())

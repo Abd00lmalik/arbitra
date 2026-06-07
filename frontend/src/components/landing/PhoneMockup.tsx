@@ -12,7 +12,6 @@ import { useIsMobile } from "@/hooks/useBreakpoint";
 export function PhoneMockup() {
   const isMobile = useIsMobile();
   const [isDecrypted, setIsDecrypted] = useState(false);
-  const [activeRole, setActiveRole] = useState<"supplier" | "investor">("supplier");
   const [isScanning, setIsScanning] = useState(false);
 
   /* Animation variants for floating elements */
@@ -276,55 +275,8 @@ export function PhoneMockup() {
                 {/* Active Wallet Connected Display */}
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "9px", color: "#00F0FF", fontWeight: 600 }}>
                   <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
-                  0x7b2f...e00f ({activeRole === "supplier" ? "Supplier" : "Investor"})
+                  0x7b2f...e00f (Verified)
                 </div>
-              </div>
-
-              {/* Simulated Role Toggle inside iPhone screen */}
-              <div
-                style={{
-                  display: "flex",
-                  background: "rgba(255, 255, 255, 0.02)",
-                  border: "1px solid rgba(255, 255, 255, 0.05)",
-                  borderRadius: "10px",
-                  padding: "2px",
-                  marginBottom: "12px"
-                }}
-              >
-                <button
-                  onClick={() => setActiveRole("supplier")}
-                  style={{
-                    flex: 1,
-                    background: activeRole === "supplier" ? "rgba(0, 240, 255, 0.08)" : "transparent",
-                    border: "none",
-                    borderRadius: "6px",
-                    padding: "4px 0",
-                    color: activeRole === "supplier" ? "#00F0FF" : "#64748B",
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    transition: "all 0.15s"
-                  }}
-                >
-                  Supplier Mode
-                </button>
-                <button
-                  onClick={() => setActiveRole("investor")}
-                  style={{
-                    flex: 1,
-                    background: activeRole === "investor" ? "rgba(123, 47, 255, 0.08)" : "transparent",
-                    border: "none",
-                    borderRadius: "6px",
-                    padding: "4px 0",
-                    color: activeRole === "investor" ? "#A87FFF" : "#64748B",
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    transition: "all 0.15s"
-                  }}
-                >
-                  Investor Mode
-                </button>
               </div>
 
               {/* FHE Status badge */}
@@ -351,41 +303,30 @@ export function PhoneMockup() {
               {/* Static screen area */}
               <div style={{ flex: 1, overflowY: "auto", marginBottom: "12px", paddingRight: "2px" }} className="hide-scrollbar">
                 {/* Dynamic Stats Cards */}
-                {activeRole === "supplier" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Uploaded</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>3</div>
-                    </div>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Awaiting</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>1</div>
-                    </div>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Total Factored Volume</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#00FF88", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
-                        {isDecrypted ? "$375,000.00 USDC" : "0x9a8b...f2de 🔒"}
-                      </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Uploaded</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>3</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Investments</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>2</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Awaiting</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>1</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
+                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Yield Rate</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APY</div>
+                  </div>
+                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
+                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Confidential Activity</div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
+                      {isDecrypted ? "$625,000.00 USDC" : "0x7f3a...b81e 🔒"}
                     </div>
                   </div>
-                ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Investments</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>2</div>
-                    </div>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Yield Rate</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APY</div>
-                    </div>
-                    <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
-                      <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Confidential Factored Balance</div>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
-                        {isDecrypted ? "$250,000.00 USDC" : "0x0f8c...4b12 🔒"}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                </div>
 
                 {/* CSS Donut Chart */}
                 <div

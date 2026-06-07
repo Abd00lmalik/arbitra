@@ -7,7 +7,6 @@
 
 import React, { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
-import { useRole } from "@/providers/RoleProvider";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -16,8 +15,6 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children, title, description }: AppLayoutProps) {
-  const { role, setRole } = useRole();
-
   return (
     <div className="flex min-h-screen bg-navy-900">
       <Sidebar />
@@ -36,9 +33,9 @@ export function AppLayout({ children, title, description }: AppLayoutProps) {
           aria-hidden="true"
         />
 
-        {/* Page header with role switch toggle */}
+        {/* Page header */}
         {(title || description) && (
-          <header className="relative z-10 mb-8 flex justify-between items-start flex-wrap gap-4">
+          <header className="relative z-10 mb-8">
             <div>
               {title && (
                 <h1 className="text-2xl font-bold text-white mb-1">
@@ -48,30 +45,6 @@ export function AppLayout({ children, title, description }: AppLayoutProps) {
               {description && (
                 <p className="text-sm text-slate-400">{description}</p>
               )}
-            </div>
-
-            {/* Switch Role Toggle */}
-            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/2 border border-white/5 text-xs">
-              <button
-                onClick={() => setRole("supplier")}
-                className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                  role === "supplier"
-                    ? "bg-neon-cyan/10 border border-neon-cyan/35 text-neon-cyan font-bold"
-                    : "text-slate-400 border border-transparent hover:text-white"
-                }`}
-              >
-                Supplier Mode
-              </button>
-              <button
-                onClick={() => setRole("investor")}
-                className={`px-3 py-1.5 rounded-lg transition-all duration-200 ${
-                  role === "investor"
-                    ? "bg-neon-purple/10 border border-neon-purple/35 text-neon-purple font-bold"
-                    : "text-slate-400 border border-transparent hover:text-white"
-                }`}
-              >
-                Investor Mode
-              </button>
             </div>
           </header>
         )}

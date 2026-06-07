@@ -6,10 +6,9 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useWalletClient, useAccount } from "wagmi";
+import React, { useState } from "react";
+import { useWalletClient, useAccount, usePublicClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRole } from "@/providers/RoleProvider";
 import {
   useInvoice,
   useIsInvestorApproved,
@@ -50,11 +49,8 @@ export function InvoiceDetailModal({
 }: InvoiceDetailModalProps) {
   const { address: currentUserAddress } = useAccount();
   const { data: walletClient } = useWalletClient();
-  const { role: globalRole } = useRole();
+  const publicClient = usePublicClient();
   const { isReady: zamaReady } = useZama();
-
-  /* Switchable role tab inside the modal */
-  const [viewRole, setViewRole] = useState<"supplier" | "investor">("supplier");
 
   /* Fetch core data */
   const { data: invoice, refetch: refetchInvoice } = useInvoice(invoiceId);
@@ -77,13 +73,6 @@ export function InvoiceDetailModal({
   const { setOperator, isPending: isApproving } = useSetOperator();
   const [localBusy, setLocalBusy] = useState(false);
 
-  /* Set default role view from global state */
-  useEffect(() => {
-    if (isOpen && globalRole) {
-      setViewRole(globalRole);
-    }
-  }, [isOpen, globalRole]);
-
   if (!isOpen || invoiceId === undefined || !invoice) return null;
 
   const isFactored = invoice.status >= InvoiceStatus.Factored;
@@ -94,8 +83,7 @@ export function InvoiceDetailModal({
   const isInvestor = currentUserAddress?.toLowerCase() === invoice.investor?.toLowerCase();
   const isDebtor = currentUserAddress?.toLowerCase() === invoice.debtor?.toLowerCase();
   
-  /* Supplier and factored Investor can always decrypt, or any investor if granted access */
-  const canDecrypt = isSupplier || isInvestor || (viewRole === "investor" && !isFactored);
+  const canDecrypt = isSupplier || isInvestor;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -149,8 +137,12 @@ export function InvoiceDetailModal({
   const handleGrantAccess = async () => {
     setLocalBusy(true);
     try {
-      await grantAccess(invoice.invoiceId);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (!publicClient) {
+        throw new Error("Sepolia public client unavailable.");
+      }
+
+      const txHash = await grantAccess(invoice.invoiceId);
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
       await refetchInvoice();
     } catch (err) {
       console.error("Granting risk access failed:", err);
@@ -163,14 +155,18 @@ export function InvoiceDetailModal({
   const handleFactorClick = async () => {
     setLocalBusy(true);
     try {
+      if (!publicClient) {
+        throw new Error("Sepolia public client unavailable.");
+      }
+
       if (!isApproved) {
         const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-        await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
+        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
         await refetchApproval();
       }
-      await factorInvoice(invoice.invoiceId);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const factorTxHash = await factorInvoice(invoice.invoiceId);
+      await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
       await refetchInvoice();
       if (onActionSuccess) onActionSuccess();
       onClose();
@@ -224,30 +220,6 @@ export function InvoiceDetailModal({
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
-            </button>
-          </div>
-
-          {/* Interactive Role Switcher Tabs */}
-          <div className="flex bg-white/3 border border-white/5 p-1 rounded-xl gap-1 mb-5">
-            <button
-              onClick={() => setViewRole("supplier")}
-              className={`flex-1 py-2.5 text-center text-xs font-bold rounded-lg transition-all ${
-                viewRole === "supplier"
-                  ? "bg-neon-cyan text-navy-950 shadow-lg font-extrabold"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
-              }`}
-            >
-              As Supplier
-            </button>
-            <button
-              onClick={() => setViewRole("investor")}
-              className={`flex-1 py-2.5 text-center text-xs font-bold rounded-lg transition-all ${
-                viewRole === "investor"
-                  ? "bg-neon-purple text-white shadow-lg font-extrabold"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
-              }`}
-            >
-              As Investor
             </button>
           </div>
 
@@ -358,8 +330,8 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* AI Risk Assessment Block (Only for Investor perspective) */}
-            {viewRole === "investor" && (
+            {/* AI Risk Assessment Block */}
+            {!isSupplier && (
               <div className="p-4.5 rounded-2xl bg-gradient-to-br from-indigo-950/40 to-navy-950/40 border border-indigo-500/20">
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-1.5">
@@ -464,7 +436,7 @@ export function InvoiceDetailModal({
             </NeonButton>
 
             {/* Action for Supplier (Repay is handled by Debtor via Escrow, but Supplier can grant risk access to investors) */}
-            {viewRole === "supplier" && invoice.status === InvoiceStatus.Attested && isSupplier && (
+            {invoice.status === InvoiceStatus.Attested && isSupplier && (
               <NeonButton
                 variant="primary"
                 size="md"
@@ -477,7 +449,7 @@ export function InvoiceDetailModal({
             )}
 
             {/* Action for Investor (Factoring) */}
-            {viewRole === "investor" && invoice.status === InvoiceStatus.Attested && !isSupplier && (
+            {invoice.status === InvoiceStatus.Attested && !isSupplier && (
               <NeonButton
                 variant="primary"
                 size="md"
