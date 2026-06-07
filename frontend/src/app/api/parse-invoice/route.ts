@@ -11,7 +11,7 @@ export const maxDuration = 60;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_BASE_RATE_BPS = 300;
 const DEFAULT_REPUTATION_MULTIPLIER = 5;
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-2.0-flash";
 
 type InvoiceFields = {
   invoiceNumber: string | null;
@@ -51,43 +51,6 @@ Required JSON format:
   "suggestedBaseRateBps": number or null,
   "suggestedReputationMultiplier": number or null
 }`;
-
-const invoiceJsonSchema = {
-  type: "object",
-  properties: {
-    invoiceNumber: { type: ["string", "null"], description: "Invoice number or reference." },
-    supplierName: { type: ["string", "null"], description: "Supplier or seller legal name." },
-    debtorName: { type: ["string", "null"], description: "Buyer or debtor legal name." },
-    debtorEmail: { type: ["string", "null"], description: "Buyer or debtor email address." },
-    invoiceDate: { type: ["string", "null"], description: "Invoice issue date in YYYY-MM-DD format." },
-    dueDate: { type: ["string", "null"], description: "Payment due date in YYYY-MM-DD format." },
-    faceValueUSD: { type: ["number", "null"], description: "Invoice amount in USD as a number." },
-    currency: { type: ["string", "null"], description: "Invoice currency code like USD, EUR, GBP." },
-    description: { type: ["string", "null"], description: "Goods or services description." },
-    debtorAddress: { type: ["string", "null"], description: "Ethereum address only if explicitly present in the document." },
-    supplierTaxId: { type: ["string", "null"], description: "Supplier tax ID or registration number." },
-    debtorTaxId: { type: ["string", "null"], description: "Buyer tax ID or registration number." },
-    suggestedBaseRateBps: { type: ["integer", "null"], description: "Suggested base rate in basis points." },
-    suggestedReputationMultiplier: { type: ["integer", "null"], description: "Suggested reputation multiplier integer." },
-  },
-  required: [
-    "invoiceNumber",
-    "supplierName",
-    "debtorName",
-    "debtorEmail",
-    "invoiceDate",
-    "dueDate",
-    "faceValueUSD",
-    "currency",
-    "description",
-    "debtorAddress",
-    "supplierTaxId",
-    "debtorTaxId",
-    "suggestedBaseRateBps",
-    "suggestedReputationMultiplier",
-  ],
-  additionalProperties: false,
-} as const;
 
 function cleanGeminiJson(rawText: string) {
   return rawText
@@ -186,8 +149,8 @@ async function callGeminiPdf(geminiKey: string, pdfBase64: string, prompt: strin
         {
           parts: [
             {
-              inline_data: {
-                mime_type: "application/pdf",
+              inlineData: {
+                mimeType: "application/pdf",
                 data: pdfBase64,
               },
             },
@@ -199,7 +162,6 @@ async function callGeminiPdf(geminiKey: string, pdfBase64: string, prompt: strin
         temperature: 0,
         maxOutputTokens: 1024,
         responseMimeType: "application/json",
-        responseJsonSchema: invoiceJsonSchema,
       },
     }),
   });
@@ -251,7 +213,6 @@ ${invoiceText.slice(0, 12000)}
         temperature: 0,
         maxOutputTokens: 1024,
         responseMimeType: "application/json",
-        responseJsonSchema: invoiceJsonSchema,
       },
     }),
   });
