@@ -7,7 +7,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
-import { useAccount, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, useBalance, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatEther, parseEther, parseGwei } from "viem";
 import { GlassCard } from "../ui/GlassCard";
@@ -60,6 +60,7 @@ const FRAUD_CHECK_EXPECTED_USAGE_BPS = 30n;
 const FALLBACK_SEPOLIA_GAS_PRICE = parseGwei("2");
 const MAX_REASONABLE_SEPOLIA_GAS_PRICE = parseGwei("8");
 const MIN_FRAUD_CHECK_GAS_BUFFER = parseEther("0.002");
+const MIN_ETH_FOR_UPLOAD = parseEther("0.005");
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
@@ -110,6 +111,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const stakePending = false;
   const { data: rawCount } = useInvoiceCount();
   const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(address);
+  const { data: ethBalance } = useBalance({
+    address,
+    query: { enabled: !!address },
+  });
   const nextInvoiceId = rawCount !== undefined ? BigInt(rawCount) + 1n : 1n;
 
   const [wizardStep, setWizardStep] = useState<WizardStep>(1);
@@ -175,6 +180,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     query: { enabled: !!fraudCheckTxHash },
   });
   const fraudCheckCostPreview = buildFraudCheckCostPreview(fraudCheckDisplayGasPrice);
+  const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= MIN_ETH_FOR_UPLOAD : false;
 
   useEffect(() => {
     if (!publicClient) {
@@ -365,7 +371,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       ...duplicateRequest
     } = uniquenessSimulation.request;
     const duplicateTxHash = await walletClient.writeContract({
-      ...duplicateRequest,
+      ...(duplicateRequest as any),
       gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
       gasPrice,
     });
@@ -540,7 +546,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         ...stakeRequest
       } = stakeSimulation.request;
       const stakeTxHash = await walletClient.writeContract({
-        ...stakeRequest,
+        ...(stakeRequest as any),
         gasPrice,
       });
       await publicClient.waitForTransactionReceipt({ hash: stakeTxHash });
@@ -566,6 +572,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     try {
+      const walletBalance = await publicClient.getBalance({ address });
+      if (walletBalance < MIN_ETH_FOR_UPLOAD) {
+        throw new Error(
+          `You need at least ${formatEthAmount(MIN_ETH_FOR_UPLOAD)} Sepolia ETH for gas to upload an invoice.`
+        );
+      }
+
       setErrorMsg(null);
       setTxHash(null);
       setVerifyUrl(null);
@@ -1015,6 +1028,20 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
             )}
 
+            {!canAffordUpload && (
+              <div className="p-3 rounded-xl bg-amber-400/5 border border-amber-400/10 text-xs text-amber-300">
+                You need at least 0.005 Sepolia ETH for gas to upload an invoice.
+                <a
+                  href="https://www.alchemy.com/faucets/ethereum-sepolia"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline ml-1"
+                >
+                  Get Sepolia ETH -&gt;
+                </a>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button onClick={() => setWizardStep(2)} className="flex-1 neon-btn-ghost text-xs rounded-xl">
                 Back
@@ -1034,6 +1061,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                     setWizardStep(4);
                     void runProgressiveEncryption();
                   }}
+                  disabled={!canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
                   Collateral Already Staked - Continue
@@ -1041,7 +1069,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               ) : (
                 <button
                   onClick={handleStakeCollateral}
-                  disabled={stakePending}
+                  disabled={stakePending || !canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
                   {stakePending ? "Staking..." : "Lock Stake & Proceed"}

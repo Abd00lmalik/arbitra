@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useReadContract, useWriteContract, useWatchContractEvent, useAccount, useReadContracts } from "wagmi";
+import { useReadContract, useWriteContract, useWatchContractEvent, useAccount, useReadContracts, usePublicClient, useWalletClient } from "wagmi";
 import { useCallback } from "react";
 import {
   ARBITRA_REGISTRY_ADDRESS,
@@ -21,8 +21,10 @@ import {
   type InvoiceHandles,
 } from "@/lib/contracts";
 
-const FHE_UPLOAD_GAS_LIMIT = 500_000n;
 const FHE_FACTOR_GAS_LIMIT = 5_000_000n;
+const FHE_UPLOAD_FALLBACK_GAS_LIMIT = 2_000_000n;
+const FHE_UPLOAD_GAS_BUFFER_BPS = 140n;
+const FHE_UPLOAD_MAX_SAFE_GAS_LIMIT = 10_000_000n;
 
 /*
  * Hook: read all invoice IDs from the registry.
@@ -150,6 +152,8 @@ export function useFactorInvoice() {
  * Hook: upload a new invoice (takes 5 encrypted handles and proofs, debtor, and gemini config).
  */
 export function useUploadInvoice() {
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   const { writeContractAsync, isPending, error, data } = useWriteContract();
 
   const uploadInvoice = useCallback(
@@ -168,7 +172,11 @@ export function useUploadInvoice() {
       enableGemini: boolean,
       faceValuePlaintext: bigint
     ) => {
-      return writeContractAsync({
+      if (!walletClient || !publicClient || !walletClient.account) {
+        throw new Error("Wallet not connected");
+      }
+
+      const contractConfig = {
         address: ARBITRA_REGISTRY_ADDRESS,
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "uploadInvoice",
@@ -182,10 +190,32 @@ export function useUploadInvoice() {
           enableGemini,
           faceValuePlaintext
         ],
-        gas: FHE_UPLOAD_GAS_LIMIT,
+        account: walletClient.account,
+      } as const;
+
+      let gasEstimate = FHE_UPLOAD_FALLBACK_GAS_LIMIT;
+
+      try {
+        const { request } = await publicClient.simulateContract(contractConfig);
+        gasEstimate = request.gas ?? FHE_UPLOAD_FALLBACK_GAS_LIMIT;
+      } catch (simulationError) {
+        console.warn("[uploadInvoice] Simulation failed, using fallback gas.", simulationError);
+      }
+
+      const gasWithBuffer = (gasEstimate * FHE_UPLOAD_GAS_BUFFER_BPS) / 100n;
+      const finalGas =
+        gasWithBuffer > FHE_UPLOAD_MAX_SAFE_GAS_LIMIT
+          ? FHE_UPLOAD_MAX_SAFE_GAS_LIMIT
+          : gasWithBuffer;
+
+      console.info("[uploadInvoice] Gas estimate:", gasEstimate.toString(), "Buffered gas:", finalGas.toString());
+
+      return writeContractAsync({
+        ...contractConfig,
+        gas: finalGas,
       });
     },
-    [writeContractAsync]
+    [publicClient, walletClient, writeContractAsync]
   );
 
   return { uploadInvoice, isPending, error, txHash: data };
