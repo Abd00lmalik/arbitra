@@ -6,10 +6,10 @@
 
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useAccount, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatEther, parseGwei } from "viem";
+import { formatEther, parseEther, parseGwei } from "viem";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
@@ -56,9 +56,10 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
 const FHE_CHECK_UNIQUENESS_GAS_LIMIT = 400_000n;
-const FRAUD_CHECK_EXPECTED_USAGE_BPS = 40n;
+const FRAUD_CHECK_EXPECTED_USAGE_BPS = 30n;
 const FALLBACK_SEPOLIA_GAS_PRICE = parseGwei("2");
-const MIN_FRAUD_CHECK_GAS_BUFFER = parseGwei("2") * 120_000n;
+const MAX_REASONABLE_SEPOLIA_GAS_PRICE = parseGwei("8");
+const MIN_FRAUD_CHECK_GAS_BUFFER = parseEther("0.002");
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
@@ -92,6 +93,10 @@ function formatGasAwareError(error: unknown) {
   }
 
   return rawMessage || "Encrypted duplicate check failed.";
+}
+
+function clampSepoliaGasPrice(gasPrice: bigint) {
+  return gasPrice > MAX_REASONABLE_SEPOLIA_GAS_PRICE ? MAX_REASONABLE_SEPOLIA_GAS_PRICE : gasPrice;
 }
 
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
@@ -134,6 +139,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
+  const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
 
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
@@ -168,8 +174,33 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
   });
-  const currentGasPrice = publicClient?.chain?.id === 11155111 ? FALLBACK_SEPOLIA_GAS_PRICE : FALLBACK_SEPOLIA_GAS_PRICE;
-  const fraudCheckCostPreview = buildFraudCheckCostPreview(currentGasPrice);
+  const fraudCheckCostPreview = buildFraudCheckCostPreview(fraudCheckDisplayGasPrice);
+
+  useEffect(() => {
+    if (!publicClient) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncGasPrice = async () => {
+      try {
+        const liveGasPrice = await publicClient.getGasPrice();
+        if (!cancelled) {
+          setFraudCheckDisplayGasPrice(clampSepoliaGasPrice(liveGasPrice));
+        }
+      } catch {
+        if (!cancelled) {
+          setFraudCheckDisplayGasPrice(FALLBACK_SEPOLIA_GAS_PRICE);
+        }
+      }
+    };
+
+    void syncGasPrice();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient]);
 
   /* Handle Drag Events */
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -294,6 +325,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     );
 
     setFraudCheckStep("Preparing Sepolia fraud check transaction...");
+    const gasPrice = clampSepoliaGasPrice(
+      await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE)
+    );
+
     const uniquenessSimulation = await publicClient.simulateContract({
       account: address,
       address: FINGERPRINT_REGISTRY_ADDRESS,
@@ -306,9 +341,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         encryptedInputs.inputProof,
       ],
       gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
+      gasPrice,
     });
 
-    const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
     const walletBalance = await publicClient.getBalance({ address });
     const { expectedCost, maxReserve } = buildFraudCheckCostPreview(gasPrice);
 
@@ -324,9 +359,15 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
+    const {
+      maxFeePerGas: _duplicateMaxFeePerGas,
+      maxPriorityFeePerGas: _duplicateMaxPriorityFeePerGas,
+      ...duplicateRequest
+    } = uniquenessSimulation.request;
     const duplicateTxHash = await walletClient.writeContract({
-      ...uniquenessSimulation.request,
+      ...duplicateRequest,
       gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
+      gasPrice,
     });
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
@@ -480,7 +521,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         functionName: "stakeCollateral",
         args: [nextInvoiceId, invoice.faceValue],
       });
-      const gasPrice = await publicClient.getGasPrice();
+      const gasPrice = clampSepoliaGasPrice(
+        await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE)
+      );
       const walletBalance = await publicClient.getBalance({ address });
       const estimatedCost = estimatedGas * gasPrice;
 
@@ -491,7 +534,15 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         );
       }
 
-      const stakeTxHash = await walletClient.writeContract(stakeSimulation.request);
+      const {
+        maxFeePerGas: _stakeMaxFeePerGas,
+        maxPriorityFeePerGas: _stakeMaxPriorityFeePerGas,
+        ...stakeRequest
+      } = stakeSimulation.request;
+      const stakeTxHash = await walletClient.writeContract({
+        ...stakeRequest,
+        gasPrice,
+      });
       await publicClient.waitForTransactionReceipt({ hash: stakeTxHash });
       setWizardStep(4);
       void runProgressiveEncryption();
