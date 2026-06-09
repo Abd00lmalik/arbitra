@@ -59,11 +59,8 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
 const FALLBACK_SEPOLIA_GAS_PRICE  = parseGwei("2");
-/* Realistic minimum for a single FHE transaction at typical Sepolia gas prices.
- * FHE ops need ~1-3M gas; at 35 Gwei that is ~0.07 ETH minimum.              */
-const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
-const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
-/* Hard gas caps — prevents Wagmi/viem's inflated simulation estimates           */
+const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05"); /* kept for ref only — actual check uses estimatedCost */
+const MIN_ETH_FOR_UPLOAD          = parseEther("0.005");
 const FRAUD_CHECK_GAS_CAP         = 2_000_000n;
 const UPLOAD_GAS_CAP              = 14_000_000n;
 
@@ -138,6 +135,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
   const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
+  /* Staking overlay state */
+  const [isStaking, setIsStaking] = useState<boolean>(false);
+  const [stakeStep, setStakeStep] = useState<string | null>(null);
+  const [stakeTxHash, setStakeTxHash] = useState<`0x${string}` | null>(null);
 
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(activeWallet, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
@@ -470,9 +471,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const handleStakeCollateral = async () => {
     setErrorMsg(null);
 
-    /* Guard: faceValue must be non-zero before attempting stake */
+    /* Guard: faceValue must be non-zero */
     if (invoice.faceValue === 0n) {
-      setErrorMsg("Invoice face value is zero. Please re-upload your invoice PDF and verify the amount was parsed correctly.");
+      setErrorMsg("Invoice face value is zero — re-upload your PDF.");
       return;
     }
 
@@ -483,16 +484,20 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     if (usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral) {
-      setErrorMsg(`Insufficient USDC balance. You need $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC (5% of face value) but only have $${(Number(usdcBalance) / 1e6).toFixed(2)} USDC. Get test USDC from faucet.circle.com.`);
+      setErrorMsg(`Insufficient USDC. Need $${(Number(requiredCollateral) / 1e6).toFixed(2)} (5%) — have $${(Number(usdcBalance) / 1e6).toFixed(2)} USDC.`);
       return;
     }
 
+    setIsStaking(true);
+    setStakeStep("Checking vault status...");
+    setStakeTxHash(null);
+
     try {
-      if (!activeWallet || !walletClient || !publicClient) {
-        throw new Error("Wallet not connected for collateral staking.");
+      if (!activeWallet || !publicClient) {
+        throw new Error("Wallet not connected.");
       }
 
-      /* Quick on-chain read to skip re-staking if already done in a prior session */
+      /* On-chain read: skip if already staked from a previous session */
       const currentStake = await publicClient.readContract({
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
@@ -507,35 +512,85 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }) as `0x${string}`;
 
       if (currentStake > 0n && currentSupplier.toLowerCase() === activeWallet.toLowerCase()) {
+        setIsStaking(false);
         setWizardStep(4);
         void runProgressiveEncryption();
         return;
       }
 
-      /* Use the hook (already gas-capped at 500k) to send the stake TX */
-      const stakeTxHash = await stakeCollateral(nextInvoiceId, invoice.faceValue);
+      setStakeStep(`Locking $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC in vault — submitting to Sepolia...`);
 
-      const stakeReceipt = await publicClient.waitForTransactionReceipt({
-        hash: stakeTxHash,
+      let txHash: `0x${string}`;
+      try {
+        txHash = await stakeCollateral(nextInvoiceId, invoice.faceValue);
+      } catch (submitErr: any) {
+        const msg = String(submitErr?.message ?? submitErr);
+        /* "already known" = same tx is already in the mempool from a prior click.
+         * Wait for it to confirm rather than erroring out.                        */
+        if (msg.toLowerCase().includes("already known") || msg.toLowerCase().includes("replacement fee too low")) {
+          setStakeStep("Transaction already submitted — waiting for Sepolia to confirm it...");
+          /* Poll vault until the pending tx lands (max 120s) */
+          const deadline = Date.now() + 120_000;
+          while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 4_000));
+            const polledStake = await publicClient.readContract({
+              address: COLLATERAL_VAULT_ADDRESS,
+              abi: COLLATERAL_VAULT_ABI,
+              functionName: "stakedCollateral",
+              args: [nextInvoiceId],
+            }) as bigint;
+            const polledSupplier = await publicClient.readContract({
+              address: COLLATERAL_VAULT_ADDRESS,
+              abi: COLLATERAL_VAULT_ABI,
+              functionName: "invoiceSupplier",
+              args: [nextInvoiceId],
+            }) as `0x${string}`;
+            if (polledStake > 0n && polledSupplier.toLowerCase() === activeWallet.toLowerCase()) {
+              refetchUSDC();
+              refetchAllowance();
+              setIsStaking(false);
+              setStakeStep(null);
+              setWizardStep(4);
+              void runProgressiveEncryption();
+              return;
+            }
+          }
+          throw new Error("Timed out waiting for pending stake transaction. Check Sepolia Etherscan for your wallet.");
+        }
+        throw submitErr;
+      }
+
+      setStakeTxHash(txHash);
+      setStakeStep("Waiting for Sepolia confirmation (1 block)...");
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
         confirmations: 1,
         timeout: 120_000,
       });
-      if (stakeReceipt.status !== "success") {
-        throw new Error("Collateral staking transaction reverted on-chain.");
+
+      if (receipt.status !== "success") {
+        throw new Error("Collateral stake transaction reverted on-chain.");
       }
-      /* Refresh USDC balance so the updated amount is visible to the user */
+
       refetchUSDC();
       refetchAllowance();
+      setIsStaking(false);
+      setStakeStep(null);
       setWizardStep(4);
       void runProgressiveEncryption();
     } catch (e: any) {
       const message = formatGasAwareError(e);
-      if (message.includes("Arbitra: already staked")) {
+      if (message.toLowerCase().includes("already staked")) {
+        setIsStaking(false);
+        setStakeStep(null);
         setWizardStep(4);
         void runProgressiveEncryption();
         return;
       }
-      setErrorMsg(message || "Collateral staking failed. Make sure you have approved USDC first.");
+      setIsStaking(false);
+      setStakeStep(null);
+      setErrorMsg(message || "Collateral staking failed — make sure you approved USDC first.");
     }
   };
 
@@ -1003,8 +1058,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <div className="text-[10px] text-slate-400 leading-relaxed">
-                Staked collateral will be fully released automatically upon successful debtor maturity repayment. If fraud or duplicate financing is confirmed, collateral is slashed.
+              <div className="text-[10px] text-slate-400 leading-relaxed space-y-1">
+                <p className="font-semibold text-amber-300">How your collateral is protected</p>
+                <p>Your 5% USDC stake is locked in the vault contract on-chain. It is returned automatically when the debtor pays the full invoice at maturity. It is only slashed if a duplicate or fraudulent invoice is confirmed — your data stays encrypted throughout.</p>
               </div>
             </div>
 
@@ -1016,14 +1072,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
             {!canAffordUpload && (
               <div className="p-3 rounded-xl bg-amber-400/5 border border-amber-400/10 text-xs text-amber-300">
-                You need at least 0.005 Sepolia ETH for gas to upload an invoice.
-                <a
-                  href="https://www.alchemy.com/faucets/ethereum-sepolia"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline ml-1"
-                >
-                  Get Sepolia ETH -&gt;
+                You need at least 0.005 Sepolia ETH for gas.
+                <a href="https://www.alchemy.com/faucets/ethereum-sepolia" target="_blank" rel="noopener noreferrer" className="underline ml-1">
+                  Get Sepolia ETH →
                 </a>
               </div>
             )}
@@ -1039,29 +1090,71 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   disabled={approvePending}
                   className="flex-[2] neon-btn-secondary py-2.5 rounded-xl text-xs"
                 >
-                  {approvePending ? "Approving..." : "Approve 5% USDC"}
+                  {approvePending ? "Approving USDC..." : "Approve 5% USDC"}
                 </button>
               ) : alreadyStaked ? (
                 <button
-                  onClick={() => {
-                    setWizardStep(4);
-                    void runProgressiveEncryption();
-                  }}
+                  onClick={() => { setWizardStep(4); void runProgressiveEncryption(); }}
                   disabled={!canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
-                  Collateral Already Staked - Continue
+                  Collateral Already Staked — Continue
                 </button>
               ) : (
                 <button
                   onClick={handleStakeCollateral}
-                  disabled={stakePending || !canAffordUpload}
+                  disabled={isStaking || !canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
-                  {stakePending ? "Staking..." : "Lock Stake & Proceed"}
+                  {isStaking ? "Locking collateral..." : "Lock Stake & Proceed"}
                 </button>
               )}
             </div>
+
+            {/* Staking overlay — shown while the TX is in-flight */}
+            {isStaking && (
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "rgba(2,7,20,0.88)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: 16, borderRadius: 20, zIndex: 10, padding: 24,
+              }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: "50%",
+                  border: "2.5px solid rgba(123,47,255,0.15)",
+                  borderTopColor: "#7B2FFF",
+                  animation: "spin 0.9s linear infinite",
+                }} />
+                <p style={{
+                  color: "#7B2FFF", fontSize: 15, fontWeight: 600,
+                  fontFamily: "Satoshi, sans-serif", textAlign: "center",
+                  maxWidth: 300, lineHeight: 1.6,
+                }}>
+                  {stakeStep ?? "Locking collateral in vault..."}
+                </p>
+                {stakeTxHash && (
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${stakeTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "#00F0FF", fontSize: 11,
+                      fontFamily: "JetBrains Mono, monospace",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    View TX on Etherscan →
+                  </a>
+                )}
+                <p style={{ color: "#3D4E7A", fontSize: 11, textAlign: "center", maxWidth: 260 }}>
+                  Your {(Number(requiredCollateral) / 1e6).toFixed(2)} USDC collateral is being locked.
+                  It will be returned automatically once the debtor pays at maturity.
+                </p>
+              </div>
+            )}
           </motion.div>
         )}
 
