@@ -11,80 +11,68 @@ export const maxDuration = 60;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_BASE_RATE_BPS = 300;
 const DEFAULT_REPUTATION_MULTIPLIER = 5;
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 type InvoiceFields = {
-  invoiceNumber: string | null;
-  supplierName: string | null;
-  debtorName: string | null;
-  debtorEmail: string | null;
-  invoiceDate: string | null;
-  dueDate: string | null;
-  faceValueUSD: number | null;
-  currency: string | null;
-  description: string | null;
-  debtorAddress?: string | null;
-  supplierTaxId?: string | null;
-  debtorTaxId?: string | null;
-  suggestedBaseRateBps?: number | null;
-  suggestedReputationMultiplier?: number | null;
+  invoiceNumber: string;
+  issueDate: string;
+  maturityDate: string;
+  totalAmountCents: number;
+  currency: string;
+  debtorName: string;
+  debtorEmail: string;
+  debtorTaxId: string;
+  supplierName: string;
+  supplierTaxId: string;
+  debtorAddress?: string;
 };
 
-const extractionPrompt = `You are an invoice data extractor. Read this invoice PDF and extract the following fields.
-Return ONLY a valid JSON object. No markdown, no code fences, no explanation.
-If a field is not found, use null.
+const PARSE_PROMPT = `
+You are an expert invoice parser. Analyze the invoice document.
+Return ONLY a valid JSON object with NO markdown, NO backticks, NO explanation.
+Use exactly these field names:
 
-Required JSON format:
 {
-  "invoiceNumber": "string or null",
-  "supplierName": "string or null",
-  "debtorName": "string or null",
-  "debtorEmail": "string or null",
-  "invoiceDate": "YYYY-MM-DD or null",
-  "dueDate": "YYYY-MM-DD or null",
-  "faceValueUSD": number or null,
-  "currency": "string or null",
-  "description": "string or null",
-  "debtorAddress": "valid Ethereum address or null",
-  "supplierTaxId": "string or null",
-  "debtorTaxId": "string or null",
-  "suggestedBaseRateBps": number or null,
-  "suggestedReputationMultiplier": number or null
-}`;
+  "invoiceNumber": "string",
+  "issueDate": "YYYY-MM-DD",
+  "maturityDate": "YYYY-MM-DD",
+  "totalAmountCents": integer,
+  "currency": "USD",
+  "debtorName": "string",
+  "debtorEmail": "string",
+  "debtorTaxId": "string",
+  "supplierName": "string",
+  "supplierTaxId": "string"
+}
+
+Rules: totalAmountCents = total amount x 100 as integer. Use "" for missing strings, 0 for missing numbers.
+`.trim();
 
 const invoiceJsonSchema = {
   type: "object",
   properties: {
-    invoiceNumber: { type: ["string", "null"], description: "Invoice number or reference." },
-    supplierName: { type: ["string", "null"], description: "Supplier or seller legal name." },
-    debtorName: { type: ["string", "null"], description: "Buyer or debtor legal name." },
-    debtorEmail: { type: ["string", "null"], description: "Buyer or debtor email address." },
-    invoiceDate: { type: ["string", "null"], description: "Invoice issue date in YYYY-MM-DD format." },
-    dueDate: { type: ["string", "null"], description: "Payment due date in YYYY-MM-DD format." },
-    faceValueUSD: { type: ["number", "null"], description: "Invoice amount in USD as a number." },
-    currency: { type: ["string", "null"], description: "Invoice currency code like USD, EUR, GBP." },
-    description: { type: ["string", "null"], description: "Goods or services description." },
-    debtorAddress: { type: ["string", "null"], description: "Ethereum address only if explicitly present in the document." },
-    supplierTaxId: { type: ["string", "null"], description: "Supplier tax ID or registration number." },
-    debtorTaxId: { type: ["string", "null"], description: "Buyer tax ID or registration number." },
-    suggestedBaseRateBps: { type: ["integer", "null"], description: "Suggested base rate in basis points." },
-    suggestedReputationMultiplier: { type: ["integer", "null"], description: "Suggested reputation multiplier integer." },
+    invoiceNumber: { type: "string", description: "Invoice number or reference." },
+    issueDate: { type: "string", description: "Invoice issue date in YYYY-MM-DD format." },
+    maturityDate: { type: "string", description: "Payment due date in YYYY-MM-DD format." },
+    totalAmountCents: { type: "integer", description: "Invoice amount multiplied by 100." },
+    currency: { type: "string", description: "Invoice currency code." },
+    debtorName: { type: "string", description: "Buyer or debtor legal name." },
+    debtorEmail: { type: "string", description: "Buyer or debtor email address." },
+    debtorTaxId: { type: "string", description: "Buyer tax ID or registration number." },
+    supplierName: { type: "string", description: "Supplier or seller legal name." },
+    supplierTaxId: { type: "string", description: "Supplier tax ID or registration number." },
   },
   required: [
     "invoiceNumber",
-    "supplierName",
+    "issueDate",
+    "maturityDate",
+    "totalAmountCents",
+    "currency",
     "debtorName",
     "debtorEmail",
-    "invoiceDate",
-    "dueDate",
-    "faceValueUSD",
-    "currency",
-    "description",
-    "debtorAddress",
-    "supplierTaxId",
     "debtorTaxId",
-    "suggestedBaseRateBps",
-    "suggestedReputationMultiplier",
+    "supplierName",
+    "supplierTaxId",
   ],
   additionalProperties: false,
 } as const;
@@ -97,23 +85,41 @@ function cleanGeminiJson(rawText: string) {
 }
 
 function parseJsonFields(rawText: string): InvoiceFields {
-  const parsed = JSON.parse(cleanGeminiJson(rawText)) as Partial<InvoiceFields>;
+  const parsed = JSON.parse(cleanGeminiJson(rawText)) as Partial<InvoiceFields> & {
+    invoiceDate?: string | null;
+    dueDate?: string | null;
+    faceValueUSD?: number | null;
+    debtorAddress?: string | null;
+  };
+  const totalAmountCents =
+    typeof parsed.totalAmountCents === "number"
+      ? parsed.totalAmountCents
+      : typeof parsed.faceValueUSD === "number"
+        ? Math.round(parsed.faceValueUSD * 100)
+        : 0;
+
   return {
-    invoiceNumber: typeof parsed.invoiceNumber === "string" ? parsed.invoiceNumber : null,
-    supplierName: typeof parsed.supplierName === "string" ? parsed.supplierName : null,
-    debtorName: typeof parsed.debtorName === "string" ? parsed.debtorName : null,
-    debtorEmail: typeof parsed.debtorEmail === "string" ? parsed.debtorEmail : null,
-    invoiceDate: typeof parsed.invoiceDate === "string" ? parsed.invoiceDate : null,
-    dueDate: typeof parsed.dueDate === "string" ? parsed.dueDate : null,
-    faceValueUSD: typeof parsed.faceValueUSD === "number" ? parsed.faceValueUSD : null,
-    currency: typeof parsed.currency === "string" ? parsed.currency : null,
-    description: typeof parsed.description === "string" ? parsed.description : null,
-    debtorAddress: typeof parsed.debtorAddress === "string" ? parsed.debtorAddress : null,
-    supplierTaxId: typeof parsed.supplierTaxId === "string" ? parsed.supplierTaxId : null,
-    debtorTaxId: typeof parsed.debtorTaxId === "string" ? parsed.debtorTaxId : null,
-    suggestedBaseRateBps: typeof parsed.suggestedBaseRateBps === "number" ? parsed.suggestedBaseRateBps : null,
-    suggestedReputationMultiplier:
-      typeof parsed.suggestedReputationMultiplier === "number" ? parsed.suggestedReputationMultiplier : null,
+    invoiceNumber: typeof parsed.invoiceNumber === "string" ? parsed.invoiceNumber : "",
+    issueDate:
+      typeof parsed.issueDate === "string"
+        ? parsed.issueDate
+        : typeof parsed.invoiceDate === "string"
+          ? parsed.invoiceDate
+          : "",
+    maturityDate:
+      typeof parsed.maturityDate === "string"
+        ? parsed.maturityDate
+        : typeof parsed.dueDate === "string"
+          ? parsed.dueDate
+          : "",
+    totalAmountCents,
+    currency: typeof parsed.currency === "string" ? parsed.currency : "USD",
+    debtorName: typeof parsed.debtorName === "string" ? parsed.debtorName : "",
+    debtorEmail: typeof parsed.debtorEmail === "string" ? parsed.debtorEmail : "",
+    debtorTaxId: typeof parsed.debtorTaxId === "string" ? parsed.debtorTaxId : "",
+    supplierName: typeof parsed.supplierName === "string" ? parsed.supplierName : "",
+    supplierTaxId: typeof parsed.supplierTaxId === "string" ? parsed.supplierTaxId : "",
+    debtorAddress: typeof parsed.debtorAddress === "string" ? parsed.debtorAddress : "",
   };
 }
 
@@ -125,7 +131,7 @@ function hashFingerprint(material: string) {
   return hash & 0x7fffffffffffffffn;
 }
 
-function toDateSeconds(dateText: string | null) {
+function toDateSeconds(dateText: string) {
   if (!dateText) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
   const seconds = Math.floor(new Date(`${dateText}T00:00:00.000Z`).getTime() / 1000);
@@ -137,26 +143,18 @@ function validateAndNormalize(fields: InvoiceFields, logisticsData: Record<strin
     throw new Error("Gemini response did not include an invoice number.");
   }
 
-  if (typeof fields.faceValueUSD !== "number" || !Number.isFinite(fields.faceValueUSD) || fields.faceValueUSD <= 0) {
+  if (!Number.isInteger(fields.totalAmountCents) || fields.totalAmountCents <= 0) {
     throw new Error("Gemini response did not include a valid positive invoice amount.");
   }
 
-  const dueDateSeconds = toDateSeconds(fields.dueDate);
+  const dueDateSeconds = toDateSeconds(fields.maturityDate);
   if (!dueDateSeconds) {
-    throw new Error("Gemini response did not include a valid YYYY-MM-DD due date.");
+    throw new Error("Gemini response did not include a valid YYYY-MM-DD maturityDate.");
   }
 
   if (fields.debtorAddress && !/^0x[0-9a-fA-F]{40}$/.test(fields.debtorAddress)) {
     throw new Error("Gemini response included an invalid debtor wallet address.");
   }
-
-  const baseRate = Number.isInteger(fields.suggestedBaseRateBps) && Number(fields.suggestedBaseRateBps) > 0
-    ? Number(fields.suggestedBaseRateBps)
-    : DEFAULT_BASE_RATE_BPS;
-  const reputationMultiplier =
-    Number.isInteger(fields.suggestedReputationMultiplier) && Number(fields.suggestedReputationMultiplier) > 0
-      ? Number(fields.suggestedReputationMultiplier)
-      : DEFAULT_REPUTATION_MULTIPLIER;
 
   const fingerprintMaterial = [
     fields.invoiceNumber,
@@ -168,16 +166,17 @@ function validateAndNormalize(fields: InvoiceFields, logisticsData: Record<strin
   ].join("|");
 
   return {
-    faceValue: BigInt(Math.round(fields.faceValueUSD * 1_000_000)),
+    faceValue: BigInt(fields.totalAmountCents) * 10_000n,
     dueDate: BigInt(dueDateSeconds),
     fingerprint: hashFingerprint(fingerprintMaterial),
-    baseRate: BigInt(baseRate),
-    reputationMultiplier: BigInt(reputationMultiplier),
+    baseRate: BigInt(DEFAULT_BASE_RATE_BPS),
+    reputationMultiplier: BigInt(DEFAULT_REPUTATION_MULTIPLIER),
     debtor: fields.debtorAddress ?? "",
   };
 }
 
 async function callGeminiPdf(geminiKey: string, pdfBase64: string, prompt: string) {
+  const cleanBase64 = pdfBase64.includes(",") ? pdfBase64.split(",")[1] : pdfBase64;
   const geminiRes = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${geminiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -188,7 +187,7 @@ async function callGeminiPdf(geminiKey: string, pdfBase64: string, prompt: strin
             {
               inline_data: {
                 mime_type: "application/pdf",
-                data: pdfBase64,
+                data: cleanBase64,
               },
             },
             { text: prompt },
@@ -237,7 +236,7 @@ async function callGeminiTextFallback(geminiKey: string, pdfBuffer: Buffer) {
         {
           parts: [
             {
-              text: `${extractionPrompt}
+              text: `${PARSE_PROMPT}
 
 Invoice text content:
 ---
@@ -286,7 +285,8 @@ async function getRequestFiles(req: NextRequest) {
     return { pdfFile: null, xmlFile: null };
   }
 
-  const pdfBuffer = Buffer.from(pdfBase64, "base64");
+  const cleanBase64 = pdfBase64.includes(",") ? pdfBase64.split(",")[1] : pdfBase64;
+  const pdfBuffer = Buffer.from(cleanBase64, "base64");
   return {
     pdfFile: new File([pdfBuffer], "invoice.pdf", { type: "application/pdf" }),
     xmlFile: null,
@@ -327,10 +327,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "PDF file required" }, { status: 400 });
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not configured on the server" },
+        { error: "GEMINI_API_KEY not set in Vercel env vars. Add as server-side variable (no NEXT_PUBLIC_ prefix)." },
         { status: 500 }
       );
     }
@@ -351,16 +351,16 @@ export async function POST(req: NextRequest) {
     let parseMethod: string;
 
     try {
-      invoiceFields = await callGeminiPdf(geminiKey, pdfBase64, extractionPrompt);
+      invoiceFields = await callGeminiPdf(apiKey, pdfBase64, PARSE_PROMPT);
       parseMethod = `${GEMINI_MODEL}-native-pdf`;
     } catch (pathAError) {
       console.warn("[parse-invoice] Native PDF pass 1 failed, trying OCR-focused retry:", pathAError);
 
       try {
         invoiceFields = await callGeminiPdf(
-          geminiKey,
+          apiKey,
           pdfBase64,
-          `${extractionPrompt}
+          `${PARSE_PROMPT}
 
 This PDF may be a scanned invoice. Use the rendered page images and OCR what you can from the document itself.
 Do not guess fields that are not visible.`
@@ -370,7 +370,7 @@ Do not guess fields that are not visible.`
         console.warn("[parse-invoice] Native PDF retry failed, trying text fallback:", pathBError);
 
         try {
-          invoiceFields = await callGeminiTextFallback(geminiKey, pdfBuffer);
+          invoiceFields = await callGeminiTextFallback(apiKey, pdfBuffer);
           parseMethod = `${GEMINI_MODEL}-text-fallback`;
         } catch (pathCError) {
           console.error("[parse-invoice] All parse paths failed:", pathCError);
@@ -402,6 +402,12 @@ Do not guess fields that are not visible.`
     });
   } catch (err) {
     console.error("[parse-invoice] Unhandled error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Invoice parsing failed.",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
   }
 }
