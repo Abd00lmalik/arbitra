@@ -58,9 +58,14 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
-const FALLBACK_SEPOLIA_GAS_PRICE = parseGwei("2");
-const MIN_FRAUD_CHECK_GAS_BUFFER = parseEther("0.002");
-const MIN_ETH_FOR_UPLOAD = parseEther("0.005");
+const FALLBACK_SEPOLIA_GAS_PRICE  = parseGwei("2");
+/* Realistic minimum for a single FHE transaction at typical Sepolia gas prices.
+ * FHE ops need ~1-3M gas; at 35 Gwei that is ~0.07 ETH minimum.              */
+const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
+const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
+/* Hard gas caps — prevents Wagmi/viem's inflated simulation estimates           */
+const FRAUD_CHECK_GAS_CAP         = 2_000_000n;
+const UPLOAD_GAS_CAP              = 14_000_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
@@ -319,11 +324,31 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       activeWallet
     );
 
-    setFraudCheckStep("Preparing Sepolia fraud check transaction...");
+    /* Check ETH balance before attempting a gas-heavy FHE transaction */
+    const walletBalance = await publicClient.getBalance({ address: activeWallet });
     const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
     const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
+    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;
 
-    const uniquenessSimulation = await publicClient.simulateContract({
+    if (walletBalance < MIN_FRAUD_CHECK_GAS_BUFFER) {
+      const need = MIN_FRAUD_CHECK_GAS_BUFFER;
+      const shortfall = need > walletBalance ? need - walletBalance : 0n;
+      throw new Error(
+        `Insufficient ETH for fraud check gas. Balance: ${formatEthAmount(walletBalance)} ETH. ` +
+        `At current gas price (${gasPriceGwei} Gwei) the fraud check costs ~${formatEthAmount(estimatedCost)} ETH. ` +
+        `Please top up your Sepolia ETH wallet — you need at least ${formatEthAmount(shortfall)} more ETH. ` +
+        `Get free Sepolia ETH at sepoliafaucet.com or via the Alchemy faucet.`
+      );
+    }
+
+    /* Skip simulateContract — its gas/maxFeePerGas estimates are inflated for FHE calls
+     * and produce impossible tx costs (e.g. 74 ETH). Write directly with a capped gas.  */
+    setFraudCheckStep(`Gas: ${gasPriceGwei} Gwei · Est. cost: ~${formatEthAmount(estimatedCost)} ETH — awaiting wallet approval...`);
+    setFraudCheckAwaitingWallet(true);
+    setFraudCheckStep("Check your wallet — approve the fraud check transaction.");
+
+    const duplicateTxHash = await walletClient.writeContract({
+      chain: walletClient.chain,
       account: activeWallet,
       address: FINGERPRINT_REGISTRY_ADDRESS,
       abi: FINGERPRINT_REGISTRY_ABI,
@@ -334,25 +359,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         encryptedInputs.handle2,
         encryptedInputs.inputProof,
       ],
-    });
-
-    const walletBalance = await publicClient.getBalance({ address: activeWallet });
-    if (walletBalance < MIN_FRAUD_CHECK_GAS_BUFFER) {
-      const shortfall = MIN_FRAUD_CHECK_GAS_BUFFER - walletBalance;
-      throw new Error(
-        `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Recommended minimum: ${formatEthAmount(MIN_FRAUD_CHECK_GAS_BUFFER)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
-      );
-    }
-
-    setFraudCheckStep(
-      `Gas price: ${gasPriceGwei} Gwei — awaiting wallet approval...`
-    );
-    setFraudCheckAwaitingWallet(true);
-    setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
-    /* Explicit gas cap: FHE checkInvoiceUniqueness can overestimate beyond Sepolia’s 16.7M block cap. */
-    const duplicateTxHash = await walletClient.writeContract({
-      ...(uniquenessSimulation.request as any),
-      gas: 10_000_000n,
+      gas: FRAUD_CHECK_GAS_CAP,
     });
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
