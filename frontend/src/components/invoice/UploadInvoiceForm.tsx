@@ -19,6 +19,7 @@ import {
   useUploadInvoice,
   useInvoiceCount,
   useApproveUSDC,
+  useStakeCollateral,
   useUSDCBalance,
   useUSDCAllowance
 } from "@/hooks/useArbitraRegistry";
@@ -95,7 +96,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { uploadInvoice } = useUploadInvoice();
   
   const { approveUSDC, isPending: approvePending } = useApproveUSDC();
-  const stakePending = false;
+  const { stakeCollateral, isPending: stakePending } = useStakeCollateral();
   const { data: rawCount } = useInvoiceCount();
   const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(activeWallet);
   const { data: ethBalance } = useBalance({
@@ -483,6 +484,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         throw new Error("Wallet not connected for collateral staking.");
       }
 
+      /* Quick on-chain read to skip re-staking if already done in a prior session */
       const currentStake = await publicClient.readContract({
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
@@ -502,43 +504,16 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         return;
       }
 
-      const stakeSimulation = await publicClient.simulateContract({
-        account: activeWallet,
-        address: COLLATERAL_VAULT_ADDRESS,
-        abi: COLLATERAL_VAULT_ABI,
-        functionName: "stakeCollateral",
-        args: [nextInvoiceId, invoice.faceValue],
-      });
+      /* Use the hook (already gas-capped at 500k) to send the stake TX */
+      const stakeTxHash = await stakeCollateral(nextInvoiceId, invoice.faceValue);
 
-      const estimatedGas = await publicClient.estimateContractGas({
-        account: activeWallet,
-        address: COLLATERAL_VAULT_ADDRESS,
-        abi: COLLATERAL_VAULT_ABI,
-        functionName: "stakeCollateral",
-        args: [nextInvoiceId, invoice.faceValue],
-      });
-      const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
-      const walletBalance = await publicClient.getBalance({ address: activeWallet });
-      const estimatedCost = estimatedGas * gasPrice;
-      const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
-
-      if (walletBalance < estimatedCost) {
-        const shortfall = estimatedCost - walletBalance;
-        throw new Error(
-          `Insufficient ETH for collateral staking gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Required: ~${formatEthAmount(estimatedCost)} ETH (at ${gasPriceGwei} Gwei). Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
-        );
-      }
-
-      const stakeTxHash = await walletClient.writeContract({
-        ...(stakeSimulation.request as any),
-      });
       const stakeReceipt = await publicClient.waitForTransactionReceipt({
         hash: stakeTxHash,
         confirmations: 1,
         timeout: 120_000,
       });
       if (stakeReceipt.status !== "success") {
-        throw new Error("Collateral staking transaction reverted.");
+        throw new Error("Collateral staking transaction reverted on-chain.");
       }
       /* Refresh USDC balance so the updated amount is visible to the user */
       refetchUSDC();
@@ -552,7 +527,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         void runProgressiveEncryption();
         return;
       }
-      setErrorMsg(message || "Collateral staking failed.");
+      setErrorMsg(message || "Collateral staking failed. Make sure you have approved USDC first.");
     }
   };
 
