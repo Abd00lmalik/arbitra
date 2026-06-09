@@ -10,6 +10,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { useAccount, useBalance, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatEther, parseEther, parseGwei } from "viem";
+import { useRouter } from "next/navigation";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
@@ -87,6 +88,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const router = useRouter();
   const { wallet: web3AuthWallet } = useWeb3Auth();
   const activeWallet = (web3AuthWallet ?? walletClient?.account?.address ?? address) as `0x${string}` | undefined;
   const { instance, isReady: zamaReady } = useZama();
@@ -616,6 +618,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       if (onSuccess) {
         onSuccess(nextInvoiceId);
       }
+      setTimeout(() => {
+        router.push(`/marketplace?new=${nextInvoiceId.toString()}`);
+      }, 2000);
       /* Auto-send verification email */
       setSendingEmail(true);
       try {
