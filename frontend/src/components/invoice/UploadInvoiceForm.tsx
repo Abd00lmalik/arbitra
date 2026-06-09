@@ -328,15 +328,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     const walletBalance = await publicClient.getBalance({ address: activeWallet });
     const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
     const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
-    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;
-
-    if (walletBalance < MIN_FRAUD_CHECK_GAS_BUFFER) {
-      const need = MIN_FRAUD_CHECK_GAS_BUFFER;
-      const shortfall = need > walletBalance ? need - walletBalance : 0n;
+    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;    /* Need 20% headroom above the estimated cost so a gas-price spike mid-tx doesn't fail */
+    const requiredBalance = (estimatedCost * 12n) / 10n;
+    if (walletBalance < requiredBalance) {
+      const shortfall = requiredBalance - walletBalance;
       throw new Error(
         `Insufficient ETH for fraud check gas. Balance: ${formatEthAmount(walletBalance)} ETH. ` +
         `At current gas price (${gasPriceGwei} Gwei) the fraud check costs ~${formatEthAmount(estimatedCost)} ETH. ` +
-        `Please top up your Sepolia ETH wallet — you need at least ${formatEthAmount(shortfall)} more ETH. ` +
+        `You need at least ${formatEthAmount(shortfall)} more ETH. ` +
         `Get free Sepolia ETH at sepoliafaucet.com or via the Alchemy faucet.`
       );
     }
