@@ -349,8 +349,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
+    /* Explicit gas cap: FHE checkInvoiceUniqueness can overestimate beyond Sepolia’s 16.7M block cap. */
     const duplicateTxHash = await walletClient.writeContract({
       ...(uniquenessSimulation.request as any),
+      gas: 10_000_000n,
     });
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
