@@ -320,6 +320,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
     setFraudCheckStep("Preparing Sepolia fraud check transaction...");
     const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
+    const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
 
     const uniquenessSimulation = await publicClient.simulateContract({
       account: activeWallet,
@@ -343,7 +344,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     setFraudCheckStep(
-      `Live Sepolia gas price: ${gasPrice.toString()} wei. Requesting wallet-estimated approval...`
+      `Gas price: ${gasPriceGwei} Gwei — awaiting wallet approval...`
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
@@ -446,7 +447,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         throw new Error("Sepolia public client unavailable for approval confirmation.");
       }
 
-      const approvalTxHash = await approveUSDC(COLLATERAL_VAULT_ADDRESS, requiredCollateral);
+      /* Approve a generous allowance (10x the required) so the user isn't asked again
+       * if they upload another invoice with a slightly larger face value in the same session. */
+      const generousAllowance = requiredCollateral * 10n + requiredCollateral;
+      const approvalTxHash = await approveUSDC(COLLATERAL_VAULT_ADDRESS, generousAllowance);
       await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       refetchAllowance();
     } catch (e: any) {
@@ -456,6 +460,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   const handleStakeCollateral = async () => {
     setErrorMsg(null);
+
+    /* Guard: faceValue must be non-zero before attempting stake */
+    if (invoice.faceValue === 0n) {
+      setErrorMsg("Invoice face value is zero. Please re-upload your invoice PDF and verify the amount was parsed correctly.");
+      return;
+    }
+
     if (alreadyStaked) {
       setWizardStep(4);
       void runProgressiveEncryption();
@@ -463,7 +474,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     if (usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral) {
-      setErrorMsg("Insufficient USDC balance to cover the 5% collateral requirement.");
+      setErrorMsg(`Insufficient USDC balance. You need $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC (5% of face value) but only have $${(Number(usdcBalance) / 1e6).toFixed(2)} USDC. Get test USDC from faucet.circle.com.`);
       return;
     }
 
@@ -509,11 +520,12 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
       const walletBalance = await publicClient.getBalance({ address: activeWallet });
       const estimatedCost = estimatedGas * gasPrice;
+      const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
 
       if (walletBalance < estimatedCost) {
         const shortfall = estimatedCost - walletBalance;
         throw new Error(
-          `Insufficient ETH for collateral staking gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Required: ${formatEthAmount(estimatedCost)} ETH. Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
+          `Insufficient ETH for collateral staking gas. Wallet balance: ${formatEthAmount(walletBalance)} ETH. Required: ~${formatEthAmount(estimatedCost)} ETH (at ${gasPriceGwei} Gwei). Add about ${formatEthAmount(shortfall)} ETH more on Sepolia and try again.`
         );
       }
 
@@ -528,6 +540,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       if (stakeReceipt.status !== "success") {
         throw new Error("Collateral staking transaction reverted.");
       }
+      /* Refresh USDC balance so the updated amount is visible to the user */
+      refetchUSDC();
+      refetchAllowance();
       setWizardStep(4);
       void runProgressiveEncryption();
     } catch (e: any) {
@@ -879,11 +894,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Live Sepolia gas price</span>
                 <span className="font-mono text-neon-cyan">
-                  {fraudCheckDisplayGasPrice.toString()} wei
+                  {(Number(fraudCheckDisplayGasPrice) / 1e9).toFixed(3)} Gwei
                 </span>
               </div>
               <p className="text-[10px] leading-relaxed text-slate-500">
-                The wallet estimates gas for the fraud check transaction before approval.
+                The wallet estimates gas for the fraud check transaction before approval. Typical fraud check cost is ~0.002–0.005 ETH.
               </p>
             </div>
 
@@ -979,13 +994,20 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
             <div className="p-4 rounded-xl bg-white/2 border border-white/5 space-y-3 text-xs">
               <div className="flex justify-between items-center pb-1 border-b border-white/5">
+                <span className="text-slate-500">Invoice Face Value</span>
+                <span className="text-white font-mono">${fromMicroUnits(invoice.faceValue)} USDC</span>
+              </div>
+              <div className="flex justify-between items-center pb-1 border-b border-white/5">
                 <span className="text-slate-500">Required Collateral (5%)</span>
                 <span className="text-neon-cyan font-mono font-semibold">${fromMicroUnits(requiredCollateral)} USDC</span>
               </div>
               <div className="flex justify-between items-center pb-1 border-b border-white/5">
                 <span className="text-slate-500">Your USDC Balance</span>
-                <span className="text-white font-mono">
+                <span className={`font-mono ${usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral ? 'text-neon-pink' : 'text-white'}`}>
                   {usdcBalance !== undefined ? `$${fromMicroUnits(BigInt(usdcBalance))} USDC` : "Loading..."}
+                  {usdcBalance !== undefined && BigInt(usdcBalance) < requiredCollateral && (
+                    <span className="ml-2 text-[9px] text-neon-pink">(insufficient)</span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between items-center">
