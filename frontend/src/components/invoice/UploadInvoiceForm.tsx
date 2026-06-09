@@ -242,7 +242,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error ?? "Failed to parse invoice via Gemini AI.");
+        const errorText = data.details ? `${data.error ?? "Failed to parse invoice via Gemini AI."} ${data.details}` : data.error;
+        throw new Error(errorText ?? "Failed to parse invoice via Gemini AI.");
       }
         
       setInvoice({
