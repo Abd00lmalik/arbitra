@@ -7,14 +7,14 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
-import { useAccount, useBalance, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, useBalance, usePublicClient, useReadContracts, useWaitForTransactionReceipt } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatEther, parseEther, parseGwei } from "viem";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
-import { useWeb3Auth } from "@/providers/Web3AuthProvider";
+
 import {
   useUploadInvoice,
   useInvoiceCount,
@@ -23,6 +23,7 @@ import {
   useUSDCBalance,
   useUSDCAllowance
 } from "@/hooks/useArbitraRegistry";
+import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import { useZama } from "@/providers/ZamaProvider";
 import {
   ARBITRA_REGISTRY_ADDRESS,
@@ -94,11 +95,12 @@ function formatGasAwareError(error: unknown) {
 
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
-  const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const router = useRouter();
-  const { wallet: web3AuthWallet } = useWeb3Auth();
-  const activeWallet = (web3AuthWallet ?? walletClient?.account?.address ?? address) as `0x${string}` | undefined;
+
+  /* Unified wallet detection: embedded (Web3Auth social/email) vs external (MetaMask / Keystone / WC) */
+  const { walletClient, activeWallet, isEmbedded } = useActiveWalletClient();
+
   const { instance, isReady: zamaReady } = useZama();
   const { uploadInvoice } = useUploadInvoice();
   
