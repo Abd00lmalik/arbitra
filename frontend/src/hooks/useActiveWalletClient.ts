@@ -1,46 +1,60 @@
 /*
  * @file useActiveWalletClient.ts
- * @description Returns the correct viem WalletClient and signer address for whichever
- *              wallet type the user is authenticated with:
+ * @description Returns the correct wallet interface for whichever wallet type
+ *              the user is authenticated with.
  *
- *              - Web3Auth embedded wallet (social login / email OTP):
- *                Uses the raw Web3Auth EIP-1193 provider to build a dedicated viem
- *                WalletClient.  This is necessary because wagmi's walletClient is
- *                bound to whichever connector is currently "primary" in the config
- *                (could be Keystone, MetaMask, etc.) even when the user has logged
- *                in via Web3Auth.
+ *              Web3Auth embedded wallet (social / email):
+ *                Exposes the raw EIP-1193 provider so callers can build an
+ *                ethers.js BrowserProvider — the only approach proven to work
+ *                reliably with the Web3Auth SDK.  Do NOT build a viem
+ *                WalletClient from the Web3Auth provider; viem's JSON-RPC
+ *                account path calls eth_sendTransaction with an explicit
+ *                "from" field that some providers ignore, causing the wrong
+ *                signer to be used and on-chain msg.sender mismatches.
  *
- *              - External wallet (MetaMask / Keystone / WalletConnect / etc.):
- *                Falls back to wagmi's standard useWalletClient() hook, which is
+ *              External wallet (MetaMask / Keystone / WalletConnect):
+ *                Uses wagmi's standard useWalletClient() hook which is
  *                already correctly bound to the external connector.
  *
  *  Usage:
- *    const { walletClient, activeWallet, isEmbedded } = useActiveWalletClient();
+ *    const { walletClient, activeWallet, isEmbedded, getEmbeddedSigner }
+ *          = useActiveWalletClient();
+ *
+ *    if (isEmbedded) {
+ *      const signer = await getEmbeddedSigner();
+ *      // use ethers.js Contract(addr, abi, signer)
+ *    } else {
+ *      await walletClient.writeContract({ account: activeWallet, ... });
+ *    }
  */
 
 "use client";
 
-import { useMemo } from "react";
+import { useCallback } from "react";
 import { useWalletClient, useAccount } from "wagmi";
-import { createWalletClient, custom, type WalletClient } from "viem";
-import { sepolia } from "viem/chains";
+import { type WalletClient } from "viem";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 
 export interface ActiveWalletResult {
-  /** Viem WalletClient bound to the CORRECT signer for this session */
+  /** Viem WalletClient for EXTERNAL wallets (null when using embedded wallet) */
   walletClient: WalletClient | null;
   /** Ethereum address of the active signer */
   activeWallet: `0x${string}` | undefined;
   /** True when the active wallet is a Web3Auth embedded (social/email) wallet */
   isEmbedded: boolean;
-  /** True when a usable walletClient is available */
+  /** True when a usable signer is available */
   isReady: boolean;
+  /**
+   * Returns an ethers.js JsonRpcSigner for the embedded wallet.
+   * Throws if called for a non-embedded wallet session.
+   * Import ethers lazily: const { ethers } = await import("ethers");
+   */
+  getEmbeddedSigner: () => Promise<any>;
 }
 
 /**
- * Returns a unified wallet interface that works correctly regardless of
- * whether the user is authenticated via Web3Auth (embedded wallet) or an
- * external browser/hardware wallet.
+ * Unified wallet interface that correctly handles both embedded (Web3Auth) and
+ * external (MetaMask / Keystone / WalletConnect) wallets.
  */
 export function useActiveWalletClient(): ActiveWalletResult {
   const { wallet: web3AuthWallet, getProvider } = useWeb3Auth();
@@ -49,33 +63,34 @@ export function useActiveWalletClient(): ActiveWalletResult {
 
   const isEmbedded = Boolean(web3AuthWallet);
 
-  const walletClient: WalletClient | null = useMemo(() => {
-    if (isEmbedded) {
-      /* Embedded wallet path — build a viem WalletClient from the Web3Auth
-       * EIP-1193 provider.  This ensures transactions are signed by the
-       * social-login key, not by whatever external wallet wagmi has active. */
-      const provider = getProvider();
-      if (!provider || !web3AuthWallet) return null;
-
-      return createWalletClient({
-        account: web3AuthWallet,
-        chain: sepolia,
-        transport: custom(provider),
-      });
-    }
-
-    /* External wallet path — wagmi's walletClient is already correct */
-    return wagmiWalletClient ?? null;
-  }, [isEmbedded, getProvider, web3AuthWallet, wagmiWalletClient]);
+  /* For external wallets: wagmi's walletClient is already correct. */
+  const walletClient: WalletClient | null = isEmbedded
+    ? null
+    : (wagmiWalletClient ?? null);
 
   const activeWallet: `0x${string}` | undefined = isEmbedded
     ? (web3AuthWallet ?? undefined)
     : (wagmiWalletClient?.account?.address ?? wagmiAddress);
 
+  const getEmbeddedSigner = useCallback(async () => {
+    if (!isEmbedded) {
+      throw new Error("getEmbeddedSigner() called for a non-embedded wallet session.");
+    }
+    const provider = getProvider();
+    if (!provider) {
+      throw new Error("Web3Auth provider is not available. Please log in again.");
+    }
+    const { ethers } = await import("ethers");
+    const ethProvider = new ethers.BrowserProvider(provider);
+    const signer = await ethProvider.getSigner();
+    return signer;
+  }, [isEmbedded, getProvider]);
+
   return {
     walletClient,
     activeWallet,
     isEmbedded,
-    isReady: Boolean(walletClient && activeWallet),
+    isReady: isEmbedded ? Boolean(web3AuthWallet && getProvider()) : Boolean(wagmiWalletClient && activeWallet),
+    getEmbeddedSigner,
   };
 }

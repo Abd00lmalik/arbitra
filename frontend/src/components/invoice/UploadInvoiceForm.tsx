@@ -27,6 +27,7 @@ import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import { useZama } from "@/providers/ZamaProvider";
 import {
   ARBITRA_REGISTRY_ADDRESS,
+  ARBITRA_REGISTRY_ABI,
   COLLATERAL_VAULT_ADDRESS,
   COLLATERAL_VAULT_ABI,
   FINGERPRINT_REGISTRY_ABI,
@@ -99,7 +100,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const router = useRouter();
 
   /* Unified wallet detection: embedded (Web3Auth social/email) vs external (MetaMask / Keystone / WC) */
-  const { walletClient, activeWallet, isEmbedded } = useActiveWalletClient();
+  const { walletClient, activeWallet, isEmbedded, getEmbeddedSigner } = useActiveWalletClient();
 
   const { instance, isReady: zamaReady } = useZama();
   const { uploadInvoice } = useUploadInvoice();
@@ -317,7 +318,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   };
 
   const runEncryptedDuplicatePreflight = async (fingerprint: bigint) => {
-    if (!instance || !activeWallet || !walletClient || !publicClient) {
+    if (!instance || !activeWallet || !publicClient || (!isEmbedded && !walletClient)) {
       throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
     }
 
@@ -352,20 +353,35 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet — approve the fraud check transaction.");
 
-    const duplicateTxHash = await walletClient.writeContract({
-      chain: walletClient.chain,
-      account: activeWallet,
-      address: FINGERPRINT_REGISTRY_ADDRESS,
-      abi: FINGERPRINT_REGISTRY_ABI,
-      functionName: "checkInvoiceUniqueness",
-      args: [
+    let duplicateTxHash: `0x${string}`;
+    if (isEmbedded) {
+      const signer = await getEmbeddedSigner();
+      const { ethers } = await import("ethers");
+      const contract = new ethers.Contract(FINGERPRINT_REGISTRY_ADDRESS, FINGERPRINT_REGISTRY_ABI, signer);
+      const tx = await contract.checkInvoiceUniqueness(
         encryptedInputs.handle1,
         encryptedInputs.inputProof,
         encryptedInputs.handle2,
         encryptedInputs.inputProof,
-      ],
-      gas: FRAUD_CHECK_GAS_CAP,
-    });
+        { gasLimit: FRAUD_CHECK_GAS_CAP }
+      );
+      duplicateTxHash = tx.hash as `0x${string}`;
+    } else {
+      duplicateTxHash = await walletClient!.writeContract({
+        chain: walletClient!.chain,
+        account: activeWallet,
+        address: FINGERPRINT_REGISTRY_ADDRESS,
+        abi: FINGERPRINT_REGISTRY_ABI,
+        functionName: "checkInvoiceUniqueness",
+        args: [
+          encryptedInputs.handle1,
+          encryptedInputs.inputProof,
+          encryptedInputs.handle2,
+          encryptedInputs.inputProof,
+        ],
+        gas: FRAUD_CHECK_GAS_CAP,
+      });
+    }
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
 
@@ -393,19 +409,26 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
     const signerAdapter = {
       getAddress: async () => activeWallet,
-      signTypedData: (
+      signTypedData: async (
         domain: object,
         types: object,
         value: object
       ) => {
-        const primaryType = Object.keys(types).find((key) => key !== "EIP712Domain") ?? "";
-        return walletClient.signTypedData({
-          account: activeWallet,
-          domain: domain as any,
-          types: types as any,
-          primaryType: primaryType as any,
-          message: value as any,
-        });
+        if (isEmbedded) {
+          const signer = await getEmbeddedSigner();
+          const cleanTypes = { ...types } as any;
+          delete cleanTypes.EIP712Domain;
+          return signer.signTypedData(domain, cleanTypes, value);
+        } else {
+          const primaryType = Object.keys(types).find((key) => key !== "EIP712Domain") ?? "";
+          return walletClient!.signTypedData({
+            account: activeWallet,
+            domain: domain as any,
+            types: types as any,
+            primaryType: primaryType as any,
+            message: value as any,
+          });
+        }
       },
     };
 
@@ -458,20 +481,30 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const handleApproveCollateral = async () => {
     setErrorMsg(null);
     try {
-      if (!publicClient || !walletClient || !activeWallet) {
+      if (!publicClient || !activeWallet || (!isEmbedded && !walletClient)) {
         throw new Error("Wallet not connected for USDC approval.");
       }
 
       /* Approve a generous allowance so the user isn't re-prompted on the same session. */
       const generousAllowance = requiredCollateral * 11n;
-      const approvalTxHash = await walletClient.writeContract({
-        chain: walletClient.chain,
-        account: activeWallet,
-        address: USDC_ADDRESS,
-        abi: USDC_ABI,
-        functionName: "approve",
-        args: [COLLATERAL_VAULT_ADDRESS, generousAllowance],
-      });
+      let approvalTxHash: `0x${string}`;
+
+      if (isEmbedded) {
+        const signer = await getEmbeddedSigner();
+        const { ethers } = await import("ethers");
+        const contract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+        const tx = await contract.approve(COLLATERAL_VAULT_ADDRESS, generousAllowance);
+        approvalTxHash = tx.hash as `0x${string}`;
+      } else {
+        approvalTxHash = await walletClient!.writeContract({
+          chain: walletClient!.chain,
+          account: activeWallet,
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "approve",
+          args: [COLLATERAL_VAULT_ADDRESS, generousAllowance],
+        });
+      }
       await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       refetchAllowance();
     } catch (e: any) {
@@ -499,7 +532,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       return;
     }
 
-    if (!activeWallet || !walletClient || !publicClient) {
+    if (!activeWallet || !publicClient || (!isEmbedded && !walletClient)) {
       setErrorMsg("Wallet not connected.");
       return;
     }
@@ -535,15 +568,25 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setStakeStep(`Locking $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC collateral — confirm in wallet...`);
       let stakeTxHash: `0x${string}`;
       try {
-        stakeTxHash = await walletClient.writeContract({
-          chain: walletClient.chain,
-          account: activeWallet,
-          address: COLLATERAL_VAULT_ADDRESS,
-          abi: COLLATERAL_VAULT_ABI,
-          functionName: "stakeCollateral",
-          args: [nextInvoiceId, invoice.faceValue],
-          gas: 500_000n,
-        });
+        if (isEmbedded) {
+          const signer = await getEmbeddedSigner();
+          const { ethers } = await import("ethers");
+          const contract = new ethers.Contract(COLLATERAL_VAULT_ADDRESS, COLLATERAL_VAULT_ABI, signer);
+          const tx = await contract.stakeCollateral(nextInvoiceId, invoice.faceValue, {
+            gasLimit: 500_000n
+          });
+          stakeTxHash = tx.hash as `0x${string}`;
+        } else {
+          stakeTxHash = await walletClient!.writeContract({
+            chain: walletClient!.chain,
+            account: activeWallet,
+            address: COLLATERAL_VAULT_ADDRESS,
+            abi: COLLATERAL_VAULT_ABI,
+            functionName: "stakeCollateral",
+            args: [nextInvoiceId, invoice.faceValue],
+            gas: 500_000n,
+          });
+        }
       } catch (sendErr: any) {
         /* "already known" = identical tx already in mempool from a prior click.
          * Treat as success: wait for the pending tx to confirm instead.        */
@@ -600,7 +643,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   /* Step 4 Progressive local encryption and submit */
   const runProgressiveEncryption = async () => {
-    if (!instance || !activeWallet || !walletClient || !publicClient) {
+    if (!instance || !activeWallet || !publicClient || (!isEmbedded && !walletClient)) {
       setErrorMsg("FHEVM SDK or Wallet signer not available.");
       setWizardStep(5);
       return;
@@ -648,19 +691,38 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
       /* Substep 4: Submitting to Sepolia */
       setEncryptionSubstep("blockchain");
-      const hash = await uploadInvoice(
-        h1, proofHex,
-        h2, proofHex,
-        h3, proofHex,
-        h4, proofHex,
-        h5, proofHex,
-        invoice.debtor as `0x${string}`,
-        true,
-        invoice.faceValue
-      );
-
-      if (!hash) {
-        throw new Error("Upload transaction hash was not returned.");
+      let hash: `0x${string}`;
+      if (isEmbedded) {
+        const signer = await getEmbeddedSigner();
+        const { ethers } = await import("ethers");
+        const contract = new ethers.Contract(ARBITRA_REGISTRY_ADDRESS, ARBITRA_REGISTRY_ABI, signer);
+        const tx = await contract.uploadInvoice(
+          h1, proofHex,
+          h2, proofHex,
+          h3, proofHex,
+          h4, proofHex,
+          h5, proofHex,
+          invoice.debtor as `0x${string}`,
+          true,
+          invoice.faceValue,
+          { gasLimit: UPLOAD_GAS_CAP }
+        );
+        hash = tx.hash as `0x${string}`;
+      } else {
+        const txHashResult = await uploadInvoice(
+          h1, proofHex,
+          h2, proofHex,
+          h3, proofHex,
+          h4, proofHex,
+          h5, proofHex,
+          invoice.debtor as `0x${string}`,
+          true,
+          invoice.faceValue
+        );
+        if (!txHashResult) {
+          throw new Error("Upload transaction hash was not returned.");
+        }
+        hash = txHashResult;
       }
 
       const uploadReceipt = await publicClient.waitForTransactionReceipt({
