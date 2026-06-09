@@ -30,6 +30,9 @@ export function useAllInvoiceIds() {
     address: ARBITRA_REGISTRY_ADDRESS,
     abi: ARBITRA_REGISTRY_ABI,
     functionName: "getAllInvoiceIds",
+    query: {
+      refetchInterval: 15_000,
+    },
   });
 }
 
@@ -369,7 +372,10 @@ export function useRealInvoiceList() {
 
   const { data: results, isLoading: isLoadingInvoices, refetch } = useReadContracts({
     contracts,
-    query: { enabled: ids.length > 0 },
+    query: {
+      enabled: ids.length > 0,
+      refetchInterval: 15_000,
+    },
   });
 
   const invoices: InvoiceOnChain[] = [];

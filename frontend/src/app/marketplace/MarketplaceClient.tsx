@@ -21,12 +21,15 @@ import {
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { IDENTITY_ABI, IDENTITY_ADDRESS, InvoiceStatus, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type FilterTab = "all" | "available" | "factored" | "repaid";
 
 export default function MarketplaceClient() {
   const { wallet: web3authWallet } = useWeb3Auth();
   const { address, isConnected } = useAccount();
+  const searchParams = useSearchParams();
+  const newInvoiceId = searchParams.get("new");
   const wallet = web3authWallet ?? (isConnected && address ? address : null);
   const { data: hasSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
@@ -224,6 +227,7 @@ export default function MarketplaceClient() {
               >
                 <InvoiceMiniCard
                   invoice={inv}
+                  isNew={newInvoiceId === inv.invoiceId.toString()}
                   onClick={() => setSelectedInvoiceId(inv.invoiceId)}
                 />
               </motion.div>

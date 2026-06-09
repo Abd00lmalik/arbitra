@@ -14,9 +14,10 @@ import { shortAddress, InvoiceStatus, type InvoiceOnChain } from "@/lib/contract
 interface InvoiceMiniCardProps {
   invoice: InvoiceOnChain;
   onClick: () => void;
+  isNew?: boolean;
 }
 
-export function InvoiceMiniCard({ invoice, onClick }: InvoiceMiniCardProps) {
+export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMiniCardProps) {
   const isFactored = invoice.status >= InvoiceStatus.Factored;
   const isRepaid = invoice.status === InvoiceStatus.Settled;
   const isDisputed = invoice.status === InvoiceStatus.Disputed;
@@ -108,8 +109,19 @@ export function InvoiceMiniCard({ invoice, onClick }: InvoiceMiniCardProps) {
   };
 
   return (
-    <div onClick={onClick} style={{ cursor: "pointer" }}>
-      <GlassCard className="p-4 flex flex-col gap-3.5 transition-all duration-200" hover glow="cyan">
+    <div
+      onClick={onClick}
+      style={{
+        cursor: "pointer",
+        borderRadius: 16,
+        boxShadow: isNew ? "0 0 22px rgba(0, 240, 255, 0.16)" : "none",
+      }}
+    >
+      <GlassCard
+        className={`p-4 flex flex-col gap-3.5 transition-all duration-200 ${isNew ? "border-neon-cyan/50" : ""}`}
+        hover
+        glow="cyan"
+      >
         /* Header row */
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -134,6 +146,21 @@ export function InvoiceMiniCard({ invoice, onClick }: InvoiceMiniCardProps) {
             <span style={{ fontSize: "13px", fontWeight: 700, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
               Stable Invoice
             </span>
+            {isNew && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: "8px",
+                  background: "rgba(0, 255, 136, 0.08)",
+                  color: "#00FF88",
+                  border: "1px solid rgba(0, 255, 136, 0.2)",
+                }}
+              >
+                NEW
+              </span>
+            )}
           </div>
           {getStatusBadge()}
         </div>
