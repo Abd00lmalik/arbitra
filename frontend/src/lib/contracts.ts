@@ -28,9 +28,11 @@ export const COLLATERAL_VAULT_ADDRESS =
   (process.env.NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS ??
    "0x0000000000000000000000000000000000000000") as `0x${string}`;
 
+export const FINGERPRINT_REGISTRY_ENV_ADDRESS =
+  process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS as `0x${string}` | undefined;
+
 export const FINGERPRINT_REGISTRY_ADDRESS =
-  (process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS ??
-   "0x0000000000000000000000000000000000000000") as `0x${string}`;
+  "0x4dF26517EE61EE6e746a16BBAf7c4FF70491DB55" as `0x${string}`;
 
 export const SBT_ADDRESS =
   (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
@@ -201,7 +203,7 @@ export function parseInvoiceHandles(raw: readonly unknown[]): InvoiceHandles {
   };
 }
 
-/* ── Registry ABI (v2.2 — includes faceValuePlaintext) ── */
+/* Registry ABI (v2.2 includes faceValuePlaintext) */
 export const REGISTRY_ABI = [
   {
     type: "function", name: "uploadInvoice",
@@ -467,7 +469,7 @@ export const FINGERPRINT_REGISTRY_ABI = [
   },
 ] as const;
 
-/* ── USDC ERC-20 ABI (standard — no confidential extensions) ── */
+/* USDC ERC-20 ABI (standard, no confidential extensions) */
 export const USDC_ABI = [
   {
     type: "function", name: "approve",
@@ -514,7 +516,7 @@ export const USDC_ABI = [
   },
 ] as const;
 
-/* ── Escrow Receiver ABI (v2.2 — standard USDC settle) ── */
+/* Escrow Receiver ABI (v2.2, standard USDC settle) */
 export const ESCROW_RECEIVER_ABI = [
   {
     type: "function", name: "settleInvoice",

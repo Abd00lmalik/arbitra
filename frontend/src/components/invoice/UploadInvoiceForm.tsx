@@ -13,6 +13,7 @@ import { formatEther, parseEther, parseGwei } from "viem";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
+import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import {
   useUploadInvoice,
   useInvoiceCount,
@@ -55,26 +56,12 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
-const FHE_CHECK_UNIQUENESS_GAS_LIMIT = 400_000n;
-const FRAUD_CHECK_EXPECTED_USAGE_BPS = 30n;
 const FALLBACK_SEPOLIA_GAS_PRICE = parseGwei("2");
-const MAX_REASONABLE_SEPOLIA_GAS_PRICE = parseGwei("8");
 const MIN_FRAUD_CHECK_GAS_BUFFER = parseEther("0.002");
 const MIN_ETH_FOR_UPLOAD = parseEther("0.005");
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
-}
-
-function buildFraudCheckCostPreview(gasPrice: bigint) {
-  const maxReserve = FHE_CHECK_UNIQUENESS_GAS_LIMIT * gasPrice;
-  const expectedCost = (maxReserve * FRAUD_CHECK_EXPECTED_USAGE_BPS) / 100n;
-
-  return {
-    gasPrice,
-    expectedCost,
-    maxReserve,
-  };
 }
 
 function formatGasAwareError(error: unknown) {
@@ -96,24 +83,22 @@ function formatGasAwareError(error: unknown) {
   return rawMessage || "Encrypted duplicate check failed.";
 }
 
-function clampSepoliaGasPrice(gasPrice: bigint) {
-  return gasPrice > MAX_REASONABLE_SEPOLIA_GAS_PRICE ? MAX_REASONABLE_SEPOLIA_GAS_PRICE : gasPrice;
-}
-
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const { wallet: web3AuthWallet } = useWeb3Auth();
+  const activeWallet = (web3AuthWallet ?? walletClient?.account?.address ?? address) as `0x${string}` | undefined;
   const { instance, isReady: zamaReady } = useZama();
   const { uploadInvoice } = useUploadInvoice();
   
   const { approveUSDC, isPending: approvePending } = useApproveUSDC();
   const stakePending = false;
   const { data: rawCount } = useInvoiceCount();
-  const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(address);
+  const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(activeWallet);
   const { data: ethBalance } = useBalance({
-    address,
-    query: { enabled: !!address },
+    address: activeWallet,
+    query: { enabled: !!activeWallet },
   });
   const nextInvoiceId = rawCount !== undefined ? BigInt(rawCount) + 1n : 1n;
 
@@ -146,7 +131,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
   const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
 
-  const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(address, COLLATERAL_VAULT_ADDRESS);
+  const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(activeWallet, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
   const isApproved = allowance !== undefined ? BigInt(allowance) >= requiredCollateral : false;
   const { data: collateralStatus } = useReadContracts({
@@ -169,17 +154,16 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const existingStake = collateralStatus?.[0]?.result as bigint | undefined;
   const existingSupplier = collateralStatus?.[1]?.result as `0x${string}` | undefined;
   const alreadyStaked = Boolean(
-    address &&
+    activeWallet &&
     existingStake &&
     existingStake > 0n &&
     existingSupplier &&
-    existingSupplier.toLowerCase() === address.toLowerCase(),
+    existingSupplier.toLowerCase() === activeWallet.toLowerCase(),
   );
   const { isLoading: isFraudCheckConfirming, isSuccess: isFraudCheckConfirmed } = useWaitForTransactionReceipt({
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
   });
-  const fraudCheckCostPreview = buildFraudCheckCostPreview(fraudCheckDisplayGasPrice);
   const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= MIN_ETH_FOR_UPLOAD : false;
 
   useEffect(() => {
@@ -193,9 +177,10 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       try {
         const liveGasPrice = await publicClient.getGasPrice();
         if (!cancelled) {
-          setFraudCheckDisplayGasPrice(clampSepoliaGasPrice(liveGasPrice));
+          setFraudCheckDisplayGasPrice(liveGasPrice);
         }
-      } catch {
+      } catch (gasError) {
+        console.warn("[upload] Failed to read live Sepolia gas price, using fallback.", gasError);
         if (!cancelled) {
           setFraudCheckDisplayGasPrice(FALLBACK_SEPOLIA_GAS_PRICE);
         }
@@ -317,7 +302,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   };
 
   const runEncryptedDuplicatePreflight = async (fingerprint: bigint) => {
-    if (!instance || !address || !walletClient || !publicClient) {
+    if (!instance || !activeWallet || !walletClient || !publicClient) {
       throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
     }
 
@@ -327,16 +312,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       fingerprint,
       invoice.faceValue,
       FINGERPRINT_REGISTRY_ADDRESS,
-      address
+      activeWallet
     );
 
     setFraudCheckStep("Preparing Sepolia fraud check transaction...");
-    const gasPrice = clampSepoliaGasPrice(
-      await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE)
-    );
+    const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
 
     const uniquenessSimulation = await publicClient.simulateContract({
-      account: address,
+      account: activeWallet,
       address: FINGERPRINT_REGISTRY_ADDRESS,
       abi: FINGERPRINT_REGISTRY_ABI,
       functionName: "checkInvoiceUniqueness",
@@ -346,13 +329,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         encryptedInputs.handle2,
         encryptedInputs.inputProof,
       ],
-      gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
-      gasPrice,
     });
 
-    const walletBalance = await publicClient.getBalance({ address });
-    const { expectedCost, maxReserve } = buildFraudCheckCostPreview(gasPrice);
-
+    const walletBalance = await publicClient.getBalance({ address: activeWallet });
     if (walletBalance < MIN_FRAUD_CHECK_GAS_BUFFER) {
       const shortfall = MIN_FRAUD_CHECK_GAS_BUFFER - walletBalance;
       throw new Error(
@@ -361,25 +340,22 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     setFraudCheckStep(
-      `Expected fraud check gas cost: ~${formatEthAmount(expectedCost)} ETH. Max gas reserve: ${formatEthAmount(maxReserve)} ETH. Requesting wallet approval...`
+      `Live Sepolia gas price: ${gasPrice.toString()} wei. Requesting wallet-estimated approval...`
     );
     setFraudCheckAwaitingWallet(true);
     setFraudCheckStep("Check your wallet - a fraud check transaction is waiting for approval.");
-    const {
-      maxFeePerGas: _duplicateMaxFeePerGas,
-      maxPriorityFeePerGas: _duplicateMaxPriorityFeePerGas,
-      ...duplicateRequest
-    } = uniquenessSimulation.request;
     const duplicateTxHash = await walletClient.writeContract({
-      ...(duplicateRequest as any),
-      gas: FHE_CHECK_UNIQUENESS_GAS_LIMIT,
-      gasPrice,
+      ...(uniquenessSimulation.request as any),
     });
     setFraudCheckTxHash(duplicateTxHash);
     setFraudCheckAwaitingWallet(false);
 
     setFraudCheckStep("Waiting for Sepolia confirmation...");
-    const duplicateReceipt = await publicClient.waitForTransactionReceipt({ hash: duplicateTxHash });
+    const duplicateReceipt = await publicClient.waitForTransactionReceipt({
+      hash: duplicateTxHash,
+      confirmations: 1,
+      timeout: 120_000,
+    });
     if (duplicateReceipt.status !== "success") {
       throw new Error("Encrypted duplicate check transaction reverted.");
     }
@@ -389,7 +365,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       address: FINGERPRINT_REGISTRY_ADDRESS,
       abi: FINGERPRINT_REGISTRY_ABI,
       functionName: "getDuplicateCheckHandle",
-      args: [address],
+      args: [activeWallet],
     }) as `0x${string}`;
 
     if (!duplicateHandle || duplicateHandle === "0x0000000000000000000000000000000000000000000000000000000000000000") {
@@ -397,7 +373,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     const signerAdapter = {
-      getAddress: async () => address,
+      getAddress: async () => activeWallet,
       signTypedData: (
         domain: object,
         types: object,
@@ -405,7 +381,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       ) => {
         const primaryType = Object.keys(types).find((key) => key !== "EIP712Domain") ?? "";
         return walletClient.signTypedData({
-          account: address,
+          account: activeWallet,
           domain: domain as any,
           types: types as any,
           primaryType: primaryType as any,
@@ -489,7 +465,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     }
 
     try {
-      if (!address || !walletClient || !publicClient) {
+      if (!activeWallet || !walletClient || !publicClient) {
         throw new Error("Wallet not connected for collateral staking.");
       }
 
@@ -506,14 +482,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         args: [nextInvoiceId],
       }) as `0x${string}`;
 
-      if (currentStake > 0n && currentSupplier.toLowerCase() === address.toLowerCase()) {
+      if (currentStake > 0n && currentSupplier.toLowerCase() === activeWallet.toLowerCase()) {
         setWizardStep(4);
         void runProgressiveEncryption();
         return;
       }
 
       const stakeSimulation = await publicClient.simulateContract({
-        account: address,
+        account: activeWallet,
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
         functionName: "stakeCollateral",
@@ -521,16 +497,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       });
 
       const estimatedGas = await publicClient.estimateContractGas({
-        account: address,
+        account: activeWallet,
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
         functionName: "stakeCollateral",
         args: [nextInvoiceId, invoice.faceValue],
       });
-      const gasPrice = clampSepoliaGasPrice(
-        await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE)
-      );
-      const walletBalance = await publicClient.getBalance({ address });
+      const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
+      const walletBalance = await publicClient.getBalance({ address: activeWallet });
       const estimatedCost = estimatedGas * gasPrice;
 
       if (walletBalance < estimatedCost) {
@@ -540,16 +514,17 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         );
       }
 
-      const {
-        maxFeePerGas: _stakeMaxFeePerGas,
-        maxPriorityFeePerGas: _stakeMaxPriorityFeePerGas,
-        ...stakeRequest
-      } = stakeSimulation.request;
       const stakeTxHash = await walletClient.writeContract({
-        ...(stakeRequest as any),
-        gasPrice,
+        ...(stakeSimulation.request as any),
       });
-      await publicClient.waitForTransactionReceipt({ hash: stakeTxHash });
+      const stakeReceipt = await publicClient.waitForTransactionReceipt({
+        hash: stakeTxHash,
+        confirmations: 1,
+        timeout: 120_000,
+      });
+      if (stakeReceipt.status !== "success") {
+        throw new Error("Collateral staking transaction reverted.");
+      }
       setWizardStep(4);
       void runProgressiveEncryption();
     } catch (e: any) {
@@ -565,14 +540,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
   /* Step 4 Progressive local encryption and submit */
   const runProgressiveEncryption = async () => {
-    if (!instance || !address || !walletClient || !publicClient) {
+    if (!instance || !activeWallet || !walletClient || !publicClient) {
       setErrorMsg("FHEVM SDK or Wallet signer not available.");
       setWizardStep(5);
       return;
     }
 
     try {
-      const walletBalance = await publicClient.getBalance({ address });
+      const walletBalance = await publicClient.getBalance({ address: activeWallet });
       if (walletBalance < MIN_ETH_FOR_UPLOAD) {
         throw new Error(
           `You need at least ${formatEthAmount(MIN_ETH_FOR_UPLOAD)} Sepolia ETH for gas to upload an invoice.`
@@ -598,7 +573,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         invoice.baseRate,
         invoice.reputationMultiplier,
         ARBITRA_REGISTRY_ADDRESS,
-        address
+        activeWallet
       );
 
       /* Substep 3: Permitting signatures */
@@ -628,13 +603,19 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         throw new Error("Upload transaction hash was not returned.");
       }
 
-      await publicClient.waitForTransactionReceipt({ hash });
+      const uploadReceipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        confirmations: 1,
+        timeout: 120_000,
+      });
+      if (uploadReceipt.status !== "success") {
+        throw new Error("Upload invoice transaction reverted on-chain.");
+      }
       setTxHash(hash);
       setWizardStep(5);
       if (onSuccess) {
         onSuccess(nextInvoiceId);
       }
-
       /* Auto-send verification email */
       setSendingEmail(true);
       try {
@@ -890,19 +871,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
             <div className="space-y-2 rounded-xl border border-white/5 bg-white/2 p-3 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Expected gas cost</span>
+                <span className="text-slate-400">Live Sepolia gas price</span>
                 <span className="font-mono text-neon-cyan">
-                  ~{formatEthAmount(fraudCheckCostPreview.expectedCost)} ETH
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Max reserved (gas cap)</span>
-                <span className="font-mono text-slate-400">
-                  {formatEthAmount(fraudCheckCostPreview.maxReserve)} ETH
+                  {fraudCheckDisplayGasPrice.toString()} wei
                 </span>
               </div>
               <p className="text-[10px] leading-relaxed text-slate-500">
-                The wallet may reserve up to the gas cap, but actual Sepolia cost is typically much lower.
+                The wallet estimates gas for the fraud check transaction before approval.
               </p>
             </div>
 
