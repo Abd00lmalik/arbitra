@@ -69,7 +69,7 @@ const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
 const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
 /* Hard gas caps — prevents Wagmi/viem's inflated simulation estimates           */
 const FRAUD_CHECK_GAS_CAP         = 2_000_000n;
-const UPLOAD_GAS_CAP              = 14_000_000n;
+const UPLOAD_GAS_CAP              = 6_500_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
