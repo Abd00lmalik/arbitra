@@ -373,6 +373,28 @@ export default function RegisterPage() {
     }
   }, []);
 
+  // Load saved Tax ID from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTaxId = window.localStorage.getItem("arbitra_kyb_tax_id");
+      if (savedTaxId) {
+        setTaxID(savedTaxId);
+      }
+    }
+  }, []);
+
+  // Persist Tax ID changes to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (taxID) {
+        window.localStorage.setItem("arbitra_kyb_tax_id", taxID);
+      } else {
+        window.localStorage.removeItem("arbitra_kyb_tax_id");
+      }
+    }
+  }, [taxID]);
+
+
   useEffect(() => {
     if (!hasAuthenticatedWallet || !activeWallet || isInitializing || !publicClient || !isCorrectNetwork) return;
 
@@ -549,6 +571,10 @@ export default function RegisterPage() {
     setError(null);
     setStatusError(null);
     setStatusMessage("Resetting your sign-in session...");
+
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("arbitra_kyb_tax_id");
+    }
 
     try {
       await logout();
@@ -1200,23 +1226,46 @@ export default function RegisterPage() {
                     {error}
                   </div>
                 )}
-                <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
-                  <label style={labelStyle}>Tax ID / VAT Number *</label>
-                  <input
-                    value={taxID}
-                    onChange={(event) => setTaxID(event.target.value)}
+                {/* Skip asking for Tax ID again if already entered in KYB stage */}
+                {!taxID ? (
+                  <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+                    <label style={labelStyle}>Tax ID / VAT Number *</label>
+                    <input
+                      value={taxID}
+                      onChange={(event) => setTaxID(event.target.value)}
+                      style={{
+                        ...inputStyle,
+                        border: kybFieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                      }}
+                      placeholder="12-3456789"
+                    />
+                    {kybFieldErrors.taxID && (
+                      <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 0, marginBottom: 0 }}>
+                        {kybFieldErrors.taxID}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div
                     style={{
-                      ...inputStyle,
-                      border: kybFieldErrors.taxID ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                      borderRadius: 14,
+                      padding: 16,
+                      marginBottom: 20,
+                      display: "grid",
+                      gap: 8,
                     }}
-                    placeholder="12-3456789"
-                  />
-                  {kybFieldErrors.taxID && (
-                    <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 0, marginBottom: 0 }}>
-                      {kybFieldErrors.taxID}
-                    </p>
-                  )}
-                </div>
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <span style={{ color: "#8B9CC8", fontSize: 12 }}>Tax ID / VAT Number</span>
+                      <span style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>
+                        {taxID}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <p style={{ ...bodyStyle, marginBottom: 16 }}>{statusMessage}</p>
                 <button
                   onClick={() => {
