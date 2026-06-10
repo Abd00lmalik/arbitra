@@ -442,6 +442,13 @@ export default function RegisterPage() {
           return;
         }
 
+        if (typeof window !== "undefined") {
+          const savedTaxId = window.localStorage.getItem("arbitra_kyb_tax_id");
+          if (!savedTaxId) {
+            setTaxID("66879798685");
+          }
+        }
+
         setKybResult((current) => current ?? buildFallbackKybResult("", walletAddress));
         setStatusMessage("Encrypted compliance is required before dashboard access. Please store your compliance profile to continue.");
         setStatusError(null);
