@@ -69,13 +69,13 @@ const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
 const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
 /* Hard gas caps — prevents Wagmi/viem's inflated simulation estimates           */
 const FRAUD_CHECK_GAS_CAP         = 2_000_000n;
-const UPLOAD_GAS_CAP              = 2_500_000n;
+const UPLOAD_GAS_CAP              = 1_800_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
 }
 
-function formatGasAwareError(error: unknown) {
+function formatGasAwareError(error: unknown, liveGasPrice?: bigint) {
   const rawMessage =
     typeof error === "object" && error !== null && "shortMessage" in error && typeof (error as { shortMessage?: unknown }).shortMessage === "string"
       ? (error as { shortMessage: string }).shortMessage
@@ -87,12 +87,26 @@ function formatGasAwareError(error: unknown) {
     return "Transaction simulation failed. This usually means your wallet has insufficient Sepolia ETH for gas, or there is an address mismatch in your Vercel dashboard configuration (e.g., using old/stale contract addresses). Please ensure your wallet has Sepolia ETH and that the Vercel dashboard environment variables match the latest deployed contract addresses.";
   }
 
-  const insufficientFundsMatch = rawMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
-  if (insufficientFundsMatch) {
-    const haveWei = BigInt(insufficientFundsMatch[1]);
-    const wantWei = BigInt(insufficientFundsMatch[2]);
-    const shortfallWei = wantWei > haveWei ? wantWei - haveWei : 0n;
-    return `Insufficient ETH for gas. Wallet balance: ${formatEthAmount(haveWei)} ETH. Required: ${formatEthAmount(wantWei)} ETH. Add about ${formatEthAmount(shortfallWei)} ETH more on Sepolia and try again.`;
+  const isInsufficientFunds = rawMessage.toLowerCase().includes("insufficient funds");
+  
+  if (isInsufficientFunds) {
+    const insufficientFundsMatch = rawMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
+    if (insufficientFundsMatch) {
+      const haveWei = BigInt(insufficientFundsMatch[1]);
+      const wantWei = BigInt(insufficientFundsMatch[2]);
+      const shortfallWei = wantWei > haveWei ? wantWei - haveWei : 0n;
+      return `Insufficient ETH for gas. Wallet balance: ${formatEthAmount(haveWei)} ETH. Required: ${formatEthAmount(wantWei)} ETH. Add about ${formatEthAmount(shortfallWei)} ETH more on Sepolia and try again.`;
+    }
+
+    if (liveGasPrice) {
+      const estLimit = UPLOAD_GAS_CAP;
+      /* Add a standard 20% margin to the estimate to match MetaMask's buffer */
+      const bufferedGasPrice = (liveGasPrice * 12n) / 10n;
+      const requiredWei = estLimit * bufferedGasPrice;
+      return `Insufficient ETH for gas. You need approximately ${formatEthAmount(requiredWei)} Sepolia ETH (covering the gas limit ceiling of ${Number(estLimit).toLocaleString()} gas at current gas prices) to submit this transaction. Please fund your wallet and try again.`;
+    }
+
+    return "Insufficient ETH for gas. Please fund your wallet with Sepolia ETH and try again.";
   }
 
   return rawMessage || "Transaction failed.";
@@ -491,7 +505,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchUSDC();
       refetchAllowance();
     } catch (e: any) {
-      const message = formatGasAwareError(e);
+      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice);
       setErrorMsg(message);
       setFraudCheckStep(null);
       setFraudCheckAwaitingWallet(false);
@@ -531,7 +545,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       refetchAllowance();
     } catch (e: any) {
-      setErrorMsg(formatGasAwareError(e) || "Approval failed.");
+      setErrorMsg(formatGasAwareError(e, fraudCheckDisplayGasPrice) || "Approval failed.");
     }
   };
 
@@ -664,7 +678,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     } catch (e: any) {
       setIsStaking(false);
       setStakeStep(null);
-      const message = formatGasAwareError(e);
+      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice);
       if (message.includes("Arbitra: already staked")) {
         setWizardStep(4);
         void runProgressiveEncryption();
@@ -808,7 +822,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg(formatGasAwareError(err) || "Encryption transaction failed.");
+      setErrorMsg(formatGasAwareError(err, fraudCheckDisplayGasPrice) || "Encryption transaction failed.");
       setWizardStep(5);
     }
   };

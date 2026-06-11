@@ -24,7 +24,7 @@ import {
 const FHE_FACTOR_GAS_LIMIT  = 5_000_000n;
 /* uploadInvoice calls FingerprintRegistry + RiskCalculator inline via FHE coprocessor.
  * Gas estimation overflows Sepolia's block cap (16,777,216). Cap explicitly at 14M. */
-const FHE_UPLOAD_GAS_LIMIT  = 2_500_000n;
+const FHE_UPLOAD_GAS_LIMIT  = 1_800_000n;
 const STAKE_GAS_LIMIT        = 500_000n;
 /*
  * Hook: read all invoice IDs from the registry.
