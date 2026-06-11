@@ -122,7 +122,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
         hover
         glow="cyan"
       >
-        /* Header row */
+        {/* Header row */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <span
@@ -165,7 +165,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
           {getStatusBadge()}
         </div>
 
-        /* Short address stats */
+        {/* Short address stats */}
         <div style={{ fontSize: "11px", display: "flex", flexDirection: "column", gap: "6px", color: "#8B9CC8", textAlign: "left" }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Supplier:</span>
@@ -188,7 +188,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
           </div>
         </div>
 
-        /* Action link */
+        {/* Action link */}
         <div
           style={{
             display: "flex",
