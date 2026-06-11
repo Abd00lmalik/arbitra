@@ -22,7 +22,7 @@ export const ARBITRA_REGISTRY_ADDRESS =
 
 export const ESCROW_RECEIVER_ADDRESS =
   (process.env.NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS ??
-   "0xc9314573e5c4d532C85E27697E75Fd2b4d2B6dFB") as `0x${string}`;
+   "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E") as `0x${string}`;
 
 export const COLLATERAL_VAULT_ADDRESS =
   (process.env.NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS ??

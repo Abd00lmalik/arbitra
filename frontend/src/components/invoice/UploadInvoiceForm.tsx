@@ -83,15 +83,19 @@ function formatGasAwareError(error: unknown) {
         ? error.message
         : String(error);
 
+  if (rawMessage.toLowerCase().includes("could not coalesce error") || rawMessage.toLowerCase().includes("coalesce")) {
+    return "Transaction simulation failed. This usually means your wallet has insufficient Sepolia ETH for gas, or there is an address mismatch in your Vercel dashboard configuration (e.g., using old/stale contract addresses). Please ensure your wallet has Sepolia ETH and that the Vercel dashboard environment variables match the latest deployed contract addresses.";
+  }
+
   const insufficientFundsMatch = rawMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
   if (insufficientFundsMatch) {
     const haveWei = BigInt(insufficientFundsMatch[1]);
     const wantWei = BigInt(insufficientFundsMatch[2]);
     const shortfallWei = wantWei > haveWei ? wantWei - haveWei : 0n;
-    return `Insufficient ETH for fraud check gas. Wallet balance: ${formatEthAmount(haveWei)} ETH. Required: ${formatEthAmount(wantWei)} ETH. Add about ${formatEthAmount(shortfallWei)} ETH more on Sepolia and try again.`;
+    return `Insufficient ETH for gas. Wallet balance: ${formatEthAmount(haveWei)} ETH. Required: ${formatEthAmount(wantWei)} ETH. Add about ${formatEthAmount(shortfallWei)} ETH more on Sepolia and try again.`;
   }
 
-  return rawMessage || "Encrypted duplicate check failed.";
+  return rawMessage || "Transaction failed.";
 }
 
 export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
