@@ -300,6 +300,14 @@ export function InvoiceDetailModal({
               ))}
             </div>
 
+            {/* FHE Yield Disclaimer */}
+            <div className="p-3 rounded-2xl bg-white/2 border border-white/5 text-[11px] text-slate-500 leading-normal flex items-start gap-2">
+              <span style={{ fontSize: "14px", marginTop: "-2px" }}>⚠️</span>
+              <div>
+                <span className="font-bold text-slate-400">Parameter Note:</span> Estimated yields shown on catalog preview cards are approximations. The actual discount rate, purchase price, and face value are calculated privately on-chain using FHE and will be shown in full clarity once decrypted.
+              </div>
+            </div>
+
             {/* Decrypt Actions Area */}
             {!decrypted && (
               <div className="p-4 rounded-2xl bg-white/2 border border-white/5 flex items-center justify-between gap-4">
