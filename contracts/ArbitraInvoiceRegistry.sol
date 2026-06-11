@@ -25,6 +25,10 @@ interface IArbitraRiskCalculator {
 interface IArbitraCollateralVault {
     function stakedCollateral(uint256 invoiceId) external view returns (uint256);
     function invoiceSupplier(uint256 invoiceId) external view returns (address);
+    function stakedCollateralByFingerprint(uint256 fingerprint) external view returns (uint256);
+    function supplierByFingerprint(uint256 fingerprint) external view returns (address);
+    function linkStakeToInvoice(uint256 invoiceId, uint256 fingerprint) external;
+    function updateStakeState(uint256 invoiceId, uint8 newState) external;
     function releaseCollateral(uint256 invoiceId) external;
     function slashCollateral(uint256 invoiceId, address investorToCompensate) external;
 }
@@ -220,17 +224,21 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         bytes calldata   proofRepMult,
         address          debtor,
         bool             enableGeminiUnderwriting,
-        uint256          faceValuePlaintext_          /* NEW - USDC micro-units */
+        uint256          faceValuePlaintext_,
+        uint256          plaintextFingerprint
     ) external returns (uint256 invoiceId) {
         require(debtor != address(0), "Arbitra: zero debtor");
         require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
 
         invoiceId = invoiceCount + 1;
 
-        /* Verify supplier has staked collateral for this invoice ID */
-        uint256 collateralStakedAmount = IArbitraCollateralVault(collateralVault).stakedCollateral(invoiceId);
+        /* Verify supplier has staked collateral for this invoice fingerprint */
+        uint256 collateralStakedAmount = IArbitraCollateralVault(collateralVault).stakedCollateralByFingerprint(plaintextFingerprint);
         require(collateralStakedAmount > 0, "Arbitra: collateral not staked");
-        require(IArbitraCollateralVault(collateralVault).invoiceSupplier(invoiceId) == msg.sender, "Arbitra: invalid collateral depositor");
+        require(IArbitraCollateralVault(collateralVault).supplierByFingerprint(plaintextFingerprint) == msg.sender, "Arbitra: invalid collateral depositor");
+
+        /* Link stake on collateral vault */
+        IArbitraCollateralVault(collateralVault).linkStakeToInvoice(invoiceId, plaintextFingerprint);
 
         /* Ingest encrypted inputs */
         euint64 faceValue = FHE.fromExternal(encFaceValue, proofFaceValue);
@@ -433,6 +441,9 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
         inv.investor = msg.sender;
         inv.status = InvoiceStatus.Factored;
+
+        /* Transition stake state to FINANCED */
+        IArbitraCollateralVault(collateralVault).updateStakeState(invoiceId, 3);
 
         FHE.allow(inv.purchasePrice, msg.sender);
         FHE.allow(inv.faceValue, msg.sender);

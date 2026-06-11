@@ -17,6 +17,18 @@ contract ArbitraCollateralVault is Ownable2Step {
     /** @notice Collateral requirement: 5% = 500 BPS of face value */
     uint256 public constant COLLATERAL_BPS = 500;
 
+    /*************** Enums ***************/
+
+    enum StakeState {
+        UNSTAKED,
+        STAKED_PENDING_REGISTRATION,
+        REGISTERED,
+        FINANCED,
+        REPAID,
+        STAKE_RELEASED,
+        SLASHED
+    }
+
     /*************** Storage ***************/
 
     /** @notice Address of the USDC ERC-20 contract */
@@ -31,6 +43,15 @@ contract ArbitraCollateralVault is Ownable2Step {
     /** @notice Supplier associated with each invoice ID */
     mapping(uint256 => address) public invoiceSupplier;
 
+    /** @notice Staked collateral per invoice fingerprint (in USDC plaintext micro-units) */
+    mapping(uint256 => uint256) public stakedCollateralByFingerprint;
+
+    /** @notice Supplier associated with each invoice fingerprint */
+    mapping(uint256 => address) public supplierByFingerprint;
+
+    /** @notice Stake state mapping (keys can be fingerprint or sequential invoiceId) */
+    mapping(uint256 => StakeState) public stakeStates;
+
     /** @notice Indicates if the collateral for a given invoice has been slashed */
     mapping(uint256 => bool) public isSlashed;
 
@@ -44,6 +65,9 @@ contract ArbitraCollateralVault is Ownable2Step {
 
     /** @notice Emitted when collateral is slashed and redirected to the investor */
     event CollateralSlashed(uint256 indexed invoiceId, address indexed investor, uint256 amount);
+
+    /** @notice Emitted when a fingerprint stake is linked to a sequential invoice ID */
+    event StakeLinked(uint256 indexed invoiceId, uint256 indexed fingerprint, uint256 amount);
 
     /*************** Modifiers ***************/
 
@@ -80,26 +104,72 @@ contract ArbitraCollateralVault is Ownable2Step {
     /*************** Public Functions ***************/
 
     /**
-     * @notice Stake USDC collateral for a given invoice.
+     * @notice Stake USDC collateral for a given invoice fingerprint.
      * @dev Called by the supplier before invoice upload.
-     * @param invoiceId The ID of the invoice being collateralized.
+     * @param fingerprint The deterministic fingerprint of the invoice.
      * @param faceValueUSDC The face value of the invoice in USDC micro-units.
      */
-    function stakeCollateral(uint256 invoiceId, uint256 faceValueUSDC) external {
-        require(stakedCollateral[invoiceId] == 0, "Arbitra: already staked");
+    function stakeCollateral(uint256 fingerprint, uint256 faceValueUSDC) external {
+        require(stakedCollateralByFingerprint[fingerprint] == 0, "Arbitra: already staked");
+        require(stakeStates[fingerprint] == StakeState.UNSTAKED, "Arbitra: invalid state for staking");
 
         uint256 requiredCollateral = (faceValueUSDC * COLLATERAL_BPS) / 10000;
         require(requiredCollateral > 0, "Arbitra: collateral too small");
 
-        invoiceSupplier[invoiceId] = msg.sender;
-        stakedCollateral[invoiceId] = requiredCollateral;
+        supplierByFingerprint[fingerprint] = msg.sender;
+        stakedCollateralByFingerprint[fingerprint] = requiredCollateral;
+        stakeStates[fingerprint] = StakeState.STAKED_PENDING_REGISTRATION;
 
         usdc.safeTransferFrom(msg.sender, address(this), requiredCollateral);
 
-        emit CollateralStaked(invoiceId, msg.sender, requiredCollateral);
+        emit CollateralStaked(fingerprint, msg.sender, requiredCollateral);
     }
 
     /*************** Registry Functions ***************/
+
+    /**
+     * @notice Link a staked collateral from fingerprint to sequential invoice ID.
+     * @dev Called by the registry contract during upload.
+     * @param invoiceId The sequential ID of the registered invoice.
+     * @param fingerprint The deterministic fingerprint of the invoice.
+     */
+    function linkStakeToInvoice(uint256 invoiceId, uint256 fingerprint) external onlyRegistry {
+        require(stakedCollateralByFingerprint[fingerprint] > 0, "Arbitra: no stake found for fingerprint");
+        require(supplierByFingerprint[fingerprint] != address(0), "Arbitra: zero supplier");
+        require(stakedCollateral[invoiceId] == 0, "Arbitra: invoice ID already staked");
+        require(stakeStates[fingerprint] == StakeState.STAKED_PENDING_REGISTRATION, "Arbitra: stake not pending");
+
+        uint256 amount = stakedCollateralByFingerprint[fingerprint];
+        address supplier = supplierByFingerprint[fingerprint];
+
+        stakedCollateral[invoiceId] = amount;
+        invoiceSupplier[invoiceId] = supplier;
+        stakeStates[invoiceId] = StakeState.REGISTERED;
+
+        stakedCollateralByFingerprint[fingerprint] = 0;
+        supplierByFingerprint[fingerprint] = address(0);
+        stakeStates[fingerprint] = StakeState.UNSTAKED;
+
+        emit StakeLinked(invoiceId, fingerprint, amount);
+    }
+
+    /**
+     * @notice Update the stake state of a registered invoice.
+     * @dev Called by registry on status changes (like financing).
+     * @param invoiceId The sequential ID of the invoice.
+     * @param newState The new StakeState to transition to.
+     */
+    function updateStakeState(uint256 invoiceId, StakeState newState) external onlyRegistry {
+        StakeState currentState = stakeStates[invoiceId];
+
+        if (newState == StakeState.FINANCED) {
+            require(currentState == StakeState.REGISTERED, "Arbitra: must be REGISTERED to finance");
+        } else if (newState == StakeState.REPAID) {
+            require(currentState == StakeState.FINANCED || currentState == StakeState.REGISTERED, "Arbitra: invalid state for repayment");
+        }
+
+        stakeStates[invoiceId] = newState;
+    }
 
     /**
      * @notice Release staked collateral back to the supplier.
@@ -113,7 +183,12 @@ contract ArbitraCollateralVault is Ownable2Step {
         require(amount > 0, "Arbitra: no staked collateral");
         require(!isSlashed[invoiceId], "Arbitra: collateral slashed");
 
+        StakeState currentState = stakeStates[invoiceId];
+        require(currentState == StakeState.REGISTERED || currentState == StakeState.FINANCED || currentState == StakeState.REPAID, "Arbitra: invalid state for release");
+
         stakedCollateral[invoiceId] = 0;
+        stakeStates[invoiceId] = StakeState.STAKE_RELEASED;
+
         usdc.safeTransfer(supplier, amount);
 
         emit CollateralReleased(invoiceId, supplier, amount);
@@ -131,8 +206,12 @@ contract ArbitraCollateralVault is Ownable2Step {
         require(amount > 0, "Arbitra: no staked collateral");
         require(!isSlashed[invoiceId], "Arbitra: already slashed");
 
+        StakeState currentState = stakeStates[invoiceId];
+        require(currentState == StakeState.REGISTERED || currentState == StakeState.FINANCED, "Arbitra: invalid state for slashing");
+
         isSlashed[invoiceId] = true;
         stakedCollateral[invoiceId] = 0;
+        stakeStates[invoiceId] = StakeState.SLASHED;
 
         usdc.safeTransfer(investorToCompensate, amount);
 

@@ -114,10 +114,13 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             /* Step 1: Supplier approves and stakes collateral */
             const requiredCollateral = (faceValue * 500n) / 10000n;
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, requiredCollateral)).wait();
-            await (await collateralVault.connect(supplier).stakeCollateral(nextInvoiceId, faceValue)).wait();
 
-            expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(requiredCollateral);
-            expect(await collateralVault.invoiceSupplier(nextInvoiceId)).to.equal(supplier.address);
+            expect(await collateralVault.stakeStates(fingerprint)).to.equal(0n); // UNSTAKED
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
+            expect(await collateralVault.stakeStates(fingerprint)).to.equal(1n); // STAKED_PENDING_REGISTRATION
+
+            expect(await collateralVault.stakedCollateralByFingerprint(fingerprint)).to.equal(requiredCollateral);
+            expect(await collateralVault.supplierByFingerprint(fingerprint)).to.equal(supplier.address);
 
             /* Step 2: Encrypt client side and upload */
             const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
@@ -137,9 +140,15 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                     enc.handles[4], enc.inputProof,
                     debtor.address,
                     true,
-                    faceValue
+                    faceValue,
+                    fingerprint
                 )
             ).to.emit(registry, "InvoiceUploaded").withArgs(nextInvoiceId, supplier.address, debtor.address, (val: bigint) => val > 0n);
+
+            expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(requiredCollateral);
+            expect(await collateralVault.invoiceSupplier(nextInvoiceId)).to.equal(supplier.address);
+            expect(await collateralVault.stakedCollateralByFingerprint(fingerprint)).to.equal(0n);
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(2n); // REGISTERED
 
             /* Step 3: Debtor attestation via EIP-712 */
             const attestationCommitment = ethers.keccak256(
@@ -187,6 +196,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 registry.connect(investor).factorInvoice(nextInvoiceId)
             ).to.emit(registry, "InvoiceFactored").withArgs(nextInvoiceId, investor.address, (val: bigint) => val > 0n);
 
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(3n); // FINANCED
+
             const invAfterFactor = await registry.invoices(nextInvoiceId);
             expect(invAfterFactor.status).to.equal(2n); /* Factored */
             expect(invAfterFactor.investor).to.equal(investor.address);
@@ -203,6 +214,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             const invAfterRepay = await registry.invoices(nextInvoiceId);
             expect(invAfterRepay.status).to.equal(3n); /* Settled */
             expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(0n);
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(5n); // STAKE_RELEASED
         });
 
         it("should revert if duplicate fingerprint is uploaded", async function () {
@@ -214,7 +226,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             /* Stake for first invoice */
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
-            await (await collateralVault.connect(supplier).stakeCollateral(1n, faceValue)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
             const input1 = fhevm.createEncryptedInput(registryAddr, supplier.address);
             input1.add64(faceValue);
@@ -232,11 +244,12 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc1.handles[4], enc1.inputProof,
                 debtor.address,
                 true,
-                faceValue
+                faceValue,
+                fingerprint
             )).wait();
 
-            /* Stake for second invoice */
-            await (await collateralVault.connect(supplier).stakeCollateral(2n, faceValue)).wait();
+            /* Stake for second invoice (reusing fingerprint is allowed since mapping cleared) */
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
             const input2 = fhevm.createEncryptedInput(registryAddr, supplier.address);
             input2.add64(faceValue);
@@ -325,7 +338,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             /* Stake and upload */
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
-            await (await collateralVault.connect(supplier).stakeCollateral(nextInvoiceId, faceValue)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
             const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
             input.add64(faceValue);
@@ -343,7 +356,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc.handles[4], enc.inputProof,
                 debtor.address,
                 true,
-                faceValue
+                faceValue,
+                fingerprint
             )).wait();
 
             /* Attest and factor */
@@ -381,6 +395,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             expect(finalInvestorUSDC - initialInvestorUSDC).to.equal(expectedSlashAmount);
             expect(await collateralVault.isSlashed(nextInvoiceId)).to.equal(true);
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(6n); // SLASHED
         });
 
         it("should allow platform-signed email attestation commitment", async function () {
@@ -393,7 +408,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             /* Stake and upload */
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
-            await (await collateralVault.connect(supplier).stakeCollateral(nextInvoiceId, faceValue)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
             const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
             input.add64(faceValue);
@@ -411,7 +426,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 enc.handles[4], enc.inputProof,
                 debtor.address,
                 true,
-                faceValue
+                faceValue,
+                fingerprint
             )).wait();
 
             /* Platform-signed email attestation flow */

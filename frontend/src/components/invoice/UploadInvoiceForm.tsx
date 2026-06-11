@@ -128,6 +128,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [logisticsFile, setLogisticsFile] = useState<File | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [localStakeTxHash, setLocalStakeTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [invoice, setInvoice] = useState<ParsedInvoiceDetails>({
@@ -154,17 +155,17 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       {
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
-        functionName: "stakedCollateral",
-        args: [nextInvoiceId],
+        functionName: "stakedCollateralByFingerprint",
+        args: [invoice.fingerprint],
       },
       {
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
-        functionName: "invoiceSupplier",
-        args: [nextInvoiceId],
+        functionName: "supplierByFingerprint",
+        args: [invoice.fingerprint],
       },
     ],
-    query: { enabled: wizardStep === 3 },
+    query: { enabled: wizardStep === 3 && invoice.fingerprint !== 0n },
   });
   const existingStake = collateralStatus?.[0]?.result as bigint | undefined;
   const existingSupplier = collateralStatus?.[1]?.result as `0x${string}` | undefined;
@@ -180,6 +181,24 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     query: { enabled: !!fraudCheckTxHash },
   });
   const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= MIN_ETH_FOR_UPLOAD : false;
+
+  useEffect(() => {
+    if (invoice.fingerprint) {
+      const saved = localStorage.getItem(`arbitra_stake_${invoice.fingerprint.toString()}`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.txHash) {
+            setLocalStakeTxHash(parsed.txHash);
+          }
+        } catch (e) {
+          console.error("Failed to parse saved stake", e);
+        }
+      }
+    } else {
+      setLocalStakeTxHash(null);
+    }
+  }, [invoice.fingerprint]);
 
   useEffect(() => {
     if (!publicClient) {
@@ -544,14 +563,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       const currentStake = await publicClient.readContract({
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
-        functionName: "stakedCollateral",
-        args: [nextInvoiceId],
+        functionName: "stakedCollateralByFingerprint",
+        args: [invoice.fingerprint],
       }) as bigint;
       const currentSupplier = await publicClient.readContract({
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
-        functionName: "invoiceSupplier",
-        args: [nextInvoiceId],
+        functionName: "supplierByFingerprint",
+        args: [invoice.fingerprint],
       }) as `0x${string}`;
 
       if (currentStake > 0n && currentSupplier.toLowerCase() === activeWallet.toLowerCase()) {
@@ -572,7 +591,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           const signer = await getEmbeddedSigner();
           const { ethers } = await import("ethers");
           const contract = new ethers.Contract(COLLATERAL_VAULT_ADDRESS, COLLATERAL_VAULT_ABI, signer);
-          const tx = await contract.stakeCollateral(nextInvoiceId, invoice.faceValue, {
+          const tx = await contract.stakeCollateral(invoice.fingerprint, invoice.faceValue, {
             gasLimit: 500_000n
           });
           stakeTxHash = tx.hash as `0x${string}`;
@@ -583,7 +602,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             address: COLLATERAL_VAULT_ADDRESS,
             abi: COLLATERAL_VAULT_ABI,
             functionName: "stakeCollateral",
-            args: [nextInvoiceId, invoice.faceValue],
+            args: [invoice.fingerprint, invoice.faceValue],
             gas: 500_000n,
           });
         }
@@ -597,8 +616,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           const recheckStake = await publicClient.readContract({
             address: COLLATERAL_VAULT_ADDRESS,
             abi: COLLATERAL_VAULT_ABI,
-            functionName: "stakedCollateral",
-            args: [nextInvoiceId],
+            functionName: "stakedCollateralByFingerprint",
+            args: [invoice.fingerprint],
           }) as bigint;
           if (recheckStake > 0n) {
             refetchUSDC();
@@ -623,6 +642,16 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
 
       setStakeStep("Collateral locked ✓");
+      // Save to localStorage
+      const stakeData = {
+        fingerprint: invoice.fingerprint.toString(),
+        supplier: activeWallet,
+        amount: requiredCollateral.toString(),
+        txHash: stakeTxHash,
+        status: "STAKED_PENDING_REGISTRATION"
+      };
+      localStorage.setItem(`arbitra_stake_${invoice.fingerprint.toString()}`, JSON.stringify(stakeData));
+      setLocalStakeTxHash(stakeTxHash);
       refetchUSDC();
       refetchAllowance();
       setIsStaking(false);
@@ -705,6 +734,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           invoice.debtor as `0x${string}`,
           true,
           invoice.faceValue,
+          invoice.fingerprint,
           { gasLimit: UPLOAD_GAS_CAP }
         );
         hash = tx.hash as `0x${string}`;
@@ -717,7 +747,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           h5, proofHex,
           invoice.debtor as `0x${string}`,
           true,
-          invoice.faceValue
+          invoice.faceValue,
+          invoice.fingerprint
         );
         if (!txHashResult) {
           throw new Error("Upload transaction hash was not returned.");
@@ -733,6 +764,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       if (uploadReceipt.status !== "success") {
         throw new Error("Upload invoice transaction reverted on-chain.");
       }
+      localStorage.removeItem(`arbitra_stake_${invoice.fingerprint.toString()}`);
+      setLocalStakeTxHash(null);
       setTxHash(hash);
       setWizardStep(5);
       if (onSuccess) {
@@ -1115,8 +1148,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-500">Vault Target ID</span>
-                <span className="text-white font-mono font-semibold">#{nextInvoiceId.toString()}</span>
+                <span className="text-slate-500">Invoice Fingerprint</span>
+                <span className="text-white font-mono font-semibold truncate max-w-[150px]">0x{invoice.fingerprint.toString(16)}</span>
               </div>
             </div>
 
@@ -1128,6 +1161,27 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 Staked collateral will be fully released automatically upon successful debtor maturity repayment. If fraud or duplicate financing is confirmed, collateral is slashed.
               </div>
             </div>
+
+            {alreadyStaked && (
+              <div className="p-3 rounded-xl bg-neon-cyan/5 border border-neon-cyan/20 space-y-1.5">
+                <p className="text-xs text-neon-cyan font-semibold">
+                  Stake already detected for this invoice.
+                </p>
+                {localStakeTxHash && (
+                  <p className="text-[10px] text-slate-400">
+                    Transaction hash:{" "}
+                    <a
+                      href={`https://sepolia.etherscan.io/tx/${localStakeTxHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-neon-cyan underline font-mono break-all"
+                    >
+                      {localStakeTxHash}
+                    </a>
+                  </p>
+                )}
+              </div>
+            )}
 
             {errorMsg && (
               <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
@@ -1183,7 +1237,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   disabled={!canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
-                  Collateral Already Staked — Continue
+                  Already Staked — Continue
                 </button>
               ) : (
                 <button

@@ -220,7 +220,8 @@ export const REGISTRY_ABI = [
       { name: "proofRepMult",          type: "bytes"   },
       { name: "debtor",                type: "address" },
       { name: "enableGeminiUnderwriting", type: "bool" },
-      { name: "faceValuePlaintext_",   type: "uint256" }, /* NEW in v2.2 */
+      { name: "faceValuePlaintext_",   type: "uint256" },
+      { name: "plaintextFingerprint",  type: "uint256" },
     ],
     outputs: [{ name: "invoiceId", type: "uint256" }],
   },
@@ -550,7 +551,7 @@ export const COLLATERAL_VAULT_ABI = [
     type: "function", name: "stakeCollateral",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "invoiceId", type: "uint256" },
+      { name: "fingerprint", type: "uint256" },
       { name: "faceValue", type: "uint256" },
     ],
     outputs: [],
@@ -566,6 +567,24 @@ export const COLLATERAL_VAULT_ABI = [
     stateMutability: "view",
     inputs: [{ name: "invoiceId", type: "uint256" }],
     outputs: [{ type: "address" }],
+  },
+  {
+    type: "function", name: "stakedCollateralByFingerprint",
+    stateMutability: "view",
+    inputs: [{ name: "fingerprint", type: "uint256" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function", name: "supplierByFingerprint",
+    stateMutability: "view",
+    inputs: [{ name: "fingerprint", type: "uint256" }],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function", name: "stakeStates",
+    stateMutability: "view",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [{ type: "uint8" }],
   },
 ] as const;
 

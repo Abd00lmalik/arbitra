@@ -171,7 +171,8 @@ export function useUploadInvoice() {
       proofRepMultiplier: `0x${string}`,
       debtor: `0x${string}`,
       enableGemini: boolean,
-      faceValuePlaintext: bigint
+      faceValuePlaintext: bigint,
+      plaintextFingerprint: bigint
     ) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
@@ -186,7 +187,8 @@ export function useUploadInvoice() {
           encRepMultiplier, proofRepMultiplier,
           debtor,
           enableGemini,
-          faceValuePlaintext
+          faceValuePlaintext,
+          plaintextFingerprint
         ],
       });
     },
@@ -245,19 +247,58 @@ export function useStakeCollateral() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
 
   const stakeCollateral = useCallback(
-    async (invoiceId: bigint, faceValue: bigint) => {
+    async (fingerprint: bigint, faceValue: bigint) => {
       return writeContractAsync({
         address: COLLATERAL_VAULT_ADDRESS,
         abi: COLLATERAL_VAULT_ABI,
         functionName: "stakeCollateral",
         gas: STAKE_GAS_LIMIT,
-        args: [invoiceId, faceValue],
+        args: [fingerprint, faceValue],
       });
     },
     [writeContractAsync]
   );
 
   return { stakeCollateral, isPending, error, txHash: data };
+}
+
+/*
+ * Hook: fetch staked collateral by invoice fingerprint.
+ */
+export function useStakedCollateralByFingerprint(fingerprint: bigint | undefined) {
+  return useReadContract({
+    address: COLLATERAL_VAULT_ADDRESS,
+    abi: COLLATERAL_VAULT_ABI,
+    functionName: "stakedCollateralByFingerprint",
+    args: fingerprint !== undefined ? [fingerprint] : undefined,
+    query: { enabled: fingerprint !== undefined },
+  });
+}
+
+/*
+ * Hook: fetch supplier of stake by invoice fingerprint.
+ */
+export function useSupplierByFingerprint(fingerprint: bigint | undefined) {
+  return useReadContract({
+    address: COLLATERAL_VAULT_ADDRESS,
+    abi: COLLATERAL_VAULT_ABI,
+    functionName: "supplierByFingerprint",
+    args: fingerprint !== undefined ? [fingerprint] : undefined,
+    query: { enabled: fingerprint !== undefined },
+  });
+}
+
+/*
+ * Hook: fetch stake state by ID (fingerprint or sequential ID).
+ */
+export function useStakeState(id: bigint | undefined) {
+  return useReadContract({
+    address: COLLATERAL_VAULT_ADDRESS,
+    abi: COLLATERAL_VAULT_ABI,
+    functionName: "stakeStates",
+    args: id !== undefined ? [id] : undefined,
+    query: { enabled: id !== undefined },
+  });
 }
 
 /*
