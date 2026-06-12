@@ -259,73 +259,62 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             input2.add64(reputationMultiplier);
             const enc2 = await input2.encrypt();
 
-            /* In FHE, the checkDuplicate function evaluates the duplicate homomorphically through the registry wrapper */
-            const dupHandle = await registry.connect(supplier).checkDuplicate.staticCall(enc2.handles[2], enc2.inputProof);
-            await (await registry.connect(supplier).checkDuplicate(enc2.handles[2], enc2.inputProof)).wait();
-            
-            /* Decrypt the duplicate check result to assert duplicate check operates correctly */
-            const decryptedDup = await fhevm.userDecryptEbool(
-                dupHandle,
-                registryAddr,
-                deployer
-            );
-            expect(decryptedDup).to.equal(true);
+            /* In the new design, checkDuplicate is a view function checking the mapping */
+            const isDup = await registry.connect(supplier).checkDuplicate(fingerprint);
+            expect(isDup).to.equal(true);
+
+            /* The second upload must revert due to duplicate check mapping */
+            await expect(
+                registry.connect(supplier).uploadInvoice(
+                    enc2.handles[0], enc2.inputProof,
+                    enc2.handles[1], enc2.inputProof,
+                    enc2.handles[2], enc2.inputProof,
+                    enc2.handles[3], enc2.inputProof,
+                    enc2.handles[4], enc2.inputProof,
+                    debtor.address,
+                    true,
+                    faceValue,
+                    fingerprint
+                )
+            ).to.be.revertedWith("Arbitra: duplicate fingerprint");
         });
 
-        it("should expose a decryptable supplier duplicate-check handle on fingerprint registry", async function () {
+        it("should expose a duplicate check view function on fingerprint registry", async function () {
+            const uniqueFingerprint = 888999000n;
+
+            // Before registration: should be false
+            expect(await fpRegistry.isDuplicate(uniqueFingerprint)).to.equal(false);
+
             const faceValue = 1_000_000_000n;
-            const uniqueFingerprint = 444555666n;
-            const duplicateFingerprint = 777888999n;
+            const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
+            const baseRate = 300n;
+            const reputationMultiplier = 5n;
 
-            const inputUnique = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
-            inputUnique.add64(uniqueFingerprint);
-            const encUniqueHash = await inputUnique.encrypt();
+            await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(uniqueFingerprint, faceValue)).wait();
 
-            const inputUniqueFaceValue = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
-            inputUniqueFaceValue.add64(faceValue);
-            const encUniqueFaceValue = await inputUniqueFaceValue.encrypt();
+            const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
+            input.add64(faceValue);
+            input.add64(dueDate);
+            input.add64(uniqueFingerprint);
+            input.add64(baseRate);
+            input.add64(reputationMultiplier);
+            const enc = await input.encrypt();
 
-            await (await fpRegistry.connect(supplier).checkInvoiceUniqueness(
-                encUniqueHash.handles[0],
-                encUniqueHash.inputProof,
-                encUniqueFaceValue.handles[0],
-                encUniqueFaceValue.inputProof
+            await (await registry.connect(supplier).uploadInvoice(
+                enc.handles[0], enc.inputProof,
+                enc.handles[1], enc.inputProof,
+                enc.handles[2], enc.inputProof,
+                enc.handles[3], enc.inputProof,
+                enc.handles[4], enc.inputProof,
+                debtor.address,
+                true,
+                faceValue,
+                uniqueFingerprint
             )).wait();
-
-            const uniqueHandle = await fpRegistry.getDuplicateCheckHandle(supplier.address);
-            const uniqueResult = await fhevm.userDecryptEbool(
-                uniqueHandle,
-                fpRegistryAddr,
-                supplier
-            );
-            expect(uniqueResult).to.equal(false);
-
-            await expect(
-                fpRegistry.connect(supplier).confirmAndRegister(42n)
-            ).to.emit(fpRegistry, "FingerprintRegistered");
-
-            const inputDuplicate = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
-            inputDuplicate.add64(uniqueFingerprint);
-            const encDuplicateHash = await inputDuplicate.encrypt();
-
-            const inputDuplicateFaceValue = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
-            inputDuplicateFaceValue.add64(faceValue);
-            const encDuplicateFaceValue = await inputDuplicateFaceValue.encrypt();
-
-            await (await fpRegistry.connect(supplier).checkInvoiceUniqueness(
-                encDuplicateHash.handles[0],
-                encDuplicateHash.inputProof,
-                encDuplicateFaceValue.handles[0],
-                encDuplicateFaceValue.inputProof
-            )).wait();
-
-            const duplicateHandle = await fpRegistry.getDuplicateCheckHandle(supplier.address);
-            const duplicateResult = await fhevm.userDecryptEbool(
-                duplicateHandle,
-                fpRegistryAddr,
-                supplier
-            );
-            expect(duplicateResult).to.equal(true);
+            
+            // Check that it's now marked as duplicate
+            expect(await fpRegistry.isDuplicate(uniqueFingerprint)).to.equal(true);
         });
 
         it("should allow governance to slash collateral on fraud", async function () {

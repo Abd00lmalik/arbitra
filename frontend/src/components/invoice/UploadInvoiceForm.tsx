@@ -355,129 +355,20 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   };
 
   const runEncryptedDuplicatePreflight = async (fingerprint: bigint) => {
-    if (!instance || !activeWallet || !publicClient || (!isEmbedded && !walletClient)) {
-      throw new Error("FHEVM SDK or Wallet signer not available for duplicate check.");
+    if (!publicClient) {
+      throw new Error("Sepolia provider not available.");
     }
 
-    setFraudCheckStep("Encrypting invoice fingerprint and face value...");
-    const encryptedInputs = await encryptTwoUint64(
-      instance,
-      fingerprint,
-      invoice.faceValue,
-      FINGERPRINT_REGISTRY_ADDRESS,
-      activeWallet
-    );
-
-    /* Check ETH balance before attempting a gas-heavy FHE transaction */
-    const walletBalance = await publicClient.getBalance({ address: activeWallet });
-    const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
-    const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
-    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;    /* Need 20% headroom above the estimated cost so a gas-price spike mid-tx doesn't fail */
-    const requiredBalance = (estimatedCost * 12n) / 10n;
-    if (walletBalance < requiredBalance) {
-      const shortfall = requiredBalance - walletBalance;
-      throw new Error(
-        `Insufficient ETH for fraud check gas. Balance: ${formatEthAmount(walletBalance)} ETH. ` +
-        `At current gas price (${gasPriceGwei} Gwei) the fraud check costs ~${formatEthAmount(estimatedCost)} ETH. ` +
-        `You need at least ${formatEthAmount(shortfall)} more ETH. ` +
-        `Get free Sepolia ETH at sepoliafaucet.com or via the Alchemy faucet.`
-      );
-    }
-
-    /* Skip simulateContract — its gas/maxFeePerGas estimates are inflated for FHE calls
-     * and produce impossible tx costs (e.g. 74 ETH). Write directly with a capped gas.  */
-    setFraudCheckStep(`Gas: ${gasPriceGwei} Gwei · Est. cost: ~${formatEthAmount(estimatedCost)} ETH — awaiting wallet approval...`);
-    setFraudCheckAwaitingWallet(true);
-    setFraudCheckStep("Check your wallet — approve the fraud check transaction.");
-
-    let duplicateTxHash: `0x${string}`;
-    if (isEmbedded) {
-      const signer = await getEmbeddedSigner();
-      const { ethers } = await import("ethers");
-      const contract = new ethers.Contract(FINGERPRINT_REGISTRY_ADDRESS, FINGERPRINT_REGISTRY_ABI, signer);
-      const tx = await contract.checkInvoiceUniqueness(
-        encryptedInputs.handle1,
-        encryptedInputs.inputProof,
-        encryptedInputs.handle2,
-        encryptedInputs.inputProof,
-        { gasLimit: FRAUD_CHECK_GAS_CAP }
-      );
-      duplicateTxHash = tx.hash as `0x${string}`;
-    } else {
-      duplicateTxHash = await walletClient!.writeContract({
-        chain: walletClient!.chain,
-        account: activeWallet,
-        address: FINGERPRINT_REGISTRY_ADDRESS,
-        abi: FINGERPRINT_REGISTRY_ABI,
-        functionName: "checkInvoiceUniqueness",
-        args: [
-          encryptedInputs.handle1,
-          encryptedInputs.inputProof,
-          encryptedInputs.handle2,
-          encryptedInputs.inputProof,
-        ],
-        gas: FRAUD_CHECK_GAS_CAP,
-      });
-    }
-    setFraudCheckTxHash(duplicateTxHash);
-    setFraudCheckAwaitingWallet(false);
-
-    setFraudCheckStep("Waiting for Sepolia confirmation...");
-    const duplicateReceipt = await publicClient.waitForTransactionReceipt({
-      hash: duplicateTxHash,
-      confirmations: 1,
-      timeout: 120_000,
-    });
-    if (duplicateReceipt.status !== "success") {
-      throw new Error("Encrypted duplicate check transaction reverted.");
-    }
-
-    setFraudCheckStep("Reading duplicate check handle...");
-    const duplicateHandle = await publicClient.readContract({
+    setFraudCheckStep("Checking invoice uniqueness on-chain...");
+    const isDuplicate = await publicClient.readContract({
       address: FINGERPRINT_REGISTRY_ADDRESS,
       abi: FINGERPRINT_REGISTRY_ABI,
-      functionName: "getDuplicateCheckHandle",
-      args: [activeWallet],
-    }) as `0x${string}`;
+      functionName: "isDuplicate",
+      args: [fingerprint],
+    }) as boolean;
 
-    if (!duplicateHandle || duplicateHandle === "0x0000000000000000000000000000000000000000000000000000000000000000") {
-      throw new Error("Fingerprint registry did not return a duplicate check handle.");
-    }
-
-    const signerAdapter = {
-      getAddress: async () => activeWallet,
-      signTypedData: async (
-        domain: object,
-        types: object,
-        value: object
-      ) => {
-        if (isEmbedded) {
-          const signer = await getEmbeddedSigner();
-          const cleanTypes = { ...types } as any;
-          delete cleanTypes.EIP712Domain;
-          return signer.signTypedData(domain, cleanTypes, value);
-        } else {
-          const primaryType = Object.keys(types).find((key) => key !== "EIP712Domain") ?? "";
-          return walletClient!.signTypedData({
-            account: activeWallet,
-            domain: domain as any,
-            types: types as any,
-            primaryType: primaryType as any,
-            message: value as any,
-          });
-        }
-      },
-    };
-
-    setFraudCheckStep("Decrypting fraud check result...");
-    const duplicateValues = await userDecryptHandles(
-      instance,
-      [{ handle: duplicateHandle, contractAddress: FINGERPRINT_REGISTRY_ADDRESS }],
-      signerAdapter
-    );
-
-    if (duplicateValues[duplicateHandle] === true || duplicateValues[duplicateHandle] === 1n) {
-      throw new Error("Duplicate Financing Detected: This invoice has already been registered on-chain. Double-financing has been blocked by the FHE duplicate check.");
+    if (isDuplicate) {
+      throw new Error("Duplicate Financing Detected: This invoice fingerprint has already been registered on-chain.");
     }
 
     setFraudCheckStep("Invoice verified unique. No duplicate found.");

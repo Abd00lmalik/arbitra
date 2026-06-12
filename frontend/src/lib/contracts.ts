@@ -430,34 +430,16 @@ export const ARBITRA_REGISTRY_ABI = REGISTRY_ABI;
 
 export const FINGERPRINT_REGISTRY_ABI = [
   {
-    type: "function", name: "checkInvoiceUniqueness",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "encHash",        type: "bytes32" },
-      { name: "proofHash",      type: "bytes"   },
-      { name: "encFaceValue",   type: "bytes32" },
-      { name: "proofFaceValue", type: "bytes"   },
-    ],
-    outputs: [{ name: "duplicateResultHandle", type: "bytes32" }],
+    type: "function", name: "isDuplicate",
+    stateMutability: "view",
+    inputs: [{ name: "plaintextFingerprint", type: "uint256" }],
+    outputs: [{ type: "bool" }],
   },
   {
     type: "function", name: "confirmAndRegister",
     stateMutability: "nonpayable",
     inputs: [{ name: "invoiceId", type: "uint256" }],
     outputs: [],
-  },
-  {
-    type: "function", name: "getDuplicateCheckHandle",
-    stateMutability: "view",
-    inputs: [{ name: "supplier", type: "address" }],
-    outputs: [{ name: "handle", type: "bytes32" }],
-  },
-  {
-    type: "event", name: "DuplicateCheckInitiated",
-    inputs: [
-      { name: "supplier",  type: "address", indexed: true },
-      { name: "timestamp", type: "uint256" },
-    ],
   },
   {
     type: "event", name: "FingerprintRegistered",

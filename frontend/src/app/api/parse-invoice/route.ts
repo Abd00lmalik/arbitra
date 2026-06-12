@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { keccak256, toUtf8Bytes } from "ethers";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -165,11 +166,10 @@ function parseJsonFields(rawText: string): InvoiceFields {
 }
 
 function hashFingerprint(material: string) {
-  let hash = 5381n;
-  for (let i = 0; i < material.length; i++) {
-    hash = hash * 33n + BigInt(material.charCodeAt(i));
-  }
-  return hash & 0x7fffffffffffffffn;
+  const bytes = toUtf8Bytes(material);
+  const hash = keccak256(bytes);
+  const hexPart = hash.slice(2, 18);
+  return BigInt("0x" + hexPart);
 }
 
 function toDateSeconds(dateText: string) {

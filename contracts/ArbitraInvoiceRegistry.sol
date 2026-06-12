@@ -13,8 +13,8 @@ import { EIP712 }                                from "@openzeppelin/contracts/u
 import { IERC20 }                                 from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IArbitraFingerprintRegistry {
-    function registerFingerprint(uint256 invoiceId, euint64 fingerprint) external returns (euint64);
-    function checkDuplicate(euint64 eNew) external returns (ebool);
+    function registerFingerprint(uint256 invoiceId, euint64 fingerprint, uint256 plaintextFingerprint) external returns (euint64);
+    function isDuplicate(uint256 plaintextFingerprint) external view returns (bool);
 }
 
 interface IArbitraRiskCalculator {
@@ -250,8 +250,11 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         /* Grant fpRegistry transient access to the fingerprint handle for registration */
         FHE.allowTransient(rawFingerprint, fpRegistry);
 
+        /* Verify fingerprint is unique */
+        require(!IArbitraFingerprintRegistry(fpRegistry).isDuplicate(plaintextFingerprint), "Arbitra: duplicate fingerprint");
+
         /* Register fingerprint on-chain */
-        euint64 fingerprintHash = IArbitraFingerprintRegistry(fpRegistry).registerFingerprint(invoiceId, rawFingerprint);
+        euint64 fingerprintHash = IArbitraFingerprintRegistry(fpRegistry).registerFingerprint(invoiceId, rawFingerprint, plaintextFingerprint);
 
         /* Compute Expected Delay Days from supplier repayment ratio */
         SupplierStats storage stats = supplierStats[msg.sender];
@@ -435,15 +438,15 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
          */
         uint256 purchasePricePlaintext = _computePurchasePricePlaintext(invoiceId);
 
-        /* Transfer USDC from investor to supplier */
-        bool ok = usdc.transferFrom(msg.sender, inv.supplier, purchasePricePlaintext);
-        require(ok, "Arbitra: USDC transfer failed");
-
         inv.investor = msg.sender;
         inv.status = InvoiceStatus.Factored;
 
         /* Transition stake state to FINANCED */
         IArbitraCollateralVault(collateralVault).updateStakeState(invoiceId, 3);
+
+        /* Transfer USDC from investor to supplier */
+        bool ok = usdc.transferFrom(msg.sender, inv.supplier, purchasePricePlaintext);
+        require(ok, "Arbitra: USDC transfer failed");
 
         FHE.allow(inv.purchasePrice, msg.sender);
         FHE.allow(inv.faceValue, msg.sender);
@@ -543,22 +546,12 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
-     * @notice Public duplicate check that converts input on-chain in the main registry context.
+     * @notice Public duplicate check that queries if fingerprint exists.
      */
     function checkDuplicate(
-        externalEuint64 encFingerprint,
-        bytes calldata proof
-    ) external returns (ebool) {
-        euint64 eNew = FHE.fromExternal(encFingerprint, proof);
-
-        /* Grant fpRegistry transient access to check duplicate handle */
-        FHE.allowTransient(eNew, fpRegistry);
-
-        ebool isDup = IArbitraFingerprintRegistry(fpRegistry).checkDuplicate(eNew);
-        FHE.allowThis(isDup);
-        FHE.allow(isDup, msg.sender);
-        FHE.allow(isDup, owner());
-        return isDup;
+        uint256 plaintextFingerprint
+    ) external view returns (bool) {
+        return IArbitraFingerprintRegistry(fpRegistry).isDuplicate(plaintextFingerprint);
     }
 
     /**
