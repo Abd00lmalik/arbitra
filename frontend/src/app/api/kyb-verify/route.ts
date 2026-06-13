@@ -311,6 +311,7 @@ export async function POST(req: NextRequest) {
         pep_flag: kybResult.pep_flag,
         risk_score: kybResult.risk_score,
         oracle_signature: kybResult.oracle_signature,
+        signature,
         verified_at: timestamp,
         verification_id_bytes32: verificationIdBytes32,
         attestation_hash_bytes32: attestationHashBytes32,

@@ -1137,6 +1137,22 @@ export default function RegisterPage() {
                   </div>
                 </div>
 
+                {error && (
+                  <div
+                    style={{
+                      background: "rgba(255,45,107,0.1)",
+                      border: "1px solid rgba(255,45,107,0.2)",
+                      borderRadius: 12,
+                      padding: 12,
+                      color: "#FF5E8C",
+                      fontSize: 13,
+                      marginBottom: 20,
+                    }}
+                  >
+                    {error}
+                  </div>
+                )}
+
                 <button onClick={handleMintSBT} disabled={isMintingSBT} style={primaryBtnStyle}>
                   {isMintingSBT
                     ? <><Spinner /> Waiting for Sepolia confirmation...</>

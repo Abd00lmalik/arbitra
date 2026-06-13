@@ -18,7 +18,7 @@ export const USDC_ADDRESS =
 /* ── Protocol contracts ── */
 export const ARBITRA_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_REGISTRY_ADDRESS ??
-   "0x5eC0a3Cc74C648178cdd5F05a0aae08e06a9cb93") as `0x${string}`;
+   "0x31d17A1DB4d72c63FD4E484A324E06b55c27c9CA") as `0x${string}`;
 
 export const ESCROW_RECEIVER_ADDRESS =
   (process.env.NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS ??
@@ -30,7 +30,7 @@ export const COLLATERAL_VAULT_ADDRESS =
 
 export const FINGERPRINT_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS ??
-   "0x595b715A38f16Abf9643fC8a6827622212812171") as `0x${string}`;
+   "0xe9ECB140583D81c2b7A81705CE8Bd4317CF3a720") as `0x${string}`;
 
 export const SBT_ADDRESS =
   (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
@@ -38,7 +38,7 @@ export const SBT_ADDRESS =
 
 export const KYB_ORACLE_ADDRESS =
   (process.env.NEXT_PUBLIC_KYB_ORACLE_ADDRESS ??
-   "0xbB3cDdC1c5a1A7E8F2983B3aB6953A5c7a52ADa6") as `0x${string}`;
+   "0x27eB4eA7966C5d8700625567dFE6bD87f9Efaed3") as `0x${string}`;
 
 export const IDENTITY_ADDRESS =
   (process.env.NEXT_PUBLIC_IDENTITY_ADDRESS ??
