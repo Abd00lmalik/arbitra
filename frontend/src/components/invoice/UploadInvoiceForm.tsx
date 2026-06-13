@@ -77,6 +77,15 @@ function formatEthAmount(value: bigint) {
 }
 
 function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap?: bigint) {
+  const errObj = error as any;
+  const fullMessage = [
+    errObj?.message,
+    errObj?.details,
+    errObj?.shortMessage,
+    error instanceof Error ? error.message : "",
+    String(error)
+  ].filter(Boolean).join(" | ");
+
   const rawMessage =
     typeof error === "object" && error !== null && "shortMessage" in error && typeof (error as { shortMessage?: unknown }).shortMessage === "string"
       ? (error as { shortMessage: string }).shortMessage
@@ -84,14 +93,14 @@ function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap
         ? error.message
         : String(error);
 
-  if (rawMessage.toLowerCase().includes("could not coalesce error") || rawMessage.toLowerCase().includes("coalesce")) {
+  if (fullMessage.toLowerCase().includes("could not coalesce error") || fullMessage.toLowerCase().includes("coalesce")) {
     return "Transaction simulation failed. This usually means your wallet has insufficient Sepolia ETH for gas, or there is an address mismatch in your Vercel dashboard configuration (e.g., using old/stale contract addresses). Please ensure your wallet has Sepolia ETH and that the Vercel dashboard environment variables match the latest deployed contract addresses.";
   }
 
-  const isInsufficientFunds = rawMessage.toLowerCase().includes("insufficient funds");
+  const isInsufficientFunds = fullMessage.toLowerCase().includes("insufficient funds") || fullMessage.toLowerCase().includes("exceeds the balance");
   
   if (isInsufficientFunds) {
-    const insufficientFundsMatch = rawMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
+    const insufficientFundsMatch = fullMessage.match(/have\s+(\d+)\s+want\s+(\d+)/i);
     if (insufficientFundsMatch) {
       const haveWei = BigInt(insufficientFundsMatch[1]);
       const wantWei = BigInt(insufficientFundsMatch[2]);
@@ -101,8 +110,8 @@ function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap
 
     if (liveGasPrice) {
       const estLimit = customGasCap ?? UPLOAD_GAS_CAP;
-      /* Add a standard 20% margin to the estimate to match MetaMask's buffer */
-      const bufferedGasPrice = (liveGasPrice * 12n) / 10n;
+      /* Add a standard 50% margin to the estimate to match wallet buffers */
+      const bufferedGasPrice = (liveGasPrice * 15n) / 10n;
       const requiredWei = estLimit * bufferedGasPrice;
       return `Insufficient ETH for gas. You need approximately ${formatEthAmount(requiredWei)} Sepolia ETH (covering the gas limit ceiling of ${Number(estLimit).toLocaleString()} gas at current gas prices) to submit this transaction. Please fund your wallet and try again.`;
     }
