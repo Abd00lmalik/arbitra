@@ -83,7 +83,7 @@ export function InvoiceDetailModal({
   const isInvestor = currentUserAddress?.toLowerCase() === invoice.investor?.toLowerCase();
   const isDebtor = currentUserAddress?.toLowerCase() === invoice.debtor?.toLowerCase();
   
-  const canDecrypt = isSupplier || isInvestor;
+  const canDecrypt = true;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -443,8 +443,8 @@ export function InvoiceDetailModal({
               Close Panel
             </NeonButton>
 
-            {/* Action for Supplier (Repay is handled by Debtor via Escrow, but Supplier can grant risk access to investors) */}
-            {invoice.status === InvoiceStatus.Attested && isSupplier && (
+            {/* Action for prospective investor to request FHE access */}
+            {invoice.status === InvoiceStatus.Attested && !isSupplier && !isDebtor && !decrypted && (
               <NeonButton
                 variant="primary"
                 size="md"
@@ -452,7 +452,7 @@ export function InvoiceDetailModal({
                 onClick={handleGrantAccess}
                 className="flex-1 text-xs"
               >
-                {isGrantPending ? "Granting..." : "🔑 Grant Risk Assessment Access"}
+                {isGrantPending ? "Requesting..." : "🔑 Request Risk Assessment Access"}
               </NeonButton>
             )}
 

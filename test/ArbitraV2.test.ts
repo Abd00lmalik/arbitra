@@ -93,6 +93,17 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
         await (await collateralVault.connect(deployer).setRegistry(registryAddr)).wait();
         await (await escrowReceiver.connect(deployer).setRegistry(registryAddr)).wait();
 
+        /* Deploy ArbitraSBT and configure on registry */
+        const SBTFactory = await ethers.getContractFactory("ArbitraSBT", deployer);
+        const sbt = await SBTFactory.deploy(deployer.address);
+        await sbt.waitForDeployment();
+        const sbtAddr = await sbt.getAddress();
+
+        await (await sbt.setKYBOracle(deployer.address)).wait();
+        await (await sbt.mintSBT(supplier.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
+        await (await sbt.mintSBT(investor.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
+        await (await registry.setSBTContract(sbtAddr)).wait();
+
         /* Mint assets to participants */
         await (await mockUSDC.mint(supplier.address, 10_000_000_000n)).wait(); /* 10k USDC */
         await (await mockUSDC.mint(investor.address, 10_000_000_000n)).wait(); /* 10k USDC */
@@ -188,8 +199,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             const invAfterAttest = await registry.invoices(nextInvoiceId);
             expect(invAfterAttest.status).to.equal(1n); /* Attested */
 
-            /* Step 4: Transient assessment access */
-            await (await registry.connect(investor).grantRiskAssessmentAccess(nextInvoiceId)).wait();
+            /* Step 4: Permanent assessment access */
+            await (await registry.connect(investor).requestRiskAssessmentAccess(nextInvoiceId)).wait();
 
             /* Step 5: Factoring purchase */
             await expect(
@@ -217,14 +228,31 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(5n); // STAKE_RELEASED
         });
 
-        it("should revert if duplicate fingerprint is uploaded", async function () {
+        it("should process on-chain FHE duplicate checking loop correctly", async function () {
             const faceValue = 1_000_000_000n;
             const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
             const fingerprint = 111222333n;
+            const uniqueFingerprint = 888999000n;
             const baseRate = 300n;
             const reputationMultiplier = 5n;
 
-            /* Stake for first invoice */
+            /* 1. Check uniqueness for a clean fingerprint - should be false */
+            const inputUnique = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputUnique.add64(uniqueFingerprint);
+            inputUnique.add64(faceValue);
+            const encUnique = await inputUnique.encrypt();
+
+            const txUnique = await fpRegistry.connect(supplier).checkInvoiceUniqueness(
+                encUnique.handles[0], encUnique.inputProof,
+                encUnique.handles[1], encUnique.inputProof
+            );
+            await txUnique.wait();
+
+            const dupHandleUnique = await fpRegistry.getDuplicateCheckHandle(supplier.address);
+            const isDupUnique = await fhevm.debugger.decryptEbool(dupHandleUnique);
+            expect(isDupUnique).to.equal(false);
+
+            /* 2. Stake and upload the fingerprint to register it */
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
             await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
@@ -248,73 +276,73 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 fingerprint
             )).wait();
 
-            /* Stake for second invoice (reusing fingerprint is allowed since mapping cleared) */
-            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
+            /* 3. Check duplicate for the same fingerprint - should be true */
+            const inputDup = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputDup.add64(fingerprint); /* SAME FINGERPRINT */
+            inputDup.add64(faceValue);
+            const encDup = await inputDup.encrypt();
 
-            const input2 = fhevm.createEncryptedInput(registryAddr, supplier.address);
-            input2.add64(faceValue);
-            input2.add64(dueDate);
-            input2.add64(fingerprint); /* SAME FINGERPRINT */
-            input2.add64(baseRate);
-            input2.add64(reputationMultiplier);
-            const enc2 = await input2.encrypt();
+            const txDup = await fpRegistry.connect(supplier).checkInvoiceUniqueness(
+                encDup.handles[0], encDup.inputProof,
+                encDup.handles[1], encDup.inputProof
+            );
+            await txDup.wait();
 
-            /* In the new design, checkDuplicate is a view function checking the mapping */
-            const isDup = await registry.connect(supplier).checkDuplicate(fingerprint);
+            const dupHandleDup = await fpRegistry.getDuplicateCheckHandle(supplier.address);
+            const isDup = await fhevm.debugger.decryptEbool(dupHandleDup);
             expect(isDup).to.equal(true);
-
-            /* The second upload must revert due to duplicate check mapping */
-            await expect(
-                registry.connect(supplier).uploadInvoice(
-                    enc2.handles[0], enc2.inputProof,
-                    enc2.handles[1], enc2.inputProof,
-                    enc2.handles[2], enc2.inputProof,
-                    enc2.handles[3], enc2.inputProof,
-                    enc2.handles[4], enc2.inputProof,
-                    debtor.address,
-                    true,
-                    faceValue,
-                    fingerprint
-                )
-            ).to.be.revertedWith("Arbitra: duplicate fingerprint");
         });
 
-        it("should expose a duplicate check view function on fingerprint registry", async function () {
-            const uniqueFingerprint = 888999000n;
-
-            // Before registration: should be false
-            expect(await fpRegistry.isDuplicate(uniqueFingerprint)).to.equal(false);
-
+        it("should prevent double fingerprint registration if confirmAndRegister and uploadInvoice are both called", async function () {
             const faceValue = 1_000_000_000n;
             const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
+            const fingerprint = 444555666n;
             const baseRate = 300n;
             const reputationMultiplier = 5n;
+            const nextInvoiceId = 1n;
 
+            /* 1. Uniqueness check preflight */
+            const inputUnique = fhevm.createEncryptedInput(fpRegistryAddr, supplier.address);
+            inputUnique.add64(fingerprint);
+            inputUnique.add64(faceValue);
+            const encUnique = await inputUnique.encrypt();
+            await (await fpRegistry.connect(supplier).checkInvoiceUniqueness(
+                encUnique.handles[0], encUnique.inputProof,
+                encUnique.handles[1], encUnique.inputProof
+            )).wait();
+
+            /* 2. Stake collateral */
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, 100_000_000n)).wait();
-            await (await collateralVault.connect(supplier).stakeCollateral(uniqueFingerprint, faceValue)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
 
-            const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
-            input.add64(faceValue);
-            input.add64(dueDate);
-            input.add64(uniqueFingerprint);
-            input.add64(baseRate);
-            input.add64(reputationMultiplier);
-            const enc = await input.encrypt();
+            /* 3. Call confirmAndRegister on fpRegistry */
+            const initialCount = await fpRegistry.fingerprintCount();
+            await (await fpRegistry.connect(supplier).confirmAndRegister(nextInvoiceId)).wait();
+            expect(await fpRegistry.fingerprintCount()).to.equal(initialCount + 1n);
+
+            /* 4. Call uploadInvoice on registry (which internally calls registerFingerprint) */
+            const input1 = fhevm.createEncryptedInput(registryAddr, supplier.address);
+            input1.add64(faceValue);
+            input1.add64(dueDate);
+            input1.add64(fingerprint);
+            input1.add64(baseRate);
+            input1.add64(reputationMultiplier);
+            const enc1 = await input1.encrypt();
 
             await (await registry.connect(supplier).uploadInvoice(
-                enc.handles[0], enc.inputProof,
-                enc.handles[1], enc.inputProof,
-                enc.handles[2], enc.inputProof,
-                enc.handles[3], enc.inputProof,
-                enc.handles[4], enc.inputProof,
+                enc1.handles[0], enc1.inputProof,
+                enc1.handles[1], enc1.inputProof,
+                enc1.handles[2], enc1.inputProof,
+                enc1.handles[3], enc1.inputProof,
+                enc1.handles[4], enc1.inputProof,
                 debtor.address,
                 true,
                 faceValue,
-                uniqueFingerprint
+                fingerprint
             )).wait();
-            
-            // Check that it's now marked as duplicate
-            expect(await fpRegistry.isDuplicate(uniqueFingerprint)).to.equal(true);
+
+            /* 5. Expect the count of fingerprints has NOT increased again */
+            expect(await fpRegistry.fingerprintCount()).to.equal(initialCount + 1n);
         });
 
         it("should allow governance to slash collateral on fraud", async function () {

@@ -15,7 +15,10 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
+const EXPECTED_VERIFIER_ADDRESS =
+  process.env.PLATFORM_VERIFIER_ADDRESS ||
+  process.env.ORACLE_BACKEND_ADDRESS ||
+  "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const DEFAULT_SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 const FHE_COMPLIANCE_GAS_LIMIT = 4_000_000n;

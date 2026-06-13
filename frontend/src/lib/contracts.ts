@@ -18,11 +18,11 @@ export const USDC_ADDRESS =
 /* ── Protocol contracts ── */
 export const ARBITRA_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_REGISTRY_ADDRESS ??
-   "0x0FFc6B97bB9625C134D0E751afE0E19B64269CD4") as `0x${string}`;
+   "0x5eC0a3Cc74C648178cdd5F05a0aae08e06a9cb93") as `0x${string}`;
 
 export const ESCROW_RECEIVER_ADDRESS =
   (process.env.NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS ??
-   "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E") as `0x${string}`;
+   "0xE3d7c0E21D892f788ee5d1e1FDa25c7fcFAaD7e0") as `0x${string}`;
 
 export const COLLATERAL_VAULT_ADDRESS =
   (process.env.NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS ??
@@ -30,19 +30,19 @@ export const COLLATERAL_VAULT_ADDRESS =
 
 export const FINGERPRINT_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS ??
-   "0x165b9238f8AD7276F31c170b3C86a4B2c796BF37") as `0x${string}`;
+   "0x595b715A38f16Abf9643fC8a6827622212812171") as `0x${string}`;
 
 export const SBT_ADDRESS =
   (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
-   "0x7cd528c9A8EcdAA3ACF9d463cEeCcF9041d38Fa5") as `0x${string}`;
+   "0xa2Fb6d7d6058e4407Ca685192308c0a5C346b530") as `0x${string}`;
 
 export const KYB_ORACLE_ADDRESS =
   (process.env.NEXT_PUBLIC_KYB_ORACLE_ADDRESS ??
-   "0x3086b17235929EC1D83A5301E7466EC280178be7") as `0x${string}`;
+   "0xbB3cDdC1c5a1A7E8F2983B3aB6953A5c7a52ADa6") as `0x${string}`;
 
 export const IDENTITY_ADDRESS =
   (process.env.NEXT_PUBLIC_IDENTITY_ADDRESS ??
-   "0x69239bEca6BD43d41b62eeA7cab20C72fb245dE7") as `0x${string}`;
+   "0x31dA844d811f94ff34e8B3E84aC9a5fcB5eAB584") as `0x${string}`;
 
 
 /* ── Constants ── */
@@ -263,7 +263,7 @@ export const REGISTRY_ABI = [
     outputs: [{ name: "isDuplicate", type: "bytes32" }],
   },
   {
-    type: "function", name: "grantRiskAssessmentAccess",
+    type: "function", name: "requestRiskAssessmentAccess",
     stateMutability: "nonpayable",
     inputs: [{ name: "invoiceId", type: "uint256" }],
     outputs: [],
@@ -430,16 +430,34 @@ export const ARBITRA_REGISTRY_ABI = REGISTRY_ABI;
 
 export const FINGERPRINT_REGISTRY_ABI = [
   {
-    type: "function", name: "isDuplicate",
-    stateMutability: "view",
-    inputs: [{ name: "plaintextFingerprint", type: "uint256" }],
-    outputs: [{ type: "bool" }],
+    type: "function", name: "checkInvoiceUniqueness",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "encHash",        type: "bytes32" },
+      { name: "proofHash",      type: "bytes"   },
+      { name: "encFaceValue",   type: "bytes32" },
+      { name: "proofFaceValue", type: "bytes"   },
+    ],
+    outputs: [{ name: "duplicateResultHandle", type: "bytes32" }],
   },
   {
     type: "function", name: "confirmAndRegister",
     stateMutability: "nonpayable",
     inputs: [{ name: "invoiceId", type: "uint256" }],
     outputs: [],
+  },
+  {
+    type: "function", name: "getDuplicateCheckHandle",
+    stateMutability: "view",
+    inputs: [{ name: "supplier", type: "address" }],
+    outputs: [{ name: "handle", type: "bytes32" }],
+  },
+  {
+    type: "event", name: "DuplicateCheckInitiated",
+    inputs: [
+      { name: "supplier",  type: "address", indexed: true },
+      { name: "timestamp", type: "uint256" },
+    ],
   },
   {
     type: "event", name: "FingerprintRegistered",

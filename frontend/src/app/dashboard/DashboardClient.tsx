@@ -441,7 +441,9 @@ export default function DashboardClient() {
   const wallet = web3authWallet ?? (isConnected && address ? address : null);
 
   if (isInitializing && !isConnected) return null;
-  if (!wallet || (!isLoggedIn && !isConnected)) return null;
+  if (!wallet || (!isLoggedIn && !isConnected)) {
+    return <PublicDashboardLanding />;
+  }
 
   return <AuthenticatedDashboard wallet={wallet} />;
 }

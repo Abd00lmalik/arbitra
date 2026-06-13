@@ -166,10 +166,15 @@ function parseJsonFields(rawText: string): InvoiceFields {
 }
 
 function hashFingerprint(material: string) {
-  const bytes = toUtf8Bytes(material);
-  const hash = keccak256(bytes);
-  const hexPart = hash.slice(2, 18);
-  return BigInt("0x" + hexPart);
+  let hash = 5381n;
+  for (let i = 0; i < material.length; i++) {
+    hash = hash * 33n + BigInt(material.charCodeAt(i));
+  }
+  return hash & 0x7fffffffffffffffn;
+}
+
+function hashFingerprint64(material: string) {
+  return hashFingerprint(material);
 }
 
 function toDateSeconds(dateText: string) {
@@ -235,6 +240,7 @@ function validateAndNormalize(fields: InvoiceFields, logisticsData: Record<strin
     faceValue: BigInt(fields.totalAmountCents) * 10_000n,
     dueDate: BigInt(dueDateSeconds),
     fingerprint: hashFingerprint(fingerprintMaterial),
+    fingerprint64: hashFingerprint64(fingerprintMaterial),
     baseRate: BigInt(DEFAULT_BASE_RATE_BPS),
     reputationMultiplier: BigInt(DEFAULT_REPUTATION_MULTIPLIER),
     debtor: fields.debtorAddress ?? "",
@@ -490,6 +496,7 @@ Do not guess fields that are not visible.`
       faceValue: normalized.faceValue.toString(),
       dueDate: normalized.dueDate.toString(),
       fingerprint: normalized.fingerprint.toString(),
+      fingerprint64: normalized.fingerprint64.toString(),
       baseRate: normalized.baseRate.toString(),
       reputationMultiplier: normalized.reputationMultiplier.toString(),
       debtor: normalized.debtor,

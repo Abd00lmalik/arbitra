@@ -13,8 +13,12 @@ import { EIP712 }                                from "@openzeppelin/contracts/u
 import { IERC20 }                                 from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IArbitraFingerprintRegistry {
-    function registerFingerprint(uint256 invoiceId, euint64 fingerprint, uint256 plaintextFingerprint) external returns (euint64);
-    function isDuplicate(uint256 plaintextFingerprint) external view returns (bool);
+    function registerFingerprint(uint256 invoiceId, euint64 fingerprint) external returns (euint64);
+    function checkDuplicate(euint64 eNew) external returns (ebool);
+}
+
+interface IArbitraSBT {
+    function hasValidSBT(address wallet) external view returns (bool);
 }
 
 interface IArbitraRiskCalculator {
@@ -108,6 +112,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     address public riskCalc;
     address public collateralVault;
     address public escrowReceiver;
+    address public sbtContract;
 
     /**
      * @notice Platform verifier wallet address.
@@ -206,6 +211,15 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         emit PlatformVerifierUpdated(_verifier);
     }
 
+    /**
+     * @notice Set the Soulbound Token contract address.
+     * @param _sbt Address of the ArbitraSBT contract.
+     */
+    function setSBTContract(address _sbt) external onlyOwner {
+        require(_sbt != address(0), "Arbitra: zero SBT address");
+        sbtContract = _sbt;
+    }
+
     /*************** Supplier Functions ***************/
 
     /**
@@ -250,11 +264,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         /* Grant fpRegistry transient access to the fingerprint handle for registration */
         FHE.allowTransient(rawFingerprint, fpRegistry);
 
-        /* Verify fingerprint is unique */
-        require(!IArbitraFingerprintRegistry(fpRegistry).isDuplicate(plaintextFingerprint), "Arbitra: duplicate fingerprint");
-
         /* Register fingerprint on-chain */
-        euint64 fingerprintHash = IArbitraFingerprintRegistry(fpRegistry).registerFingerprint(invoiceId, rawFingerprint, plaintextFingerprint);
+        euint64 fingerprintHash = IArbitraFingerprintRegistry(fpRegistry).registerFingerprint(invoiceId, rawFingerprint);
 
         /* Compute Expected Delay Days from supplier repayment ratio */
         SupplierStats storage stats = supplierStats[msg.sender];
@@ -407,16 +418,18 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     /*************** Investor Functions ***************/
 
     /**
-     * @notice Grant transient permissions to the investor for risk assessment.
+     * @notice Request permanent permissions as an SBT holder for risk assessment.
      */
-    function grantRiskAssessmentAccess(uint256 invoiceId) external {
+    function requestRiskAssessmentAccess(uint256 invoiceId) external {
+        require(sbtContract != address(0), "Arbitra: SBT not configured");
+        require(IArbitraSBT(sbtContract).hasValidSBT(msg.sender), "Arbitra: must hold SBT");
         Invoice storage inv = invoices[invoiceId];
         require(inv.status == InvoiceStatus.Attested, "Arbitra: not attested");
 
-        FHE.allowTransient(inv.faceValue, msg.sender);
-        FHE.allowTransient(inv.dueDate, msg.sender);
-        FHE.allowTransient(inv.purchasePrice, msg.sender);
-        FHE.allowTransient(inv.discountRateBps, msg.sender);
+        FHE.allow(inv.faceValue, msg.sender);
+        FHE.allow(inv.dueDate, msg.sender);
+        FHE.allow(inv.purchasePrice, msg.sender);
+        FHE.allow(inv.discountRateBps, msg.sender);
     }
 
     /**
@@ -546,12 +559,22 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
-     * @notice Public duplicate check that queries if fingerprint exists.
+     * @notice Public duplicate check that converts input on-chain in the main registry context.
      */
     function checkDuplicate(
-        uint256 plaintextFingerprint
-    ) external view returns (bool) {
-        return IArbitraFingerprintRegistry(fpRegistry).isDuplicate(plaintextFingerprint);
+        externalEuint64 encFingerprint,
+        bytes calldata proof
+    ) external returns (ebool) {
+        euint64 eNew = FHE.fromExternal(encFingerprint, proof);
+
+        /* Grant fpRegistry transient access to check duplicate handle */
+        FHE.allowTransient(eNew, fpRegistry);
+
+        ebool isDup = IArbitraFingerprintRegistry(fpRegistry).checkDuplicate(eNew);
+        FHE.allowThis(isDup);
+        FHE.allow(isDup, msg.sender);
+        FHE.allow(isDup, owner());
+        return isDup;
     }
 
     /**

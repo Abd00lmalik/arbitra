@@ -18,6 +18,7 @@ import { FHEBadge } from "@/components/ui/FHEBadge";
 import { useInvoice, useConfirmInvoice } from "@/hooks/useArbitraRegistry";
 import { useZama } from "@/providers/ZamaProvider";
 import { userDecryptHandles } from "@/lib/zama";
+import { PlaidModal } from "@/components/shared/PlaidModal";
 import {
   ARBITRA_REGISTRY_ADDRESS,
   InvoiceStatus,
@@ -64,6 +65,40 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const [successAttesting, setSuccessAttesting] = useState<boolean>(false);
   const [submittingWeb2, setSubmittingWeb2] = useState<boolean>(false);
   const [web2TxHash, setWeb2TxHash] = useState<string | null>(null);
+  const [isPlaidOpen, setIsPlaidOpen] = useState<boolean>(false);
+
+  const getDownloadUrl = () => {
+    const params = new URLSearchParams();
+    params.set("invoiceId", invoiceId.toString());
+    if (token) {
+      params.set("token", token);
+    }
+    
+    const plainVal = cachedDetails?.faceValue || decryptedData?.faceValue;
+    const plainDue = cachedDetails?.dueDate || decryptedData?.dueDate;
+    
+    if (plainVal) {
+      params.set("faceValue", plainVal.toString());
+    }
+    if (plainDue) {
+      params.set("dueDate", plainDue.toString());
+    }
+    if (invoice) {
+      params.set("supplier", invoice.supplier);
+      params.set("debtor", invoice.debtor);
+      params.set("emailVerified", invoice.isEmailVerified ? "true" : "false");
+    }
+    return `/api/download-noa?${params.toString()}`;
+  };
+
+  const handlePlaidSuccess = () => {
+    setIsPlaidOpen(false);
+    if (verifyMode === "web2") {
+      handleWeb2Attest();
+    } else {
+      handleWeb3Attest();
+    }
+  };
 
   const isDebtor = address && invoice && address.toLowerCase() === invoice.debtor.toLowerCase();
 
@@ -258,7 +293,6 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     );
   }
 
-  /* Success Screen if invoice is already attested */
   if (invoice.status !== InvoiceStatus.Pending) {
     const finalTxHash = web2TxHash || web3TxHash;
     return (
@@ -303,6 +337,13 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
             </div>
           </div>
 
+          <div className="mt-4 p-4 rounded-xl bg-neon-purple/5 border border-neon-purple/10 text-left text-xs space-y-2">
+            <span className="font-semibold text-neon-purple block">⚖️ Legal SPV & Receivables Transfer</span>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              This invoice has been legally assigned to the Arbitra Factoring SPV registry. The payment obligation is now owed directly to the collateral vault at address <strong className="font-mono text-white">{truncateAddress(ARBITRA_REGISTRY_ADDRESS)}</strong>.
+            </p>
+          </div>
+
           {finalTxHash && (
             <div className="mt-4 text-left">
               <span className="text-[10px] text-slate-600 block mb-1">Transaction Hash:</span>
@@ -311,6 +352,16 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
               </p>
             </div>
           )}
+
+          <a
+            href={getDownloadUrl()}
+            className="w-full neon-btn-secondary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 mt-5 hover:shadow-[0_0_15px_rgba(0,240,255,0.15)] transition-all animate-pulse"
+          >
+            <svg className="w-4 h-4 text-neon-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Download Notice of Assignment (NOA) PDF
+          </a>
         </GlassCard>
       </div>
     );
@@ -417,7 +468,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
               )}
 
               <button
-                onClick={handleWeb2Attest}
+                onClick={() => setIsPlaidOpen(true)}
                 disabled={submittingWeb2}
                 className="w-full neon-btn-primary py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
               >
@@ -516,7 +567,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
                   )}
 
                   <button
-                    onClick={handleWeb3Attest}
+                    onClick={() => setIsPlaidOpen(true)}
                     disabled={confirmPending}
                     className="w-full neon-btn-primary py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
                   >
@@ -544,6 +595,12 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
           )}
         </div>
       </GlassCard>
+
+      <PlaidModal
+        isOpen={isPlaidOpen}
+        onClose={() => setIsPlaidOpen(false)}
+        onSuccess={handlePlaidSuccess}
+      />
     </div>
   );
 }

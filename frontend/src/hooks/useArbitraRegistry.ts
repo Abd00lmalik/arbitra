@@ -338,7 +338,7 @@ export function useGrantRiskAccess() {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
         abi: ARBITRA_REGISTRY_ABI,
-        functionName: "grantRiskAssessmentAccess",
+        functionName: "requestRiskAssessmentAccess",
         args: [invoiceId],
       });
     },

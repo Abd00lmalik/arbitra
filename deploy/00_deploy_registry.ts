@@ -73,25 +73,63 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     console.log(`(local) MockUSDC at ${usdcAddress}, MockERC7984 at ${cUSDCAddress}`);
   }
 
-  /* 1. Deploy FingerprintRegistry */
-  const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
-    from: deployer, args: [], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
-  });
+  let fpRegistryAddress: string;
+  let riskCalcAddress: string;
+  let vaultAddress: string;
+  let escrowAddress: string;
 
-  /* 2. Deploy RiskCalculator */
-  const riskCalcDeployment = await deploy("ArbitraRiskCalculator", {
-    from: deployer, args: [], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
-  });
+  if (network.name === "sepolia") {
+    /* Reuse pre-deployed addresses to conserve Sepolia ETH due to high gas prices */
+    console.log(`\nDeploying FingerprintRegistry on Sepolia...`);
+    const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
+      from: deployer,
+      args: [],
+      log: true,
+      gasLimit: 1500000,
+      waitConfirmations: 2,
+    });
+    fpRegistryAddress = fpRegistryDeployment.address;
 
-  /* 3. Deploy CollateralVault */
-  const vaultDeployment = await deploy("ArbitraCollateralVault", {
-    from: deployer, args: [usdcAddress], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
-  });
+    riskCalcAddress   = "0xFb9F6fFaf309843ad103c6aD99eD36Ba80335434";
+    vaultAddress      = "0x1e8fdFAC6ecaac3fcf186B30A947000e4d604e88";
+    console.log(`\nReusing pre-deployed Sepolia components:`);
+    console.log(`- RiskCalculator: ${riskCalcAddress}`);
+    console.log(`- CollateralVault: ${vaultAddress}`);
 
-  /* 4. Deploy EscrowReceiver */
-  const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
-    from: deployer, args: [usdcAddress], log: true, waitConfirmations: network.name === "sepolia" ? 2 : 1,
-  });
+    console.log(`\nDeploying EscrowReceiver on Sepolia...`);
+    const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
+      from: deployer,
+      args: [usdcAddress],
+      log: true,
+      gasLimit: 1500000,
+      waitConfirmations: 2,
+    });
+    escrowAddress = escrowDeployment.address;
+  } else {
+    /* 1. Deploy FingerprintRegistry */
+    const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
+      from: deployer, args: [], log: true, waitConfirmations: 1,
+    });
+    fpRegistryAddress = fpRegistryDeployment.address;
+
+    /* 2. Deploy RiskCalculator */
+    const riskCalcDeployment = await deploy("ArbitraRiskCalculator", {
+      from: deployer, args: [], log: true, waitConfirmations: 1,
+    });
+    riskCalcAddress = riskCalcDeployment.address;
+
+    /* 3. Deploy CollateralVault */
+    const vaultDeployment = await deploy("ArbitraCollateralVault", {
+      from: deployer, args: [usdcAddress], log: true, waitConfirmations: 1,
+    });
+    vaultAddress = vaultDeployment.address;
+
+    /* 4. Deploy EscrowReceiver */
+    const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
+      from: deployer, args: [usdcAddress], log: true, waitConfirmations: 1,
+    });
+    escrowAddress = escrowDeployment.address;
+  }
 
   /* 5. Deploy main InvoiceRegistry */
   let platformVerifier = process.env.PLATFORM_VERIFIER_ADDRESS;
@@ -109,20 +147,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     from: deployer,
     args: [
       usdcAddress,
-      fpRegistryDeployment.address,
-      riskCalcDeployment.address,
-      vaultDeployment.address,
-      escrowDeployment.address,
+      fpRegistryAddress,
+      riskCalcAddress,
+      vaultAddress,
+      escrowAddress,
       platformVerifier
     ],
     log: true,
+    gasLimit: network.name === "sepolia" ? 2500000 : undefined,
     waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
   /* Wire up contracts if not done already */
-  const fpRegistry = await hEthers.getContractAt("ArbitraFingerprintRegistry", fpRegistryDeployment.address, signer);
-  const collateralVault = await hEthers.getContractAt("ArbitraCollateralVault", vaultDeployment.address, signer);
-  const escrowReceiver = await hEthers.getContractAt("ArbitraEscrowReceiver", escrowDeployment.address, signer);
+  const fpRegistry = await hEthers.getContractAt("ArbitraFingerprintRegistry", fpRegistryAddress, signer);
+  const collateralVault = await hEthers.getContractAt("ArbitraCollateralVault", vaultAddress, signer);
+  const escrowReceiver = await hEthers.getContractAt("ArbitraEscrowReceiver", escrowAddress, signer);
   const registry = await hEthers.getContractAt("ArbitraInvoiceRegistry", registryDeployment.address, signer);
 
   console.log("\nWiring up contracts...");
@@ -139,14 +178,24 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     console.log("- Setting Registry on EscrowReceiver...");
     await (await escrowReceiver.setRegistry(registryDeployment.address)).wait();
   }
-  if ((await registry.fpRegistry()) !== fpRegistryDeployment.address) {
+  if ((await registry.fpRegistry()) !== fpRegistryAddress) {
     console.log("- Configuring target contracts on InvoiceRegistry...");
     await (await registry.setContracts(
-      fpRegistryDeployment.address,
-      riskCalcDeployment.address,
-      vaultDeployment.address,
-      escrowDeployment.address
+      fpRegistryAddress,
+      riskCalcAddress,
+      vaultAddress,
+      escrowAddress
     )).wait();
+  }
+
+  try {
+    const sbtDeployment = await deployments.get("ArbitraSBT");
+    if ((await registry.sbtContract()) !== sbtDeployment.address) {
+      console.log("- Configuring SBTContract on InvoiceRegistry...");
+      await (await registry.setSBTContract(sbtDeployment.address)).wait();
+    }
+  } catch (e) {
+    console.log("- ArbitraSBT deployment not found, skipping SBTContract configuration.");
   }
 
   console.log("\n====================================================");
@@ -154,10 +203,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   console.log(`NEXT_PUBLIC_REGISTRY_ADDRESS=${registryDeployment.address}`);
   console.log(`NEXT_PUBLIC_CUSDC_ADDRESS=${cUSDCAddress}`);
   console.log(`NEXT_PUBLIC_USDC_ADDRESS=${usdcAddress}`);
-  console.log(`NEXT_PUBLIC_RISK_CALC_ADDRESS=${riskCalcDeployment.address}`);
-  console.log(`NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS=${fpRegistryDeployment.address}`);
-  console.log(`NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS=${vaultDeployment.address}`);
-  console.log(`NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS=${escrowDeployment.address}`);
+  console.log(`NEXT_PUBLIC_RISK_CALC_ADDRESS=${riskCalcAddress}`);
+  console.log(`NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS=${fpRegistryAddress}`);
+  console.log(`NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS=${vaultAddress}`);
+  console.log(`NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS=${escrowAddress}`);
   console.log("====================================================\n");
 };
 

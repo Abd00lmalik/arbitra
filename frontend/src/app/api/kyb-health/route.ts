@@ -3,7 +3,10 @@ import { privateKeyToAccount } from "viem/accounts";
 
 export const runtime = "nodejs";
 
-const EXPECTED_VERIFIER_ADDRESS = "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
+const EXPECTED_VERIFIER_ADDRESS =
+  process.env.PLATFORM_VERIFIER_ADDRESS ||
+  process.env.ORACLE_BACKEND_ADDRESS ||
+  "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
 
 function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null {
   if (!rawKey) return null;

@@ -70,7 +70,7 @@ export default function MarketplaceClient() {
   const filtered = invoices.filter((inv) => {
     const isFactored = inv.status >= InvoiceStatus.Factored;
     const isRepaid = inv.status === InvoiceStatus.Settled;
-    if (activeTab === "available") return inv.status === InvoiceStatus.Attested;
+    if (activeTab === "available") return inv.status === InvoiceStatus.Pending || inv.status === InvoiceStatus.Attested;
     if (activeTab === "factored") return isFactored && !isRepaid;
     if (activeTab === "repaid") return isRepaid;
     return true;
@@ -105,7 +105,7 @@ export default function MarketplaceClient() {
     {
       id: "available",
       label: "Available",
-      count: invoices.filter((i) => i.status === InvoiceStatus.Attested).length
+      count: invoices.filter((i) => i.status === InvoiceStatus.Pending || i.status === InvoiceStatus.Attested).length
     },
     {
       id: "factored",
