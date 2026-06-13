@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
           BigInt(timestamp),
           signature,
         ],
-        gas: 300000n,
+        gas: 600000n,
       });
 
       console.log("[KYB API] Submitted attestation on-chain:", txHash);
