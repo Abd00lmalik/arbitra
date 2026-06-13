@@ -295,7 +295,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
       >
         {/* Risk Tier */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
-          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", tracking: "0.5px" }}>
+          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             Risk Tier
           </span>
           <span style={{ fontSize: "14px", fontWeight: 800, color: risk.color }}>
@@ -305,7 +305,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
 
         {/* Est. Yield */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
-          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", tracking: "0.5px" }}>
+          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             Est. Yield
           </span>
           <span style={{ fontSize: "14px", fontWeight: 800, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
@@ -315,7 +315,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
 
         {/* Maturity */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", justifySelf: "center", alignItems: "center" }}>
-          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", tracking: "0.5px" }}>
+          <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             Maturity
           </span>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "2px" }}>

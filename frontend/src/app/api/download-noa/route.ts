@@ -253,7 +253,7 @@ export async function GET(req: NextRequest) {
     /* Serialize to bytes and return as download stream */
     const pdfBytes = await pdfDoc.save();
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename=Notice_of_Assignment_INV_${invoiceId}.pdf`,

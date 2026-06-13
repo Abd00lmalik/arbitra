@@ -76,7 +76,7 @@ function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
 }
 
-function formatGasAwareError(error: unknown, liveGasPrice?: bigint) {
+function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap?: bigint) {
   const rawMessage =
     typeof error === "object" && error !== null && "shortMessage" in error && typeof (error as { shortMessage?: unknown }).shortMessage === "string"
       ? (error as { shortMessage: string }).shortMessage
@@ -100,7 +100,7 @@ function formatGasAwareError(error: unknown, liveGasPrice?: bigint) {
     }
 
     if (liveGasPrice) {
-      const estLimit = UPLOAD_GAS_CAP;
+      const estLimit = customGasCap ?? UPLOAD_GAS_CAP;
       /* Add a standard 20% margin to the estimate to match MetaMask's buffer */
       const bufferedGasPrice = (liveGasPrice * 12n) / 10n;
       const requiredWei = estLimit * bufferedGasPrice;
@@ -508,7 +508,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       refetchUSDC();
       refetchAllowance();
     } catch (e: any) {
-      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice);
+      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice, FRAUD_CHECK_GAS_CAP);
       setErrorMsg(message);
       setFraudCheckStep(null);
       setFraudCheckAwaitingWallet(false);
@@ -548,7 +548,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
       refetchAllowance();
     } catch (e: any) {
-      setErrorMsg(formatGasAwareError(e, fraudCheckDisplayGasPrice) || "Approval failed.");
+      setErrorMsg(formatGasAwareError(e, fraudCheckDisplayGasPrice, 100_000n) || "Approval failed.");
     }
   };
 
@@ -681,7 +681,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     } catch (e: any) {
       setIsStaking(false);
       setStakeStep(null);
-      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice);
+      const message = formatGasAwareError(e, fraudCheckDisplayGasPrice, 500_000n);
       if (message.includes("Arbitra: already staked")) {
         setWizardStep(4);
         void runProgressiveEncryption();
@@ -853,7 +853,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg(formatGasAwareError(err, fraudCheckDisplayGasPrice) || "Encryption transaction failed.");
+      setErrorMsg(formatGasAwareError(err, fraudCheckDisplayGasPrice, UPLOAD_GAS_CAP) || "Encryption transaction failed.");
       setWizardStep(5);
     }
   };
