@@ -154,7 +154,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       platformVerifier
     ],
     log: true,
-    gasLimit: network.name === "sepolia" ? 2500000 : undefined,
+    gasLimit: network.name === "sepolia" ? 4000000 : undefined,
     waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 
