@@ -255,26 +255,8 @@ export async function POST(req: NextRequest) {
     console.log("[KYB API] Server wallet balance:", `${formatEther(walletBalance)} ETH`);
 
     if (walletBalance === 0n) {
-      console.error("[KYB API] Server wallet has no ETH for gas. Falling back to client-side mint.");
-      return NextResponse.json({
-        success: true,
-        requiresClientMint: true,
-        verification_id: kybResult.verification_id,
-        company_status: kybResult.company_status,
-        sanctions_flag: kybResult.sanctions_flag,
-        pep_flag: kybResult.pep_flag,
-        risk_score: kybResult.risk_score,
-        oracle_signature: kybResult.oracle_signature,
-        signature,
-        verified_at: timestamp,
-        verification_id_bytes32: verificationIdBytes32,
-        attestation_hash_bytes32: attestationHashBytes32,
-        kybApproved: true,
-        kybAttestationHash: attestationHashBytes32,
-        signerAddress: account.address,
-        mintFallbackReason: "Server wallet has no Sepolia ETH for gas. Please fund the verifier wallet or mint from a funded wallet.",
-        message: "Business verified. Client wallet confirmation required.",
-      });
+      console.error("[KYB API] Server wallet has no ETH for gas.");
+      return jsonError("Verifier wallet has no Sepolia ETH for gas. Please fund the verifier wallet.", 500);
     }
 
     try {
@@ -322,27 +304,8 @@ export async function POST(req: NextRequest) {
       });
     } catch (txError) {
       const txMessage = txError instanceof Error ? txError.message : String(txError);
-      console.error("[KYB API] On-chain submission failed. Falling back to client-side mint.", txMessage);
-
-      return NextResponse.json({
-        success: true,
-        requiresClientMint: true,
-        verification_id: kybResult.verification_id,
-        company_status: kybResult.company_status,
-        sanctions_flag: kybResult.sanctions_flag,
-        pep_flag: kybResult.pep_flag,
-        risk_score: kybResult.risk_score,
-        oracle_signature: kybResult.oracle_signature,
-        signature,
-        verified_at: timestamp,
-        verification_id_bytes32: verificationIdBytes32,
-        attestation_hash_bytes32: attestationHashBytes32,
-        kybApproved: true,
-        kybAttestationHash: attestationHashBytes32,
-        signerAddress: account.address,
-        mintFallbackReason: `Server-side mint failed (${txMessage}). Please confirm the mint transaction in a funded wallet.`,
-        message: "Business verified. Client wallet confirmation required.",
-      });
+      console.error("[KYB API] On-chain submission failed:", txMessage);
+      return jsonError(`On-chain SBT minting failed: ${txMessage}`, 500);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
