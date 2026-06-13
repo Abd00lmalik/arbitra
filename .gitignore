@@ -16,6 +16,8 @@ deployments/
 .env
 .env.local
 .env.*.local
+.env.vercel*
+
 
 # Next.js
 .next/

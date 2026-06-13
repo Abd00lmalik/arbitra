@@ -91,10 +91,17 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     fpRegistryAddress = fpRegistryDeployment.address;
 
     riskCalcAddress   = "0xFb9F6fFaf309843ad103c6aD99eD36Ba80335434";
-    vaultAddress      = "0x1e8fdFAC6ecaac3fcf186B30A947000e4d604e88";
+    console.log(`\nDeploying CollateralVault on Sepolia...`);
+    const vaultDeployment = await deploy("ArbitraCollateralVault", {
+      from: deployer,
+      args: [usdcAddress],
+      log: true,
+      gasLimit: 1500000,
+      waitConfirmations: 2,
+    });
+    vaultAddress = vaultDeployment.address;
     console.log(`\nReusing pre-deployed Sepolia components:`);
     console.log(`- RiskCalculator: ${riskCalcAddress}`);
-    console.log(`- CollateralVault: ${vaultAddress}`);
 
     console.log(`\nDeploying EscrowReceiver on Sepolia...`);
     const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
