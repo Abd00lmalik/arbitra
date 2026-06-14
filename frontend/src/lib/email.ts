@@ -37,7 +37,7 @@ export async function sendVerifyEmail(
       "Content-Type":  "application/json",
     },
     body: JSON.stringify({
-      from:    "Arbitra Verification <verify@arbitra.finance>",
+      from:    process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
       to:      [to],
       subject: `Payment Redirection and Notice of Assignment: ${invRef}`,
       html,
