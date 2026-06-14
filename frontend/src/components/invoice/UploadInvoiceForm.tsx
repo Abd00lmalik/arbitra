@@ -1495,11 +1495,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                     </div>
                   ) : emailError ? (
                     <div>
-                      <p style={{ color: "#FFBA00", fontSize: 13, fontWeight: 600, margin: "0 0 4px" }}>
+                      <p style={{ color: "#FFBA00", fontSize: 13, fontWeight: 600, margin: 0 }}>
                         Currently automatic email sending to debtor is not available but would be soon however send the link below to debtor
-                      </p>
-                      <p style={{ color: "#8B9CC8", fontSize: 11, margin: 0 }}>
-                        (Resend detail: {emailError})
                       </p>
                     </div>
                   ) : null}
