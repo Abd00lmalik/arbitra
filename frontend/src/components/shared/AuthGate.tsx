@@ -23,7 +23,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const hasAuthenticatedSession = isLoggedIn || isConnected || hasSessionCookie;
 
   const isPublic = PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith("/api/")
+    (p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith("/api/")
   );
 
   useEffect(() => {
