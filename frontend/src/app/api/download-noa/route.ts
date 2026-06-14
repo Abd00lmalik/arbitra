@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   let dueDateStr = dueDateParam || "N/A";
   let supplier = supplierParam || "0x0000...0000";
   let debtor = debtorParam || "0x0000...0000";
-  let method = isEmailVerified ? "📧 Secure Email Attestation" : "🔑 EIP-712 Wallet Signature";
+  let method = isEmailVerified ? "Secure Email Attestation" : "EIP-712 Wallet Signature";
 
   /* Decode token if present to authenticate details */
   if (token) {
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       if (tokenResult.dueDate) {
         dueDateStr = new Date(Number(tokenResult.dueDate) * 1000).toLocaleDateString();
       }
-      method = "📧 Secure Email Attestation";
+      method = "Secure Email Attestation";
     }
   } else if (faceValueParam) {
     faceValue = (Number(faceValueParam) / 1000000).toFixed(2);
