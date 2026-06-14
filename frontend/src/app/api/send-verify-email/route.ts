@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const { id } = await sendVerifyEmail(
-        { to: debtorEmail, invoiceId, token, supplierName },
+        { to: debtorEmail, invoiceId, token, supplierName, invoiceNumber: `INV-${invoiceId}` },
         resendKey
       );
 

@@ -91,7 +91,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     return `/api/download-noa?${params.toString()}`;
   };
 
-  const handlePlaidSuccess = () => {
+  const handlePlaidSuccess = (_bankName?: string, _accountNumber?: string) => {
     setIsPlaidOpen(false);
     if (verifyMode === "web2") {
       handleWeb2Attest();
@@ -368,7 +368,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   }
 
   return (
-    <div className="max-w-md mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       {/* Verification Path Selector or State Banner */}
       {token && verifyMode === "web2" && (
         <div className="p-4 rounded-xl bg-neon-cyan/5 border border-neon-cyan/15 flex items-center justify-between text-xs">
@@ -394,6 +394,65 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         </div>
       )}
 
+      {/* Notice of Assignment Legal Preview */}
+      <GlassCard className="p-6 relative overflow-hidden border-amber-500/20">
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "2px",
+            background: "linear-gradient(90deg, #F59E0B 0%, #EF4444 100%)",
+          }}
+        />
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <h3 className="text-sm font-bold text-white" style={{ fontFamily: "Satoshi, sans-serif" }}>
+                Notice of Assignment of Receivables
+              </h3>
+              <span className="text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wide flex-shrink-0">
+                UCC § 9-406
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
+              The receivable under invoice{" "}
+              <strong className="text-white font-mono">INV-{invoiceId.toString()}</strong>{" "}
+              has been legally assigned and transferred to the{" "}
+              <strong className="text-amber-400">Arbitra Factoring SPV</strong>. Pursuant to
+              UCC § 9-406, upon receipt of this notice you are obligated to direct all
+              future payments exclusively to the assignee (SPV wallet address).
+              Payment to the original supplier does{" "}
+              <strong className="text-white">not</strong> discharge your obligation.
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <a
+                href={getDownloadUrl()}
+                className="inline-flex items-center gap-1.5 text-[10px] text-neon-cyan hover:text-white transition-colors font-semibold"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Preview NOA PDF
+              </a>
+              <span className="text-white/10">|</span>
+              <span className="text-[10px] text-slate-500">
+                SPV Registry:{" "}
+                <span className="font-mono text-slate-400">{truncateAddress(ARBITRA_REGISTRY_ADDRESS)}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </GlassCard>
+
       <GlassCard className="p-6 relative overflow-hidden">
         <div
           style={{
@@ -407,9 +466,14 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         />
 
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-white font-heading" style={{ fontFamily: "Satoshi, sans-serif" }}>
-            Invoice Attestation
-          </h2>
+          <div>
+            <h2 className="text-base font-bold text-white font-heading" style={{ fontFamily: "Satoshi, sans-serif" }}>
+              Acknowledge Assignment
+            </h2>
+            <p className="text-[10px] text-slate-500 mt-0.5">
+              Confirm invoice details and complete identity verification
+            </p>
+          </div>
           <FHEBadge />
         </div>
 
@@ -608,8 +672,8 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
 export default function VerifyClient({ invoiceId }: VerifyClientProps) {
   return (
     <AppLayout
-      title={`Verify Invoice #${invoiceId.toString()}`}
-      description="Review cryptographically shielded invoice details and execute attestation"
+      title={`Notice of Assignment: INV-${invoiceId.toString()}`}
+      description="Review and acknowledge the receivables assignment notice. Your payment obligations have been redirected to the Arbitra Factoring SPV."
     >
       <Suspense fallback={
         <div className="flex flex-col items-center justify-center py-20">

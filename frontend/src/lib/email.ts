@@ -10,6 +10,7 @@ export interface SendVerifyEmailParams {
   token:     string;   /* raw 32-byte token */
   supplierName?: string; /* optional — displayed as "from" context */
   expiresHours?: number; /* default 72 */
+  invoiceNumber?: string; /* optional override, defaults to "INV-{invoiceId}" */
 }
 
 export async function sendVerifyEmail(
@@ -20,12 +21,14 @@ export async function sendVerifyEmail(
     to, invoiceId, token,
     supplierName = "a supplier",
     expiresHours = 72,
+    invoiceNumber,
   } = params;
 
+  const invRef = invoiceNumber ?? `INV-${invoiceId}`;
   const link = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app"}/verify/${invoiceId}?token=${token}`;
 
-  const html = buildEmailHtml({ link, supplierName, expiresHours });
-  const text = buildEmailText({ link, supplierName, expiresHours });
+  const html = buildEmailHtml({ link, supplierName, expiresHours, invoiceId, invoiceNumber: invRef });
+  const text = buildEmailText({ link, supplierName, expiresHours, invoiceNumber: invRef });
 
   const res = await fetch("https://api.resend.com/emails", {
     method:  "POST",
@@ -36,7 +39,7 @@ export async function sendVerifyEmail(
     body: JSON.stringify({
       from:    "Arbitra Verification <verify@arbitra.finance>",
       to:      [to],
-      subject: "Invoice Verification Required — Arbitra",
+      subject: `Payment Redirection and Notice of Assignment: ${invRef}`,
       html,
       text,
     }),
@@ -54,6 +57,7 @@ export async function sendVerifyEmail(
 
 function buildEmailHtml(p: {
   link: string; supplierName: string; expiresHours: number;
+  invoiceId?: number; invoiceNumber?: string;
 }): string {
   return `
 <!DOCTYPE html>
@@ -90,15 +94,15 @@ function buildEmailHtml(p: {
         <tr>
           <td style="padding:36px 40px;">
             <p style="margin:0 0 8px;color:#3D4E7A;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">
-              Action Required
+              Action Required — Payment Redirection Notice
             </p>
             <h1 style="margin:0 0 16px;color:#EEF2FF;font-size:22px;font-weight:800;line-height:1.2;letter-spacing:-0.02em;">
-              You have an invoice to review
+              Notice of Assignment: ${p.invoiceNumber ?? `Invoice #${p.invoiceId}`}
             </h1>
             <p style="margin:0 0 28px;color:#8B9CC8;font-size:15px;line-height:1.7;">
-              ${p.supplierName} has submitted an invoice for your review through Arbitra,
-              a secure trade finance platform. You are being asked to confirm that this
-              invoice is accurate and that you authorize the payment terms.
+              ${p.supplierName} has legally assigned the above invoice to the Arbitra
+              Factoring SPV through a regulated trade finance platform. You are required
+              to confirm receipt of this notice and direct all future payments accordingly.
             </p>
             <p style="margin:0 0 28px;color:#8B9CC8;font-size:15px;line-height:1.7;">
               No financial data is included in this email. All invoice details are
@@ -161,27 +165,30 @@ function buildEmailHtml(p: {
 
 function buildEmailText(p: {
   link: string; supplierName: string; expiresHours: number;
+  invoiceNumber?: string;
 }): string {
   return `
-ARBITRA — Invoice Verification Required
-════════════════════════════════════════
+ARBITRA — Payment Redirection and Notice of Assignment: ${p.invoiceNumber ?? "Invoice"}
+═══════════════════════════════════════════════════════════════════════════
 
-${p.supplierName} has submitted an invoice for your review through Arbitra.
-
-You are being asked to confirm that this invoice is accurate and that you
-authorize the payment terms.
+${p.supplierName} has legally assigned the above invoice to the Arbitra
+Factoring SPV. You are required to acknowledge receipt of this Notice of
+Assignment (NOA) and redirect all future payments to the SPV.
 
 IMPORTANT: No financial data is included in this email. All invoice details
-are encrypted and can only be viewed through the secure link below.
+are encrypted and can only be viewed through the secure verification portal.
 
-Review and verify your invoice here:
+Review and acknowledge the Notice of Assignment here:
 ${p.link}
 
 This link expires in ${p.expiresHours} hours.
 
+Once acknowledged, payment obligations under this invoice are owed
+exclusively to the Arbitra Factoring SPV — not the original supplier.
+
 If you did not expect this email, you can safely ignore it.
 
-— The Arbitra Team
+— The Arbitra Legal & Compliance Team
 arbitra-dapp.vercel.app
   `.trim();
 }

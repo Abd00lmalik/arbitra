@@ -841,7 +841,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           body: JSON.stringify({
             invoiceId: Number(nextInvoiceId),
             debtorEmail,
-            supplierName: "A supplier",
+            supplierName: activeWallet
+              ? `Supplier ${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}`
+              : "Your supplier",
             faceValue: invoice.faceValue.toString(),
             dueDate: invoice.dueDate.toString(),
           }),
