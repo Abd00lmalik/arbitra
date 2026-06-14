@@ -279,7 +279,16 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.error("Non-JSON response received:", text);
+        throw new Error("Server returned an invalid non-JSON response. Please verify the platform service status.");
+      }
+
       if (res.ok && data.success) {
         setSuccessAttesting(true);
         setWeb2TxHash(data.txHash);

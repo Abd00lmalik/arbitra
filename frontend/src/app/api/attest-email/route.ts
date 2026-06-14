@@ -51,8 +51,28 @@ const EMAIL_ATTESTATION_TYPES = {
   ],
 } as const;
 
+function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null {
+  if (!rawKey) return null;
+
+  const trimmedKey = rawKey.trim();
+  if (!trimmedKey) return null;
+
+  const normalizedKey = trimmedKey.startsWith("0x") ? trimmedKey : `0x${trimmedKey}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(normalizedKey)) {
+    throw new Error("VERIFIER_PRIVATE_KEY must be a 32-byte hex string.");
+  }
+
+  return normalizedKey as `0x${string}`;
+}
+
 export async function POST(req: NextRequest) {
-  const verifierKey = process.env.VERIFIER_PRIVATE_KEY as `0x${string}` | undefined;
+  let verifierKey: `0x${string}` | null = null;
+  try {
+    verifierKey = normalizeVerifierKey(process.env.VERIFIER_PRIVATE_KEY);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Invalid verifier key format" }, { status: 500 });
+  }
+
   if (!verifierKey) {
     return NextResponse.json({ error: "VERIFIER_PRIVATE_KEY not configured" }, { status: 500 });
   }
@@ -72,19 +92,19 @@ export async function POST(req: NextRequest) {
   const expiresAt  = now + (72 * 60 * 60); /* 72h from now */
   const emailHash  = computeEmailHash(result.debtorEmail) as `0x${string}`;
 
-  /* Sign EIP-712 with platform verifier key */
-  const account = privateKeyToAccount(verifierKey);
-  const client  = createWalletClient({
-    account,
-    chain: sepolia,
-    transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL)
-  });
-  const publicClient = createPublicClient({
-    chain: sepolia,
-    transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL)
-  });
-
   try {
+    /* Sign EIP-712 with platform verifier key */
+    const account = privateKeyToAccount(verifierKey);
+    const client  = createWalletClient({
+      account,
+      chain: sepolia,
+      transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL)
+    });
+    const publicClient = createPublicClient({
+      chain: sepolia,
+      transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL)
+    });
+
     const signature = await client.signTypedData({
       domain:      EMAIL_ATTESTATION_DOMAIN,
       types:       EMAIL_ATTESTATION_TYPES,
