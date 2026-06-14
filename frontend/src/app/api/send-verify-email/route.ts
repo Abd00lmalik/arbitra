@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createVerifyToken }         from "@/lib/tokenStore";
 import { sendVerifyEmail }            from "@/lib/email";
+import { storeInvoicePdf }           from "@/lib/pdfStore";
 
 export const runtime = "nodejs";
 
@@ -10,12 +11,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { invoiceId, debtorEmail, supplierName, faceValue, dueDate } = body as {
+  const { invoiceId, debtorEmail, supplierName, faceValue, dueDate, invoiceNumber, pdfBase64 } = body as {
     invoiceId:    number;
     debtorEmail:  string;
     supplierName?: string;
     faceValue?:   string;
     dueDate?:     string;
+    invoiceNumber?: string;
+    pdfBase64?:   string;
   };
 
   /* Validate inputs */
@@ -28,8 +31,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    if (pdfBase64) {
+      await storeInvoicePdf(invoiceId, pdfBase64);
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
-    const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate);
+    const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate, invoiceNumber);
     const verifyUrl = `${appUrl}/verify/${invoiceId}?token=${token}`;
 
     console.log(`[send-verify-email] INV-${invoiceId} | to=${debtorEmail.replace(/(.{2}).*(@.*)/, "$1***$2")} | resendKey=${resendKey ? "SET" : "MISSING"}`);

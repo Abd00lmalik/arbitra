@@ -50,6 +50,7 @@ interface ParsedInvoiceDetails {
   baseRate: bigint;
   reputationMultiplier: bigint;
   debtor: string;
+  invoiceNumber?: string;
 }
 
 type WizardStep = 1 | 2 | 3 | 4 | 5; 
@@ -154,6 +155,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [stakeStep, setStakeStep] = useState<string | null>(null);
   const [isStaking, setIsStaking] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [logisticsFile, setLogisticsFile] = useState<File | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [localStakeTxHash, setLocalStakeTxHash] = useState<string | null>(null);
@@ -167,6 +169,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     baseRate: 0n,
     reputationMultiplier: 0n,
     debtor: "",
+    invoiceNumber: "",
   });
 
   const [debtorEmail, setDebtorEmail] = useState("");
@@ -289,6 +292,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setIsParsing(true);
     setErrorMsg(null);
 
+    // Read PDF file as base64
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPdfBase64(e.target?.result as string);
+    };
+    reader.readAsDataURL(pdfFile);
+
     try {
       const formData = new FormData();
       formData.append("pdf", pdfFile);
@@ -316,6 +326,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         baseRate: BigInt(data.baseRate),
         reputationMultiplier: BigInt(data.reputationMultiplier),
         debtor: data.debtor,
+        invoiceNumber: data.invoiceFields?.invoiceNumber || "",
       });
 
       setWizardStep(2);
@@ -863,6 +874,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               : "Your supplier",
             faceValue: invoice.faceValue.toString(),
             dueDate: invoice.dueDate.toString(),
+            invoiceNumber: invoice.invoiceNumber,
+            pdfBase64: pdfBase64,
           }),
         });
         const emailData = await emailRes.json();
@@ -895,6 +908,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setEmailSentTo(null);
     setEmailError(null);
     setLinkCopied(false);
+    setPdfBase64(null);
     setInvoice({
       faceValue: 0n,
       dueDate: 0n,
@@ -903,6 +917,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       baseRate: 0n,
       reputationMultiplier: 0n,
       debtor: "",
+      invoiceNumber: "",
     });
   };
 

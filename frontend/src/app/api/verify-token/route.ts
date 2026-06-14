@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     emailHash:   result.emailHash, /* returned for on-chain commitment */
     faceValue:   result.faceValue,
     dueDate:     result.dueDate,
+    invoiceNumber: result.invoiceNumber,
   });
 }
 

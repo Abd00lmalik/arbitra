@@ -52,6 +52,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const [cachedDetails, setCachedDetails] = useState<{
     faceValue: bigint;
     dueDate: bigint;
+    invoiceNumber?: string;
   } | null>(null);
 
   const [decryptedData, setDecryptedData] = useState<{
@@ -76,12 +77,16 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     
     const plainVal = cachedDetails?.faceValue || decryptedData?.faceValue;
     const plainDue = cachedDetails?.dueDate || decryptedData?.dueDate;
+    const plainInvNum = cachedDetails?.invoiceNumber;
     
     if (plainVal) {
       params.set("faceValue", plainVal.toString());
     }
     if (plainDue) {
       params.set("dueDate", plainDue.toString());
+    }
+    if (plainInvNum) {
+      params.set("invoiceNumber", plainInvNum);
     }
     if (invoice) {
       params.set("supplier", invoice.supplier);
@@ -125,6 +130,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
               setCachedDetails({
                 faceValue: BigInt(data.faceValue),
                 dueDate: BigInt(data.dueDate),
+                invoiceNumber: data.invoiceNumber,
               });
             }
             setVerifyMode("web2");
@@ -353,15 +359,33 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
             </div>
           )}
 
-          <a
-            href={getDownloadUrl()}
-            className="w-full neon-btn-secondary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 mt-5 hover:shadow-[0_0_15px_rgba(0,240,255,0.15)] transition-all animate-pulse"
-          >
-            <svg className="w-4 h-4 text-neon-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Download Notice of Assignment (NOA) PDF
-          </a>
+          <div className="flex gap-4 mt-5">
+            <a
+              href={getDownloadUrl()}
+              className="flex-1 neon-btn-secondary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 hover:shadow-[0_0_15px_rgba(0,240,255,0.15)] transition-all"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <svg className="w-4 h-4 text-neon-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Download NOA PDF
+            </a>
+            {token && (
+              <a
+                href={`/api/download-invoice?invoiceId=${invoiceId.toString()}&token=${token}`}
+                className="flex-1 neon-btn-primary py-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 hover:shadow-[0_0_15px_rgba(0,240,255,0.15)] transition-all"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View Original PDF
+              </a>
+            )}
+          </div>
         </GlassCard>
       </div>
     );
@@ -424,6 +448,9 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
             <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
               The receivable under invoice{" "}
               <strong className="text-white font-mono">INV-{invoiceId.toString()}</strong>{" "}
+              {cachedDetails?.invoiceNumber && (
+                <span>(Original Invoice Ref: <strong className="text-white font-mono">{cachedDetails.invoiceNumber}</strong>) </span>
+              )}
               has been legally assigned and transferred to the{" "}
               <strong className="text-amber-400">Arbitra Factoring SPV</strong>. Pursuant to
               UCC § 9-406, upon receipt of this notice you are obligated to direct all
@@ -443,6 +470,23 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
                 </svg>
                 Preview NOA PDF
               </a>
+              {token && (
+                <>
+                  <span className="text-white/10">|</span>
+                  <a
+                    href={`/api/download-invoice?invoiceId=${invoiceId.toString()}&token=${token}`}
+                    className="inline-flex items-center gap-1.5 text-[10px] text-neon-purple hover:text-white transition-colors font-semibold"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    View Original Invoice PDF
+                  </a>
+                </>
+              )}
               <span className="text-white/10">|</span>
               <span className="text-[10px] text-slate-500">
                 SPV Registry:{" "}
@@ -501,6 +545,14 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
                   <span className="text-[10px] text-slate-500">Provided by secure cache</span>
                 </div>
                 <div className="space-y-2.5 pt-1 text-xs">
+                  {cachedDetails.invoiceNumber && (
+                    <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                      <span className="text-slate-400">Invoice Reference</span>
+                      <span className="text-white font-mono font-semibold">
+                        {cachedDetails.invoiceNumber}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400">Face Value</span>
                     <span className="text-neon-cyan font-mono font-semibold">

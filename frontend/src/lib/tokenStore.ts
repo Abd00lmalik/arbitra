@@ -13,6 +13,7 @@ type VerifyTokenPayload = {
   debtorEmail: string;
   faceValue?: string;
   dueDate?: string;
+  invoiceNumber?: string;
 };
 
 function getTokenSecret() {
@@ -32,13 +33,15 @@ export async function createVerifyToken(
   invoiceId: number,
   debtorEmail: string,
   faceValue?: string,
-  dueDate?: string
+  dueDate?: string,
+  invoiceNumber?: string
 ): Promise<string> {
   return new SignJWT({
     invoiceId,
     debtorEmail,
     faceValue,
     dueDate,
+    invoiceNumber,
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
@@ -49,7 +52,7 @@ export async function createVerifyToken(
 export async function validateVerifyToken(
   invoiceId: number,
   rawToken: string
-): Promise<{ valid: true; debtorEmail: string; emailHash: string; faceValue?: string; dueDate?: string } | { valid: false }> {
+): Promise<{ valid: true; debtorEmail: string; emailHash: string; faceValue?: string; dueDate?: string; invoiceNumber?: string } | { valid: false }> {
   if (!rawToken) {
     return { valid: false };
   }
@@ -67,6 +70,7 @@ export async function validateVerifyToken(
 
     const faceValue = typeof payload.faceValue === "string" ? payload.faceValue : undefined;
     const dueDate = typeof payload.dueDate === "string" ? payload.dueDate : undefined;
+    const invoiceNumber = typeof payload.invoiceNumber === "string" ? payload.invoiceNumber : undefined;
     const emailHash = createHash("sha256").update(debtorEmail.toLowerCase().trim()).digest("hex");
 
     return {
@@ -75,6 +79,7 @@ export async function validateVerifyToken(
       emailHash,
       faceValue,
       dueDate,
+      invoiceNumber,
     };
   } catch {
     return { valid: false };

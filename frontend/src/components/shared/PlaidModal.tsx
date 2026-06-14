@@ -158,7 +158,7 @@ export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
                   placeholder="e.g. debtor_corporate"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-white/3 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-neon-cyan/50"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-neon-cyan/50 focus:bg-slate-950"
                 />
               </div>
               <div>
@@ -169,7 +169,7 @@ export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
                   placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-white/3 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-neon-cyan/50"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-neon-cyan/50 focus:bg-slate-950"
                 />
               </div>
             </div>
@@ -212,7 +212,7 @@ export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
                   placeholder="e.g. 123456"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                  className="w-full bg-white/3 border border-white/10 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-white focus:outline-none focus:border-neon-cyan/50"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-white focus:outline-none focus:border-neon-cyan/50 focus:bg-slate-950"
                 />
               </div>
               <div className="text-center">

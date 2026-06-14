@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   const supplierParam = searchParams.get("supplier");
   const debtorParam = searchParams.get("debtor");
   const isEmailVerified = searchParams.get("emailVerified") === "true";
+  const invoiceNumberParam = searchParams.get("invoiceNumber");
 
   if (!invoiceIdStr) {
     return NextResponse.json({ error: "invoiceId required" }, { status: 400 });
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
   let supplier = supplierParam || "0x0000...0000";
   let debtor = debtorParam || "0x0000...0000";
   let method = isEmailVerified ? "Secure Email Attestation" : "EIP-712 Wallet Signature";
+  let invoiceNumber = invoiceNumberParam || "";
 
   /* Decode token if present to authenticate details */
   if (token) {
@@ -40,6 +42,9 @@ export async function GET(req: NextRequest) {
       }
       if (tokenResult.dueDate) {
         dueDateStr = new Date(Number(tokenResult.dueDate) * 1000).toLocaleDateString();
+      }
+      if (tokenResult.invoiceNumber) {
+        invoiceNumber = tokenResult.invoiceNumber;
       }
       method = "Secure Email Attestation";
     }
@@ -166,7 +171,7 @@ export async function GET(req: NextRequest) {
       tableY -= 18;
     };
 
-    drawRow("Invoice Reference:", `Invoice ID #${invoiceId}`, true);
+    drawRow("Invoice Reference:", invoiceNumber ? `${invoiceNumber} (ID #${invoiceId})` : `Invoice ID #${invoiceId}`, true);
     drawRow("Supplier (Assignor):", supplier);
     drawRow("Debtor Wallet / Email:", debtorEmail ? `${debtor} (${debtorEmail})` : debtor);
     drawRow("Receivables Face Value:", `$${faceValue} USDC`, true);
