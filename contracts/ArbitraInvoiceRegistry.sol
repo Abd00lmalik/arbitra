@@ -241,8 +241,9 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         uint256          faceValuePlaintext_,
         uint256          plaintextFingerprint
     ) external returns (uint256 invoiceId) {
-        require(debtor != address(0), "Arbitra: zero debtor");
-        require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
+        if (debtor != address(0)) {
+            require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
+        }
 
         invoiceId = invoiceCount + 1;
 
@@ -322,10 +323,12 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         FHE.allow(purchasePrice, msg.sender);
         FHE.allow(discountRateBps, msg.sender);
 
-        FHE.allow(faceValue, debtor);
-        FHE.allow(dueDate, debtor);
-        FHE.allow(purchasePrice, debtor);
-        FHE.allow(discountRateBps, debtor);
+        if (debtor != address(0)) {
+            FHE.allow(faceValue, debtor);
+            FHE.allow(dueDate, debtor);
+            FHE.allow(purchasePrice, debtor);
+            FHE.allow(discountRateBps, debtor);
+        }
 
         supplierInvoiceIds[msg.sender].push(invoiceId);
         _incrementSupplierInvoiceCount(msg.sender);

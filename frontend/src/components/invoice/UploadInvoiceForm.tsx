@@ -501,14 +501,17 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setFraudCheckTxHash(null);
     setFraudCheckStep(null);
     setFraudCheckAwaitingWallet(false);
-    /* Debtor wallet is optional — use zero address when not provided */
-    if (invoice.debtor && !invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
-      setErrorMsg("Buyer wallet address must be a valid Ethereum address (or leave blank).");
-      return;
-    }
+
+    /* Validate email first — it's always required */
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(debtorEmail)) {
       setErrorMsg("Please enter a valid debtor email address.");
+      return;
+    }
+
+    /* Validate wallet only if provided */
+    if (invoice.debtor && !invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
+      setErrorMsg("Debtor wallet must be a valid Ethereum address (or leave blank to use email flow).");
       return;
     }
 
@@ -822,6 +825,19 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         timeout: 120_000,
       });
       if (uploadReceipt.status !== "success") {
+        try {
+          const tx = await publicClient.getTransaction({ hash });
+          await publicClient.call({
+            account: tx.from,
+            to: tx.to ?? undefined,
+            data: tx.input,
+            value: tx.value,
+            blockNumber: uploadReceipt.blockNumber,
+          });
+        } catch (callErr: any) {
+          const reason = callErr.shortMessage || callErr.message || String(callErr);
+          throw new Error(`Upload invoice transaction reverted: ${reason}`);
+        }
         throw new Error("Upload invoice transaction reverted on-chain.");
       }
       localStorage.removeItem(`arbitra_stake_${invoice.fingerprint.toString()}`);
