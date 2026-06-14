@@ -5,7 +5,7 @@ import { sendVerifyEmail }            from "@/lib/email";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const resendKey = process.env.RESEND_API_KEY;
+  const resendKey = process.env.RESEND_API_KEY?.trim() || undefined;
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -32,11 +32,14 @@ export async function POST(req: NextRequest) {
     const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate);
     const verifyUrl = `${appUrl}/verify/${invoiceId}?token=${token}`;
 
+    console.log(`[send-verify-email] INV-${invoiceId} | to=${debtorEmail.replace(/(.{2}).*(@.*)/, "$1***$2")} | resendKey=${resendKey ? "SET" : "MISSING"}`);
+
     if (!resendKey) {
+      console.warn("[send-verify-email] RESEND_API_KEY is not set or empty — email skipped. Add it in Vercel dashboard or .env.local.");
       return NextResponse.json({
         success: false,
         verifyUrl,
-        error: "RESEND_API_KEY not configured",
+        error: "Email not configured — copy the verification link below to share with your debtor manually.",
       });
     }
 
@@ -46,6 +49,7 @@ export async function POST(req: NextRequest) {
         resendKey
       );
 
+      console.log(`[send-verify-email] Sent OK | emailId=${id}`);
       return NextResponse.json({
         success: true,
         emailId: id,
@@ -53,15 +57,15 @@ export async function POST(req: NextRequest) {
         message: `Verification email sent to ${debtorEmail.replace(/(.{2}).*(@.*)/, "$1***$2")}`,
       });
     } catch (emailError) {
-      console.error("[send-verify-email] email error:", emailError);
+      console.error("[send-verify-email] Resend API error:", emailError);
       return NextResponse.json({
         success: false,
         verifyUrl,
-        error: String(emailError),
+        error: `Resend delivery failed: ${String(emailError)}`,
       });
     }
   } catch (e) {
-    console.error("[send-verify-email] token error:", e);
+    console.error("[send-verify-email] Token generation error:", e);
     return NextResponse.json({ success: false, error: String(e) }, { status: 502 });
   }
 }

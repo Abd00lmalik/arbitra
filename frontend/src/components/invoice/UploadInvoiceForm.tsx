@@ -174,6 +174,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
 
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(activeWallet, COLLATERAL_VAULT_ADDRESS);
@@ -500,8 +501,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setFraudCheckTxHash(null);
     setFraudCheckStep(null);
     setFraudCheckAwaitingWallet(false);
-    if (!invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
-      setErrorMsg("Buyer address must be a valid Ethereum address.");
+    /* Debtor wallet is optional — use zero address when not provided */
+    if (invoice.debtor && !invoice.debtor.match(/^0x[0-9a-fA-F]{40}$/)) {
+      setErrorMsg("Buyer wallet address must be a valid Ethereum address (or leave blank).");
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -789,7 +791,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           h3, proofHex,
           h4, proofHex,
           h5, proofHex,
-          invoice.debtor as `0x${string}`,
+          (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
           true,
           invoice.faceValue,
           invoice.fingerprint,
@@ -803,7 +805,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           h3, proofHex,
           h4, proofHex,
           h5, proofHex,
-          invoice.debtor as `0x${string}`,
+          (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
           true,
           invoice.faceValue,
           invoice.fingerprint
@@ -829,10 +831,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       if (onSuccess) {
         onSuccess(nextInvoiceId);
       }
-      setTimeout(() => {
-        router.push(`/marketplace?new=${nextInvoiceId.toString()}`);
-      }, 2000);
-      /* Auto-send verification email */
+      /* Auto-send verification email — do NOT auto-redirect; let the supplier
+         see the verification link and email status first */
+      void router; /* keep import; navigation is now manual via the portfolio button */
       setSendingEmail(true);
       try {
         const emailRes = await fetch("/api/send-verify-email", {
@@ -877,6 +878,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setVerifyUrl(null);
     setEmailSentTo(null);
     setEmailError(null);
+    setLinkCopied(false);
     setInvoice({
       faceValue: 0n,
       dueDate: 0n,
@@ -1039,14 +1041,22 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               </div>
               
               <div className="pt-2">
-                <label htmlFor="debtor-address" className="block text-slate-500 mb-1">Debtor Wallet Address</label>
+                <label htmlFor="debtor-address" className="block text-slate-500 mb-1">
+                  Debtor Wallet Address{" "}
+                  <span style={{ color: "#3D4E7A", fontSize: 10, fontWeight: 400 }}>(optional)</span>
+                </label>
                 <input
                   id="debtor-address"
                   type="text"
                   value={invoice.debtor}
                   onChange={handleDebtorChange}
+                  placeholder="0x... (leave blank if debtor has no wallet)"
                   className="glass-input font-mono w-full px-2.5 py-1.5"
                 />
+                <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 4 }}>
+                  Only needed if the debtor will sign attestation directly via MetaMask.
+                  Leave blank for the email-based verification flow.
+                </p>
               </div>
 
               <div className="pt-2">
@@ -1433,52 +1443,109 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                     ? "rgba(0,240,255,0.06)"
                     : emailSentTo
                       ? "rgba(0,255,136,0.06)"
-                      : "rgba(255,45,107,0.06)",
+                      : emailError
+                        ? "rgba(255,186,0,0.06)"
+                        : "rgba(0,240,255,0.04)",
                   border: `1px solid ${sendingEmail
                     ? "rgba(0,240,255,0.2)"
                     : emailSentTo
                       ? "rgba(0,255,136,0.2)"
-                      : "rgba(255,45,107,0.2)"}`,
+                      : emailError
+                        ? "rgba(255,186,0,0.25)"
+                        : "rgba(0,240,255,0.1)"}`,
                   borderRadius: 14, padding: "14px 18px", marginBottom: 20,
                 }}>
                   {sendingEmail ? (
-                    <p style={{ color: "#00F0FF", fontSize: 13, fontWeight: 600, margin: 0 }}>
-                      📧 Sending verification email to debtor…
-                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{
+                        width: 16, height: 16, borderRadius: "50%",
+                        border: "2px solid rgba(0,240,255,0.2)",
+                        borderTopColor: "#00F0FF",
+                        animation: "spin 0.8s linear infinite",
+                        flexShrink: 0,
+                      }} />
+                      <p style={{ color: "#00F0FF", fontSize: 13, fontWeight: 600, margin: 0 }}>
+                        Sending verification email to debtor…
+                      </p>
+                    </div>
                   ) : emailSentTo ? (
-                    <p style={{ color: "#00FF88", fontSize: 13, fontWeight: 600, margin: 0 }}>
-                      ✓ {emailSentTo}
-                    </p>
-                  ) : (
-                    <p style={{ color: "#FF2D6B", fontSize: 13, margin: 0 }}>
-                      {emailError || "Email delivery failed"}. Share the link below manually.
-                    </p>
-                  )}
+                    <div>
+                      <p style={{ color: "#00FF88", fontSize: 13, fontWeight: 600, margin: "0 0 4px" }}>
+                        ✓ {emailSentTo}
+                      </p>
+                      <p style={{ color: "#3D4E7A", fontSize: 11, margin: 0 }}>
+                        Subject: Payment Redirection and Notice of Assignment: INV-{nextInvoiceId.toString()}
+                      </p>
+                    </div>
+                  ) : emailError ? (
+                    <div>
+                      <p style={{ color: "#FFBA00", fontSize: 13, fontWeight: 600, margin: "0 0 4px" }}>
+                        ⚠ Email not sent — {emailError}
+                      </p>
+                      <p style={{ color: "#8B9CC8", fontSize: 11, margin: 0 }}>
+                        Use the copy link below to share the verification portal with your debtor directly.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
-                {/* Manual link fallback */}
-                <div style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  borderRadius: 12, padding: "14px 16px", marginBottom: 20,
-                  textAlign: "left"
-                }}>
-                  <p style={{ color: "#3D4E7A", fontSize: 11, marginBottom: 6, margin: 0 }}>
-                    Verification link (share with debtor if email fails):
-                  </p>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <p style={{
-                      color: "#00F0FF", fontSize: 11,
-                      fontFamily: "JetBrains Mono, monospace",
-                      wordBreak: "break-all", flex: 1, margin: 0,
+                {/* Verification link — always visible, prominent copy button */}
+                {(() => {
+                  const link = verifyUrl ??
+                    `${typeof window !== "undefined" ? window.location.origin : "https://arbitra-dapp.vercel.app"}/verify/${nextInvoiceId.toString()}`;
+                  const handleCopy = () => {
+                    navigator.clipboard.writeText(link).then(() => {
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 3000);
+                    }).catch(() => {
+                      /* Fallback: select the text */
+                      const el = document.getElementById("verify-link-text");
+                      if (el) { const r = document.createRange(); r.selectNode(el); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(r); }
+                    });
+                  };
+                  return (
+                    <div style={{
+                      background: "rgba(0,240,255,0.04)",
+                      border: "1px solid rgba(0,240,255,0.15)",
+                      borderRadius: 14, padding: "16px 18px", marginBottom: 20,
+                      textAlign: "left",
                     }}>
-                      {verifyUrl ?? `${typeof window !== "undefined" ? window.location.origin : ""}/verify/${nextInvoiceId.toString()}`}
-                    </p>
-                  </div>
-                  <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 6, margin: 0 }}>
-                    This verification link stays valid for 72 hours and can be shared directly if email delivery fails.
-                  </p>
-                </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <p style={{ color: "#8B9CC8", fontSize: 11, fontWeight: 600, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          📋 Debtor Verification Link
+                        </p>
+                        <button
+                          id="copy-link-btn"
+                          onClick={handleCopy}
+                          style={{
+                            background: linkCopied ? "rgba(0,255,136,0.15)" : "rgba(0,240,255,0.12)",
+                            border: `1px solid ${linkCopied ? "rgba(0,255,136,0.4)" : "rgba(0,240,255,0.3)"}`,
+                            borderRadius: 8, padding: "5px 12px",
+                            color: linkCopied ? "#00FF88" : "#00F0FF",
+                            fontSize: 11, fontWeight: 700, cursor: "pointer",
+                            transition: "all 0.2s",
+                          }}
+                        >
+                          {linkCopied ? "✓ Copied!" : "Copy Link"}
+                        </button>
+                      </div>
+                      <p
+                        id="verify-link-text"
+                        style={{
+                          color: "#00F0FF", fontSize: 11,
+                          fontFamily: "JetBrains Mono, monospace",
+                          wordBreak: "break-all", margin: 0,
+                          userSelect: "all",
+                        }}
+                      >
+                        {link}
+                      </p>
+                      <p style={{ color: "#3D4E7A", fontSize: 10, marginTop: 8, margin: "8px 0 0" }}>
+                        Valid for 72 hours. Share this link with your debtor to complete the Notice of Assignment acknowledgement.
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
                   <button onClick={handleReset} className="neon-btn-secondary px-6 py-2.5 rounded-xl text-xs">
