@@ -1499,22 +1499,13 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                         Sending verification email to debtor…
                       </p>
                     </div>
-                  ) : emailSentTo ? (
-                    <div>
-                      <p style={{ color: "#00FF88", fontSize: 13, fontWeight: 600, margin: "0 0 4px" }}>
-                        ✓ {emailSentTo}
-                      </p>
-                      <p style={{ color: "#3D4E7A", fontSize: 11, margin: 0 }}>
-                        Subject: Payment Redirection and Notice of Assignment: INV-{nextInvoiceId.toString()}
-                      </p>
-                    </div>
-                  ) : emailError ? (
+                  ) : (
                     <div>
                       <p style={{ color: "#FFBA00", fontSize: 13, fontWeight: 600, margin: 0 }}>
                         Currently automatic email sending to debtor is not available but would be soon however send the link below to debtor
                       </p>
                     </div>
-                  ) : null}
+                  )}
                 </div>
 
                 {/* Verification link — always visible, prominent copy button */}

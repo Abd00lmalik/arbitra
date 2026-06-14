@@ -111,9 +111,6 @@ export async function POST(req: NextRequest) {
       ]
     });
 
-    /* Wait for confirmation to guarantee transaction is settled */
-    await publicClient.waitForTransactionReceipt({ hash: txHash });
-
     /* Consume token after successful signing & submission (one-time use) */
     await consumeVerifyToken(invoiceId, token);
 

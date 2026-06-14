@@ -7,10 +7,10 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
-import { useAccount, useWalletClient, useChainId, useConnect } from "wagmi";
+import { useAccount, useWalletClient, useChainId, useConnect, usePublicClient, useBalance } from "wagmi";
 import { injected } from "wagmi/connectors";
-import { useSearchParams } from "next/navigation";
-import { keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
+import { useSearchParams, useRouter } from "next/navigation";
+import { keccak256, encodeAbiParameters, parseAbiParameters, parseEther } from "viem";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { NeonButton } from "@/components/ui/NeonButton";
@@ -19,6 +19,7 @@ import { useInvoice, useConfirmInvoice } from "@/hooks/useArbitraRegistry";
 import { useZama } from "@/providers/ZamaProvider";
 import { userDecryptHandles } from "@/lib/zama";
 import { PlaidModal } from "@/components/shared/PlaidModal";
+import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import {
   ARBITRA_REGISTRY_ADDRESS,
   InvoiceStatus,
@@ -40,6 +41,14 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const { confirmInvoice, isPending: confirmPending, txHash: web3TxHash } = useConfirmInvoice();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const router = useRouter();
+  const publicClient = usePublicClient();
+
+  const { data: ethBalance } = useBalance({
+    address,
+    chainId: 11155111,
+    query: { enabled: !!address },
+  });
 
   const { data: invoice, isLoading: invoiceLoading, refetch: refetchInvoice } = useInvoice(invoiceId);
 
@@ -67,6 +76,12 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const [submittingWeb2, setSubmittingWeb2] = useState<boolean>(false);
   const [web2TxHash, setWeb2TxHash] = useState<string | null>(null);
   const [isPlaidOpen, setIsPlaidOpen] = useState<boolean>(false);
+  const [isWalletOpen, setIsWalletOpen] = useState(false);
+
+  const handleSwitchToWeb3 = () => {
+    const currentPath = window.location.pathname + window.location.search;
+    router.push(`/register?next=${encodeURIComponent(currentPath)}`);
+  };
 
   const getDownloadUrl = () => {
     const params = new URLSearchParams();
@@ -198,6 +213,13 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     if (!walletClient || !address || !invoice || !decryptedData) return;
     setAttestError(null);
 
+    // Gas/balance check
+    if (ethBalance && ethBalance.value < parseEther("0.001")) {
+      setIsWalletOpen(true);
+      setAttestError("Insufficient Sepolia ETH for gas. Please fund your wallet using the faucets below.");
+      return;
+    }
+
     try {
       /* Calculate attestation commitment: keccak256(abi.encode(amount, maturity)) */
       const attCommit = keccak256(
@@ -261,7 +283,17 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
       if (res.ok && data.success) {
         setSuccessAttesting(true);
         setWeb2TxHash(data.txHash);
-        refetchInvoice();
+        
+        // Wait on the client-side for transaction block confirmation
+        if (publicClient && data.txHash) {
+          publicClient.waitForTransactionReceipt({ hash: data.txHash })
+            .then(() => {
+              refetchInvoice();
+            })
+            .catch(console.error);
+        } else {
+          refetchInvoice();
+        }
       } else {
         setAttestError(data.error || "Failed to attest invoice via platform service.");
       }
@@ -599,7 +631,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
               </button>
 
               <button
-                onClick={() => setVerifyMode("web3")}
+                onClick={handleSwitchToWeb3}
                 className="w-full text-center text-xs text-slate-500 hover:text-slate-300 transition-colors pt-2 block"
               >
                 Prefer to sign with an Ethereum wallet? Switch to Web3 Mode
@@ -717,6 +749,26 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         onClose={() => setIsPlaidOpen(false)}
         onSuccess={handlePlaidSuccess}
       />
+
+      {isWalletOpen && typeof document !== "undefined" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
+          <GlassCard className="w-full max-w-md p-6 relative overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-white/5 mb-4">
+              <span className="text-white font-bold text-base">My Wallet</span>
+              <button
+                onClick={() => setIsWalletOpen(false)}
+                className="text-slate-500 hover:text-white transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <WalletAddressCard walletAddress={address} />
+          </GlassCard>
+        </div>
+      )}
     </div>
   );
 }
