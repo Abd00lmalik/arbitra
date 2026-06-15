@@ -14,9 +14,10 @@ interface InvoiceMiniCardProps {
   invoice: InvoiceOnChain;
   onClick: () => void;
   isNew?: boolean;
+  isSupplierView?: boolean;
 }
 
-export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMiniCardProps) {
+export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierView = false }: InvoiceMiniCardProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   const isFactored = invoice.status >= InvoiceStatus.Factored;
@@ -25,57 +26,25 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
   const isSlashed = invoice.status === InvoiceStatus.Slashed;
 
   /*
-   * Helper: Calculate deterministic risk rating and estimated yields
-   * based on the invoice ID to populate the preview cards with realistic metrics.
+   * Helper: Derive an honest size tier from plaintext face value.
+   * S = under $10k | M = $10k–$50k | L = $50k–$200k | XL = over $200k
+   * Colour is based on tier, not a fake risk score.
    */
-  const getRiskAndYield = (id: bigint) => {
-    const idx = Number(id % 4n);
-    switch (idx) {
-      case 0:
-        return {
-          tier: "A+",
-          label: "Low Risk",
-          color: "#00FF88", // Neon green
-          bg: "rgba(0, 255, 136, 0.08)",
-          border: "rgba(0, 255, 136, 0.25)",
-          shadow: "rgba(0, 255, 136, 0.15)",
-          yieldRate: "6.25%",
-        };
-      case 1:
-        return {
-          tier: "A",
-          label: "Low Risk",
-          color: "#00F0FF", // Neon cyan
-          bg: "rgba(0, 240, 255, 0.08)",
-          border: "rgba(0, 240, 255, 0.25)",
-          shadow: "rgba(0, 240, 255, 0.15)",
-          yieldRate: "7.10%",
-        };
-      case 2:
-        return {
-          tier: "B+",
-          label: "Moderate Risk",
-          color: "#A87FFF", // Neon purple
-          bg: "rgba(168, 127, 255, 0.08)",
-          border: "rgba(168, 127, 255, 0.25)",
-          shadow: "rgba(168, 127, 255, 0.15)",
-          yieldRate: "8.45%",
-        };
-      case 3:
-      default:
-        return {
-          tier: "B",
-          label: "Moderate Risk",
-          color: "#FFBA00", // Gold/Amber
-          bg: "rgba(255, 186, 0, 0.08)",
-          border: "rgba(255, 186, 0, 0.25)",
-          shadow: "rgba(255, 186, 0, 0.15)",
-          yieldRate: "9.20%",
-        };
+  const getSizeTier = (faceValuePlaintext: bigint) => {
+    const usd = Number(faceValuePlaintext) / 1_000_000;
+    if (usd < 10_000) {
+      return { tier: "S", label: "Small Cap", color: "#00F0FF", shadow: "rgba(0, 240, 255, 0.15)" };
     }
+    if (usd < 50_000) {
+      return { tier: "M", label: "Mid Cap", color: "#A87FFF", shadow: "rgba(168, 127, 255, 0.15)" };
+    }
+    if (usd < 200_000) {
+      return { tier: "L", label: "Large Cap", color: "#00FF88", shadow: "rgba(0, 255, 136, 0.15)" };
+    }
+    return { tier: "XL", label: "Inst. Cap", color: "#FFBA00", shadow: "rgba(255, 186, 0, 0.15)" };
   };
 
-  const risk = getRiskAndYield(invoice.invoiceId);
+  const risk = getSizeTier(invoice.faceValuePlaintext);
 
   const getStatusBadge = () => {
     if (isRepaid) {
@@ -133,6 +102,27 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
       );
     }
     if (isFactored) {
+      if (isSupplierView) {
+        return (
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: "6px",
+              background: "rgba(0, 255, 136, 0.06)",
+              color: "#00FF88",
+              border: "1px solid rgba(0, 255, 136, 0.15)",
+              fontFamily: "Satoshi, sans-serif",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px"
+            }}
+          >
+            💰 Advance Disbursed
+          </span>
+        );
+      }
       return (
         <span
           style={{
@@ -293,23 +283,27 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false }: InvoiceMini
           textAlign: "center"
         }}
       >
-        {/* Risk Tier */}
+        {/* Size Tier */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Risk Tier
+            Size Tier
           </span>
           <span style={{ fontSize: "14px", fontWeight: 800, color: risk.color }}>
             {risk.tier}
           </span>
         </div>
 
-        {/* Est. Yield */}
+        {/* Yield — encrypted until investor decrypts */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Est. Yield
+            Yield
           </span>
-          <span style={{ fontSize: "14px", fontWeight: 800, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
-            {risk.yieldRate}
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace", display: "flex", alignItems: "center", gap: "3px" }}>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            Decrypt
           </span>
         </div>
 

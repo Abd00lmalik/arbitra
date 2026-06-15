@@ -79,19 +79,10 @@ export default function MarketplaceClient() {
   /*
    * Calculations for the Top Stats Overview Bar
    */
-  const getYieldValue = (id: bigint) => {
-    const idx = Number(id % 4n);
-    if (idx === 0) return 6.25;
-    if (idx === 1) return 7.10;
-    if (idx === 2) return 8.45;
-    return 9.20;
-  };
-
   const totalValueShielded = invoices.reduce((acc, inv) => acc + inv.faceValuePlaintext, 0n);
-
-  const avgYield = invoices.length > 0
-    ? (invoices.reduce((acc, inv) => acc + getYieldValue(inv.invoiceId), 0) / invoices.length).toFixed(2)
-    : "0.00";
+  const awaitingFundingCount = invoices.filter(
+    (i) => i.status === InvoiceStatus.Pending || i.status === InvoiceStatus.Attested
+  ).length;
 
   const activeCount = invoices.filter((i) => i.status !== InvoiceStatus.Settled).length;
 
@@ -181,7 +172,7 @@ export default function MarketplaceClient() {
             </span>
           </div>
 
-          {/* Card 2: Average Estimated Yield */}
+          {/* Card 2: Awaiting Funding */}
           <div
             style={{
               background: "linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%)",
@@ -200,16 +191,15 @@ export default function MarketplaceClient() {
             <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "3px", background: "linear-gradient(90deg, #A87FFF, transparent)" }} />
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#A87FFF" strokeWidth="2.5">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
               <span style={{ fontSize: "11px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                Avg. Est. Yield
+                Awaiting Funding
               </span>
             </div>
-            <span style={{ fontSize: "22px", fontWeight: 800, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
-              {avgYield}% <span style={{ fontSize: "11px", color: "#64748B", fontWeight: 500 }}>APR</span>
+            <span style={{ fontSize: "22px", fontWeight: 800, color: "#A87FFF", fontFamily: "JetBrains Mono, monospace" }}>
+              {awaitingFundingCount} <span style={{ fontSize: "11px", color: "#64748B", fontWeight: 500 }}>pools</span>
             </span>
           </div>
 

@@ -177,6 +177,7 @@ export default function PortfolioClient() {
                         key={`supplier-${inv.invoiceId.toString()}`}
                         invoice={inv}
                         onClick={() => setSelectedInvoiceId(inv.invoiceId)}
+                        isSupplierView={true}
                       />
                     ))}
                   </div>

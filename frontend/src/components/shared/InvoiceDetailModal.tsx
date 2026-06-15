@@ -1,7 +1,9 @@
 /*
  * @file InvoiceDetailModal.tsx
  * @description Shared details modal for invoices featuring smooth slide-up animation,
- *              role-based viewing tabs, decryption hooks, and AI-powered risk assessment.
+ *              sequential investor flow (Request Access → Decrypt → Analyze → Deploy Capital),
+ *              real FHE decryption, Gemini AI risk analysis fed with real decrypted values,
+ *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
  */
 
 "use client";
@@ -14,12 +16,12 @@ import {
   useIsInvestorApproved,
   useSetOperator,
   useFactorInvoice,
-  useGrantRiskAccess
+  useGrantRiskAccess,
+  useUSDCBalance,
 } from "@/hooks/useArbitraRegistry";
 import { useInvoiceDecrypt } from "@/hooks/useInvoiceDecrypt";
 import { useRiskAssessment } from "@/hooks/useRiskAssessment";
 import { useZama } from "@/providers/ZamaProvider";
-import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
 import { EncryptedValue } from "../ui/EncryptedValue";
@@ -31,7 +33,8 @@ import {
   shortAddress,
   ARBITRA_REGISTRY_ADDRESS,
   DEFAULT_OPERATOR_EXPIRY_SECONDS,
-  InvoiceStatus
+  InvoiceStatus,
+  fromMicro,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -41,11 +44,21 @@ interface InvoiceDetailModalProps {
   onActionSuccess?: () => void;
 }
 
+/* Compute annualized yield % from decrypted face value, purchase price, and days to maturity */
+function computeYield(faceValue: bigint, purchasePrice: bigint, daysToMaturity: number): string {
+  if (purchasePrice === 0n || daysToMaturity <= 0) return "N/A";
+  const gain = Number(faceValue - purchasePrice) / 1_000_000;
+  const cost = Number(purchasePrice) / 1_000_000;
+  if (cost <= 0) return "N/A";
+  const annualized = (gain / cost) * (365 / daysToMaturity) * 100;
+  return `${annualized.toFixed(2)}%`;
+}
+
 export function InvoiceDetailModal({
   isOpen,
   onClose,
   invoiceId,
-  onActionSuccess
+  onActionSuccess,
 }: InvoiceDetailModalProps) {
   const { address: currentUserAddress } = useAccount();
   const { data: walletClient } = useWalletClient();
@@ -65,13 +78,23 @@ export function InvoiceDetailModal({
   const { factorInvoice, isPending: isFactoringPending } = useFactorInvoice();
   const { grantAccess, isPending: isGrantPending } = useGrantRiskAccess();
 
-  /* Operator check for factoring */
+  /* Operator / USDC approval check */
   const { data: isApprovedRefetch, refetch: refetchApproval } = useIsInvestorApproved(
     currentUserAddress as `0x${string}` | undefined
   );
   const isApproved = isApprovedRefetch ?? false;
   const { setOperator, isPending: isApproving } = useSetOperator();
+
+  /* USDC balance for pre-flight check */
+  const { data: usdcBalanceRaw } = useUSDCBalance(currentUserAddress as `0x${string}` | undefined);
+  const usdcBalance = usdcBalanceRaw ? (usdcBalanceRaw as bigint) : 0n;
+
+  /* Local UI state */
   const [localBusy, setLocalBusy] = useState(false);
+  const [hasGrantedAccess, setHasGrantedAccess] = useState(false);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  const [factorError, setFactorError] = useState<string | null>(null);
+  const [factorSuccess, setFactorSuccess] = useState<{ disbursed: string; invoiceIdStr: string } | null>(null);
 
   if (!isOpen || invoiceId === undefined || !invoice) return null;
 
@@ -82,8 +105,20 @@ export function InvoiceDetailModal({
   const isSupplier = currentUserAddress?.toLowerCase() === invoice.supplier?.toLowerCase();
   const isInvestor = currentUserAddress?.toLowerCase() === invoice.investor?.toLowerCase();
   const isDebtor = currentUserAddress?.toLowerCase() === invoice.debtor?.toLowerCase();
-  
-  const canDecrypt = true;
+
+  /* Decryption is allowed if: supplier, factored investor, or has been granted risk access this session */
+  const canDecrypt = isSupplier || isInvestor || hasGrantedAccess;
+
+  /* Real yield calculation after decryption */
+  const daysLeft = daysUntilDue(invoice.maturityTimestamp);
+  const realYield =
+    decrypted?.faceValue && decrypted?.purchasePrice
+      ? computeYield(decrypted.faceValue, decrypted.purchasePrice, daysLeft)
+      : null;
+
+  /* Purchase price for USDC pre-flight (uses plaintext approximation before decryption) */
+  const estimatedPurchasePrice = decrypted?.purchasePrice ?? 0n;
+  const hasEnoughUSDC = usdcBalance >= estimatedPurchasePrice || estimatedPurchasePrice === 0n;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -97,9 +132,9 @@ export function InvoiceDetailModal({
           types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
           primaryType: Object.keys(types as Record<string, unknown>)[0],
           message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
-          account: (await walletClient.getAddresses())[0]
+          account: (await walletClient.getAddresses())[0],
         });
-      }
+      },
     };
 
     await decrypt(
@@ -107,18 +142,40 @@ export function InvoiceDetailModal({
         faceValueHandle: invoice.faceValue,
         dueDateHandle: invoice.dueDate,
         purchasePriceHandle: invoice.purchasePrice,
-        discountRateHandle: invoice.discountRateBps
+        discountRateHandle: invoice.discountRateBps,
       },
       signer
     );
   };
 
-  /* AI risk assessment trigger */
+  /* Grant FHE access for prospective investor — permanent FHE.allow on-chain */
+  const handleGrantAccess = async () => {
+    setLocalBusy(true);
+    setGrantError(null);
+    try {
+      if (!publicClient) throw new Error("Sepolia public client unavailable.");
+      const txHash = await grantAccess(invoice.invoiceId);
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
+      setHasGrantedAccess(true);
+      await refetchInvoice();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Access grant failed";
+      const clean = msg.includes("User rejected") ? "Transaction cancelled by user." : msg.slice(0, 120);
+      setGrantError(clean);
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  /* AI risk assessment — triggered after decryption with real values */
   const handleRiskAnalyze = async () => {
-    const dueDays = decrypted?.dueDate ? daysUntilDue(decrypted.dueDate) : 30;
-    const faceValueStr = decrypted?.faceValue ? `$${(Number(decrypted.faceValue) / 1000000).toFixed(2)}` : undefined;
+    const dueDays = decrypted?.dueDate ? daysUntilDue(decrypted.dueDate) : daysLeft;
+    const faceValueStr = decrypted?.faceValue
+      ? `$${(Number(decrypted.faceValue) / 1_000_000).toFixed(2)}`
+      : undefined;
     const discountRateBps = decrypted?.discountRate ? Number(decrypted.discountRate) : undefined;
 
+    /* Do not pass hardcoded repayment ratio — let Gemini see "no history" for an honest output */
     await fetchAssessment({
       invoiceId: Number(invoice.invoiceId),
       supplierAddress: invoice.supplier,
@@ -129,53 +186,61 @@ export function InvoiceDetailModal({
       faceValueHint: faceValueStr,
       dueDaysHint: dueDays,
       discountRateBpsHint: discountRateBps,
-      repaymentRatioBpsHint: 9500 /* Default mock supplier reputation ratio */
     });
   };
 
-  /* Grant transient assessment access */
-  const handleGrantAccess = async () => {
-    setLocalBusy(true);
-    try {
-      if (!publicClient) {
-        throw new Error("Sepolia public client unavailable.");
-      }
-
-      const txHash = await grantAccess(invoice.invoiceId);
-      await publicClient.waitForTransactionReceipt({ hash: txHash });
-      await refetchInvoice();
-    } catch (err) {
-      console.error("Granting risk access failed:", err);
-    } finally {
-      setLocalBusy(false);
-    }
-  };
-
-  /* Factor action sequence */
+  /* Step 5: Deploy USDC Escrow Capital — full USDC approval + factor sequence */
   const handleFactorClick = async () => {
     setLocalBusy(true);
+    setFactorError(null);
+    setFactorSuccess(null);
+
     try {
-      if (!publicClient) {
-        throw new Error("Sepolia public client unavailable.");
+      if (!publicClient) throw new Error("Sepolia public client unavailable.");
+
+      /* Pre-flight: check USDC balance */
+      if (estimatedPurchasePrice > 0n && usdcBalance < estimatedPurchasePrice) {
+        throw new Error(
+          `Insufficient USDC. You have $${fromMicro(usdcBalance)} but need $${fromMicro(estimatedPurchasePrice)}. Get test USDC at faucet.circle.com.`
+        );
       }
 
+      /* Step 1: USDC approval if not already approved */
       if (!isApproved) {
         const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
         const approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
         await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
         await refetchApproval();
       }
+
+      /* Step 2: Factor invoice — USDC transfers to supplier */
       const factorTxHash = await factorInvoice(invoice.invoiceId);
       await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
+
+      const disbursedStr = decrypted?.purchasePrice
+        ? `$${fromMicro(decrypted.purchasePrice)} USDC`
+        : `Invoice #${invoice.invoiceId}`;
+
+      setFactorSuccess({ disbursed: disbursedStr, invoiceIdStr: `#${invoice.invoiceId}` });
       await refetchInvoice();
       if (onActionSuccess) onActionSuccess();
-      onClose();
     } catch (err) {
-      console.error("Factoring failed:", err);
+      const msg = err instanceof Error ? err.message : "Factoring failed";
+      const clean = msg.includes("User rejected")
+        ? "Transaction cancelled by user."
+        : msg.includes("Insufficient USDC")
+        ? msg
+        : msg.slice(0, 180);
+      setFactorError(clean);
     } finally {
       setLocalBusy(false);
     }
   };
+
+  /* Determine investor step: 0=grant, 1=decrypt, 2=analyze, 3=deploy */
+  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : !assessment ? 2 : 3;
+  const isProspectiveInvestor = !isSupplier && !isDebtor && !isFactored;
+  const isActiveInvestor = !isSupplier && !isDebtor && isFactored && isInvestor;
 
   return (
     <AnimatePresence>
@@ -225,7 +290,7 @@ export function InvoiceDetailModal({
 
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto space-y-5 pr-1 -mr-2 scrollbar-thin">
-            
+
             {/* Wallet Info Banner */}
             <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-white/2 border border-white/5 text-xs text-slate-400">
               <div className="flex justify-between items-center">
@@ -235,7 +300,7 @@ export function InvoiceDetailModal({
               <div className="flex justify-between items-center">
                 <span>Registry Verified Role:</span>
                 <span className="capitalize font-bold text-white">
-                  {isSupplier ? "Supplier (Creator)" : isInvestor ? "Investor (Lender)" : isDebtor ? "Debtor (Buyer)" : "Viewer"}
+                  {isSupplier ? "Supplier (Creator)" : isInvestor ? "Investor (Lender)" : isDebtor ? "Debtor (Buyer)" : "Prospective Investor"}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -256,29 +321,205 @@ export function InvoiceDetailModal({
               </div>
             </div>
 
-            {/* Encrypted Value Grid */}
+            {/* ─── INVESTOR SEQUENTIAL FLOW (Prospective) ─── */}
+            {isProspectiveInvestor && invoice.status === InvoiceStatus.Attested && (
+              <div className="rounded-2xl border border-neon-purple/20 bg-gradient-to-br from-neon-purple/5 to-transparent overflow-hidden">
+                {/* Step Progress Bar */}
+                <div className="flex border-b border-white/5">
+                  {["Request Access", "Decrypt", "Analyze Risk", "Deploy Capital"].map((label, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex-1 py-2 text-center text-[9px] font-bold uppercase tracking-widest transition-all ${
+                        idx < investorStep
+                          ? "text-neon-green bg-neon-green/5"
+                          : idx === investorStep
+                          ? "text-neon-purple bg-neon-purple/10"
+                          : "text-slate-600"
+                      }`}
+                    >
+                      {idx < investorStep ? "✓ " : idx === investorStep ? "→ " : ""}{label}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-4">
+                  {/* STEP 0: Request Decrypt Access */}
+                  {investorStep === 0 && (
+                    <div className="text-center space-y-3">
+                      <div className="text-3xl">🔑</div>
+                      <h4 className="text-sm font-bold text-white">Request FHE Decrypt Access</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Submit an on-chain transaction to grant your wallet permanent permission to decrypt this invoice's encrypted financial parameters (face value, yield, due date).
+                      </p>
+                      <NeonButton
+                        variant="primary"
+                        size="sm"
+                        loading={isGrantPending || localBusy}
+                        onClick={handleGrantAccess}
+                        className="w-full"
+                      >
+                        {isGrantPending || localBusy ? "Submitting On-Chain..." : "🔑 Grant My Wallet Decrypt Access"}
+                      </NeonButton>
+                      {grantError && (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
+                          ⚠️ {grantError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STEP 1: Decrypt */}
+                  {investorStep === 1 && (
+                    <div className="text-center space-y-3">
+                      <div className="text-3xl">🔓</div>
+                      <h4 className="text-sm font-bold text-white">Decrypt Invoice Parameters</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Your wallet now has on-chain decrypt permission. Sign an EIP-712 message to privately reveal the real face value, purchase price, yield, and maturity date — only visible to you.
+                      </p>
+                      {zamaReady ? (
+                        <NeonButton
+                          variant="primary"
+                          size="sm"
+                          loading={isDecrypting}
+                          onClick={handleDecrypt}
+                          className="w-full"
+                        >
+                          {isDecrypting ? "Decrypting via Zama Relayer..." : "🔓 Decrypt Financial Details"}
+                        </NeonButton>
+                      ) : (
+                        <p className="text-xs text-yellow-400">Zama SDK initializing — please wait...</p>
+                      )}
+                      {decryptError && (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
+                          ⚠️ {decryptError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STEP 2: Analyze with Gemini */}
+                  {investorStep === 2 && (
+                    <div className="text-center space-y-3">
+                      <div className="text-3xl">✨</div>
+                      <h4 className="text-sm font-bold text-white">AI Counterparty Risk Analysis</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Run Gemini Flash AI on the real decrypted parameters to get a risk score, credit label, and investment recommendation before committing capital.
+                      </p>
+                      <NeonButton
+                        variant="primary"
+                        size="sm"
+                        loading={isRiskLoading}
+                        onClick={handleRiskAnalyze}
+                        className="w-full bg-indigo-600 border-indigo-500"
+                      >
+                        {isRiskLoading ? "Analyzing with Gemini Flash..." : "✨ Run Gemini Risk Analysis"}
+                      </NeonButton>
+                      {riskError && (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
+                          ⚠️ {riskError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STEP 3: Deploy Capital */}
+                  {investorStep === 3 && !factorSuccess && (
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-bold text-white text-center">⚡ Deploy USDC Escrow Capital</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed text-center">
+                        Sign an EIP-712 transaction to transfer USDC to escrow. Funds are released to the supplier upon confirmation. The registry records your ownership of this invoice RWA.
+                      </p>
+                      {/* USDC Balance check */}
+                      <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
+                        <span className="text-slate-400">Your USDC Balance</span>
+                        <span className={`font-mono font-bold ${hasEnoughUSDC ? "text-neon-green" : "text-neon-pink"}`}>
+                          ${fromMicro(usdcBalance)} USDC {!hasEnoughUSDC && "⚠️"}
+                        </span>
+                      </div>
+                      {decrypted?.purchasePrice && (
+                        <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
+                          <span className="text-slate-400">Capital Required (Purchase Price)</span>
+                          <span className="font-mono font-bold text-white">${fromMicro(decrypted.purchasePrice)} USDC</span>
+                        </div>
+                      )}
+                      {!hasEnoughUSDC && (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          ⚠️ Insufficient USDC. Get test tokens at{" "}
+                          <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer" className="underline">
+                            faucet.circle.com
+                          </a>
+                        </div>
+                      )}
+                      <NeonButton
+                        variant="primary"
+                        size="md"
+                        loading={isFactoringPending || isApproving || localBusy}
+                        onClick={handleFactorClick}
+                        disabled={!hasEnoughUSDC && estimatedPurchasePrice > 0n}
+                        className="w-full bg-gradient-to-r from-neon-purple to-indigo-600 border-neon-purple/50"
+                      >
+                        {isApproving
+                          ? "Approving USDC Spend..."
+                          : isFactoringPending || localBusy
+                          ? `Transferring${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} to Supplier...`
+                          : isApproved
+                          ? "⚡ Deploy USDC Escrow Capital"
+                          : "Approve USDC & Deploy Capital"}
+                      </NeonButton>
+                      {factorError && (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
+                          ⚠️ {factorError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SUCCESS: Financing Approved */}
+                  {factorSuccess && (
+                    <div className="text-center space-y-3 py-2">
+                      <div className="text-4xl">🎉</div>
+                      <h4 className="text-sm font-bold text-neon-green">Financing Approved</h4>
+                      <p className="text-xs text-slate-300">
+                        <span className="font-bold text-white">{factorSuccess.disbursed}</span> disbursed to supplier.
+                        Invoice {factorSuccess.invoiceIdStr} is now registered to your wallet as an on-chain RWA asset.
+                      </p>
+                      <div className="p-3 rounded-xl bg-neon-green/10 border border-neon-green/20 text-neon-green text-xs text-left space-y-1">
+                        <div>✓ USDC transferred to supplier escrow</div>
+                        <div>✓ Invoice RWA ownership recorded on-chain</div>
+                        <div>✓ Repayment tracked via encrypted escrow receiver</div>
+                      </div>
+                      <NeonButton variant="secondary" size="sm" onClick={onClose} className="w-full">
+                        Close Panel
+                      </NeonButton>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ─── ENCRYPTED VALUE GRID ─── */}
             <div className="grid grid-cols-2 gap-3.5">
               {[
                 {
                   label: "Face Value",
                   clear: decrypted?.faceValue !== undefined ? formatUSDC(decrypted.faceValue) : undefined,
-                  icon: "💰"
+                  icon: "💰",
                 },
                 {
                   label: "Purchase Price",
                   clear: decrypted?.purchasePrice !== undefined ? formatUSDC(decrypted.purchasePrice) : undefined,
-                  icon: "🏷️"
+                  icon: "🏷️",
                 },
                 {
                   label: "Due Date",
                   clear: decrypted?.dueDate !== undefined ? formatTimestamp(decrypted.dueDate) : undefined,
-                  icon: "📅"
+                  icon: "📅",
                 },
                 {
                   label: "Discount Rate",
                   clear: decrypted?.discountRate !== undefined ? formatBps(decrypted.discountRate) : undefined,
-                  icon: "📊"
-                }
+                  icon: "📊",
+                },
               ].map((field, idx) => (
                 <div
                   key={idx}
@@ -300,46 +541,59 @@ export function InvoiceDetailModal({
               ))}
             </div>
 
-            {/* FHE Yield Disclaimer */}
-            <div className="p-3 rounded-2xl bg-white/2 border border-white/5 text-[11px] text-slate-500 leading-normal flex items-start gap-2">
-              <span style={{ fontSize: "14px", marginTop: "-2px" }}>⚠️</span>
-              <div>
-                <span className="font-bold text-slate-400">Parameter Note:</span> Estimated yields shown on catalog preview cards are approximations. The actual discount rate, purchase price, and face value are calculated privately on-chain using FHE and will be shown in full clarity once decrypted.
-              </div>
-            </div>
-
-            {/* Decrypt Actions Area */}
-            {!decrypted && (
-              <div className="p-4 rounded-2xl bg-white/2 border border-white/5 flex items-center justify-between gap-4">
-                <div className="flex-1">
-                  <h4 className="text-xs font-bold text-white mb-0.5">Encrypted Under FHE</h4>
-                  <p className="text-[11px] text-slate-500 leading-normal">
-                    This invoice's parameters are homomorphically encrypted. Only the supplier, debtor, and factored investor can decrypt them.
-                  </p>
+            {/* Real Yield Display (after decryption) */}
+            {realYield && (
+              <div className="p-3.5 rounded-2xl bg-neon-green/5 border border-neon-green/20 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-neon-green block mb-0.5">
+                    Real Annualized Yield
+                  </span>
+                  <span className="text-[11px] text-slate-400">Computed from decrypted face value, purchase price, and maturity</span>
                 </div>
-                {zamaReady && canDecrypt && (
-                  <NeonButton
-                    variant="secondary"
-                    size="sm"
-                    loading={isDecrypting}
-                    onClick={handleDecrypt}
-                    className="flex-shrink-0"
-                  >
-                    Decrypt Details
-                  </NeonButton>
-                )}
+                <span className="text-xl font-black text-neon-green font-mono">{realYield}</span>
               </div>
             )}
 
-            {/* Decrypt Error Alert */}
-            {decryptError && (
+            {/* FHE Disclaimer (shown before decrypt) */}
+            {!decrypted && (
+              <div className="p-3 rounded-2xl bg-white/2 border border-white/5 text-[11px] text-slate-500 leading-normal flex items-start gap-2">
+                <span style={{ fontSize: "14px", marginTop: "-2px" }}>⚠️</span>
+                <div>
+                  <span className="font-bold text-slate-400">FHE Protected:</span> Face value, purchase price, discount rate and due date are homomorphically encrypted on-chain. Only authorized wallets can decrypt. Yields shown on preview cards are placeholders — real yield is computed after decryption.
+                </div>
+              </div>
+            )}
+
+            {/* Decrypt button for Supplier / Factored Investor (not in the sequential flow) */}
+            {!isProspectiveInvestor && !decrypted && canDecrypt && zamaReady && (
+              <div className="p-4 rounded-2xl bg-white/2 border border-white/5 flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <h4 className="text-xs font-bold text-white mb-0.5">Decrypt Your Invoice</h4>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Sign an EIP-712 message to reveal the real financial parameters.
+                  </p>
+                </div>
+                <NeonButton
+                  variant="secondary"
+                  size="sm"
+                  loading={isDecrypting}
+                  onClick={handleDecrypt}
+                  className="flex-shrink-0"
+                >
+                  Decrypt Details
+                </NeonButton>
+              </div>
+            )}
+
+            {/* Decrypt Error Alert (supplier/investor path) */}
+            {decryptError && !isProspectiveInvestor && (
               <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
                 {decryptError}
               </div>
             )}
 
-            {/* AI Risk Assessment Block */}
-            {!isSupplier && (
+            {/* ─── AI RISK ASSESSMENT (shown to non-suppliers after decryption in non-sequential views) ─── */}
+            {!isSupplier && decrypted && (
               <div className="p-4.5 rounded-2xl bg-gradient-to-br from-indigo-950/40 to-navy-950/40 border border-indigo-500/20">
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-1.5">
@@ -352,7 +606,7 @@ export function InvoiceDetailModal({
                 {!assessment ? (
                   <div className="text-center py-2.5">
                     <p className="text-xs text-slate-400 mb-3">
-                      Run AI counterparty risk analysis using metadata and available decrypted parameters.
+                      Run AI counterparty risk analysis using real decrypted parameters.
                     </p>
                     <NeonButton
                       variant="primary"
@@ -381,9 +635,7 @@ export function InvoiceDetailModal({
                       </span>
                     </div>
 
-                    <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                      {assessment.summary}
-                    </p>
+                    <p className="text-xs text-slate-300 leading-relaxed font-medium">{assessment.summary}</p>
 
                     <div className="space-y-1.5">
                       <span className="text-[10px] text-indigo-300 uppercase tracking-widest font-bold">Key Risk Signals:</span>
@@ -399,13 +651,11 @@ export function InvoiceDetailModal({
 
                     <div className="p-3.5 rounded-xl bg-white/2 border border-white/5 mt-1.5">
                       <span className="text-[10px] text-slate-400 font-bold block mb-1 uppercase">Recommendation:</span>
-                      <p className="text-xs text-indigo-200 leading-normal italic">
-                        {assessment.recommendation}
-                      </p>
+                      <p className="text-xs text-indigo-200 leading-normal italic">{assessment.recommendation}</p>
                     </div>
                   </div>
                 )}
-                {riskError && (
+                {riskError && !isProspectiveInvestor && (
                   <div className="mt-3 p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
                     {riskError}
                   </div>
@@ -413,7 +663,7 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* Addresses Block */}
+            {/* ─── ADDRESSES BLOCK ─── */}
             <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Supplier:</span>
@@ -429,46 +679,26 @@ export function InvoiceDetailModal({
                   <span className="font-mono text-slate-300">{shortAddress(invoice.investor)}</span>
                 </div>
               )}
+              <div className="flex justify-between">
+                <span className="text-slate-500">Days to Maturity:</span>
+                <span className="font-mono text-slate-300">{isRepaid ? "Settled ✓" : `${daysLeft} days`}</span>
+              </div>
             </div>
           </div>
 
-          {/* Footer Action Buttons */}
-          <div className="mt-6 pt-4 border-t border-white/5 flex gap-3">
-            <NeonButton
-              variant="secondary"
-              size="md"
-              onClick={onClose}
-              className="flex-1"
-            >
-              Close Panel
-            </NeonButton>
-
-            {/* Action for prospective investor to request FHE access */}
-            {invoice.status === InvoiceStatus.Attested && !isSupplier && !isDebtor && !decrypted && (
+          {/* Footer Action Buttons — only for non-sequential (supplier/active investor) */}
+          {!isProspectiveInvestor && !factorSuccess && (
+            <div className="mt-6 pt-4 border-t border-white/5 flex gap-3">
               <NeonButton
-                variant="primary"
+                variant="secondary"
                 size="md"
-                loading={isGrantPending || localBusy}
-                onClick={handleGrantAccess}
-                className="flex-1 text-xs"
+                onClick={onClose}
+                className="flex-1"
               >
-                {isGrantPending ? "Requesting..." : "🔑 Request Risk Assessment Access"}
+                Close Panel
               </NeonButton>
-            )}
-
-            {/* Action for Investor (Factoring) */}
-            {invoice.status === InvoiceStatus.Attested && !isSupplier && (
-              <NeonButton
-                variant="primary"
-                size="md"
-                loading={isFactoringPending || isApproving || localBusy}
-                onClick={handleFactorClick}
-                className="flex-1 bg-neon-purple text-white border-neon-purple hover:bg-neon-purple/80"
-              >
-                {isApproved ? "Factor Invoice" : "Approve & Factor"}
-              </NeonButton>
-            )}
-          </div>
+            </div>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>
