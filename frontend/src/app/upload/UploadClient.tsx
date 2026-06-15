@@ -14,7 +14,8 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { FHEBadge } from "@/components/ui/FHEBadge";
 import { FaucetLinks } from "@/components/shared/FaucetLinks";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
-import { IDENTITY_ABI, IDENTITY_ADDRESS, SBT_ABI, SBT_ADDRESS } from "@/lib/contracts";
+import { IDENTITY_ABI, IDENTITY_ADDRESS, SBT_ABI, SBT_ADDRESS, INVESTOR_SBT_ADDRESS } from "@/lib/contracts";
+import Link from "next/link";
 
 export default function UploadClient() {
   const { wallet: web3authWallet } = useWeb3Auth();
@@ -22,6 +23,13 @@ export default function UploadClient() {
   const wallet = web3authWallet ?? (isConnected && address ? address : null);
   const { data: hasSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet },
+  });
+  const { data: hasInvestorSBT } = useReadContract({
+    address: INVESTOR_SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
@@ -36,6 +44,28 @@ export default function UploadClient() {
   });
 
   if (wallet && hasSBT !== true) {
+    if (hasInvestorSBT === true) {
+      return (
+        <AppLayout title="Upload Locked" description="Role authorization required.">
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
+            <GlassCard className="p-8 text-center max-w-md mx-auto" glow="cyan">
+              <div className="text-3xl mb-4">🏭</div>
+              <h2 className="text-lg font-bold text-white mb-2" style={{ fontFamily: "Satoshi, sans-serif" }}>
+                Verify as Supplier
+              </h2>
+              <p className="text-sm text-slate-400 mb-6">
+                You are registered as an **Investor**. To upload and finance invoices, you must complete Supplier business verification.
+              </p>
+              <Link href="/register?role=supplier&upgrade=true">
+                <button className="neon-btn-primary px-6 py-2.5 text-sm rounded-xl">
+                  Start Supplier Onboarding
+                </button>
+              </Link>
+            </GlassCard>
+          </div>
+        </AppLayout>
+      );
+    }
     return <LockedPage title="Upload Locked" message="Complete business verification to request financing." />;
   }
 

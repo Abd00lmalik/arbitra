@@ -23,6 +23,7 @@ import {
   InvoiceStatus,
   SBT_ABI,
   SBT_ADDRESS,
+  INVESTOR_SBT_ADDRESS,
   daysUntilDue,
   fromMicro
 } from "@/lib/contracts";
@@ -38,8 +39,16 @@ export default function MarketplaceClient() {
   const newInvoiceId = searchParams.get("new");
   const wallet = web3authWallet ?? (isConnected && address ? address : null);
 
-  const { data: hasSBT } = useReadContract({
+  const { data: hasSupplierSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet },
+  });
+
+  const { data: hasInvestorSBT } = useReadContract({
+    address: INVESTOR_SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
@@ -51,7 +60,7 @@ export default function MarketplaceClient() {
     abi: IDENTITY_ABI,
     functionName: "hasEncryptedCompliance",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
-    query: { enabled: !!wallet && hasSBT === true },
+    query: { enabled: !!wallet && hasInvestorSBT === true },
   });
 
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
@@ -59,7 +68,29 @@ export default function MarketplaceClient() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const invoices = realInvoices ?? [];
 
-  if (wallet && hasSBT !== true) {
+  if (wallet && hasInvestorSBT !== true) {
+    if (hasSupplierSBT === true) {
+      return (
+        <AppLayout title="Marketplace Locked" description="Role authorization required.">
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
+            <GlassCard className="p-8 text-center max-w-md mx-auto" glow="purple">
+              <div className="text-3xl mb-4">💼</div>
+              <h2 className="text-lg font-bold text-white mb-2" style={{ fontFamily: "Satoshi, sans-serif" }}>
+                Verify as Investor
+              </h2>
+              <p className="text-sm text-slate-400 mb-6">
+                You are registered as a **Supplier**. To access RWA pools and fund invoices as an Investor, you must complete Investor KYC/accreditation checks.
+              </p>
+              <Link href="/register?role=investor&upgrade=true">
+                <button className="neon-btn-primary px-6 py-2.5 text-sm rounded-xl">
+                  Start Investor Onboarding
+                </button>
+              </Link>
+            </GlassCard>
+          </div>
+        </AppLayout>
+      );
+    }
     return <LockedPage title="Marketplace Locked" message="Complete business verification to access the marketplace." />;
   }
 

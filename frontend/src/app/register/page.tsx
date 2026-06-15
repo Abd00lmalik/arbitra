@@ -24,14 +24,17 @@ import {
   IDENTITY_ADDRESS,
   KYB_ORACLE_ABI,
   KYB_ORACLE_ADDRESS,
+  INVESTOR_KYB_ORACLE_ADDRESS,
   SBT_ABI,
   SBT_ADDRESS,
+  INVESTOR_SBT_ADDRESS,
   truncAddr,
 } from "@/lib/contracts";
 
 type Stage =
   | "AUTH_CHOICE"
   | "WALLET_READY"
+  | "ROLE_CHOICE"
   | "KYB_FORM"
   | "KYB_PENDING"
   | "KYB_APPROVED"
@@ -314,6 +317,7 @@ export default function RegisterPage() {
   const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Preparing your account status...");
 
+  const [selectedRole, setSelectedRole] = useState<"supplier" | "investor" | null>(null);
   const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState("United States");
   const [registrationNumber, setRegistrationNumber] = useState("");
@@ -387,7 +391,10 @@ export default function RegisterPage() {
       setStatusMessage("Preparing your account status...");
 
       try {
-        const hasSBT = await checkSBTWithTimeout(async () => (
+        const urlRole = searchParams.get("role");
+        const isUpgrade = searchParams.get("upgrade") === "true";
+
+        const hasSupplierSBT = await checkSBTWithTimeout(async () => (
           await client.readContract({
             address: SBT_ADDRESS,
             abi: SBT_ABI,
@@ -396,15 +403,16 @@ export default function RegisterPage() {
           }) as boolean
         ));
 
+        const hasInvestorSBT = await checkSBTWithTimeout(async () => (
+          await client.readContract({
+            address: INVESTOR_SBT_ADDRESS,
+            abi: SBT_ABI,
+            functionName: "hasValidSBT",
+            args: [walletAddress],
+          }) as boolean
+        ));
+
         if (!active) return;
-
-        if (!hasSBT) {
-          setStatusMessage("Could not verify SBT status. Proceeding to registration...");
-          setStatusError("SBT check timed out or returned no verified token. You can continue with KYB registration.");
-          return;
-        }
-
-        setStatusMessage("Verified SBT. Checking encrypted compliance...");
 
         const hasFHE = (await client.readContract({
           address: IDENTITY_ADDRESS,
@@ -415,22 +423,53 @@ export default function RegisterPage() {
 
         if (!active) return;
 
-        if (hasFHE) {
-          router.replace(nextPath);
+        // Handle upgrade/explicit role routes
+        if (urlRole === "supplier") {
+          setSelectedRole("supplier");
+          if (hasSupplierSBT) {
+            if (hasFHE) {
+              router.replace(nextPath);
+              return;
+            }
+            setStage("SBT_MINTED");
+            return;
+          }
+          setStage("KYB_FORM");
           return;
         }
 
-        setKybResult((current) => current ?? buildFallbackKybResult("", walletAddress));
-        setStatusMessage("Encrypted compliance is required before dashboard access. Please store your compliance profile to continue.");
-        setStatusError(null);
-        setError(null);
-        setStage("SBT_MINTED");
+        if (urlRole === "investor") {
+          setSelectedRole("investor");
+          if (hasInvestorSBT) {
+            if (hasFHE) {
+              router.replace(nextPath);
+              return;
+            }
+            setStage("SBT_MINTED");
+            return;
+          }
+          setStage("KYB_FORM");
+          return;
+        }
+
+        // Standard flow (no explicit urlRole query param)
+        if (hasSupplierSBT || hasInvestorSBT) {
+          if (hasFHE) {
+            router.replace(nextPath);
+            return;
+          }
+          setSelectedRole(hasSupplierSBT ? "supplier" : "investor");
+          setStage("SBT_MINTED");
+          return;
+        }
+
+        setStatusMessage("Choose your access role to continue...");
+        setStage("ROLE_CHOICE");
       } catch (credentialError) {
         console.error("[Register] Credential check failed:", credentialError);
         if (active) {
-          setStatusMessage("Could not verify SBT status. Proceeding to registration...");
-          setStatusError("SBT check failed. Please confirm you are on Sepolia and try again if this persists.");
-          setError("Unable to verify current account status.");
+          setStatusMessage("Could not verify SBT status. Proceeding to role selection...");
+          setStage("ROLE_CHOICE");
         }
       } finally {
         if (active) {
@@ -444,7 +483,7 @@ export default function RegisterPage() {
     return () => {
       active = false;
     };
-  }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath, isCorrectNetwork]);
+  }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath, isCorrectNetwork, searchParams]);
 
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;
@@ -562,7 +601,7 @@ export default function RegisterPage() {
   async function handleKYBSubmit() {
     setSubmitted(true);
     if (!isKybFormValid) {
-      setError("Please correct the highlighted KYB fields.");
+      setError("Please correct the highlighted onboarding fields.");
       return;
     }
 
@@ -585,6 +624,7 @@ export default function RegisterPage() {
           country,
           registrationNumber,
           taxID: taxID.trim(),
+          role: selectedRole,
         }),
       });
 
@@ -599,7 +639,7 @@ export default function RegisterPage() {
             : response.ok
               ? "Oracle attestation signature generation failed."
               : "KYB validation failed.";
-        console.error("[Register] KYB API error:", apiError, "Status:", response.status, data);
+        console.error("[Register] Onboarding API error:", apiError, "Status:", response.status, data);
         setStage("WALLET_READY");
         throw new Error(apiError);
       }
@@ -627,7 +667,7 @@ export default function RegisterPage() {
       setStage("KYB_PENDING");
     } catch (submissionError) {
       setIsMintingSBT(false);
-      setError(submissionError instanceof Error ? submissionError.message : "KYB processing failed.");
+      setError(submissionError instanceof Error ? submissionError.message : "Onboarding processing failed.");
     } finally {
       setIsLoading(false);
     }
@@ -637,16 +677,18 @@ export default function RegisterPage() {
     if (!activeWallet || !kybResult) return;
 
     if (!kybResult.signature || !kybResult.verification_id_bytes32 || !kybResult.attestation_hash_bytes32) {
-      setError("KYB verification data is incomplete. Please restart the verification flow.");
+      setError("Onboarding verification data is incomplete. Please restart the verification flow.");
       return;
     }
 
     setIsMintingSBT(true);
     setError(null);
 
+    const targetOracleAddress = selectedRole === "investor" ? INVESTOR_KYB_ORACLE_ADDRESS : KYB_ORACLE_ADDRESS;
+
     try {
       const hash = await writeContractAsync({
-        address: KYB_ORACLE_ADDRESS,
+        address: targetOracleAddress,
         abi: KYB_ORACLE_ABI,
         functionName: "submitKYBAttestation",
         args: [
@@ -891,8 +933,8 @@ export default function RegisterPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        setStatusMessage("Continuing to registration...");
-                        setStage("KYB_FORM");
+                        setStatusMessage("Continuing to role selection...");
+                        setStage("ROLE_CHOICE");
                       }}
                       style={{
                         marginTop: 12,
@@ -907,10 +949,153 @@ export default function RegisterPage() {
                         cursor: "pointer",
                       }}
                     >
-                      Continue to KYB Registration
+                      Continue to Role Selection
                     </button>
                   </div>
                 )}
+              </GlassCard>
+            </motion.div>
+          )}
+
+          {stage === "ROLE_CHOICE" && (
+            <motion.div
+              key="role-choice"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.28 }}
+              style={{ maxWidth: 800, width: "100%", margin: "0 auto" }}
+            >
+              <GlassCard className="p-8" glow="purple">
+                <div style={{ textAlign: "center", marginBottom: 30 }}>
+                  <h2 style={{ ...headingStyle, marginBottom: 8 }}>Select Protocol Access Role</h2>
+                  <p style={{ ...bodyStyle, margin: 0 }}>
+                    Choose your primary interaction role on the Arbitra RWA Platform. Credentials are role-locked.
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24, marginBottom: 32 }}>
+                  {/* Supplier Card */}
+                  <div
+                    onClick={() => setSelectedRole("supplier")}
+                    style={{
+                      padding: 24,
+                      borderRadius: 24,
+                      border: selectedRole === "supplier" ? "2px solid #00F0FF" : "1px solid rgba(255, 255, 255, 0.08)",
+                      background: selectedRole === "supplier" ? "rgba(0, 240, 255, 0.04)" : "rgba(255, 255, 255, 0.01)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                      position: "relative",
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 4, background: "linear-gradient(90deg, #00F0FF, transparent)" }} />
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                        <span style={{ fontSize: 28 }}>🏭</span>
+                        {selectedRole === "supplier" && (
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#00F0FF", background: "rgba(0, 240, 255, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", marginBottom: 8, fontFamily: "Satoshi, sans-serif" }}>
+                        Invoice Supplier
+                      </h3>
+                      <p style={{ fontSize: 12, color: "#8B9CC8", lineHeight: "1.6", marginBottom: 20 }}>
+                        For companies and exporters seeking working capital by listing trade receivables for investor funding.
+                      </p>
+                      <ul style={{ display: "grid", gap: 10, padding: 0, margin: 0, listStyle: "none", fontSize: 12, color: "#E2E8F0" }}>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
+                          <span>Upload & encrypt invoices privately</span>
+                        </li>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
+                          <span>Manage debtor email notice verification</span>
+                        </li>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
+                          <span>Claim instant USDC financing advances</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Investor Card */}
+                  <div
+                    onClick={() => setSelectedRole("investor")}
+                    style={{
+                      padding: 24,
+                      borderRadius: 24,
+                      border: selectedRole === "investor" ? "2px solid #A87FFF" : "1px solid rgba(255, 255, 255, 0.08)",
+                      background: selectedRole === "investor" ? "rgba(168, 127, 255, 0.04)" : "rgba(255, 255, 255, 0.01)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                      position: "relative",
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 4, background: "linear-gradient(90deg, #A87FFF, transparent)" }} />
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                        <span style={{ fontSize: 28 }}>💼</span>
+                        {selectedRole === "investor" && (
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#A87FFF", background: "rgba(168, 127, 255, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", marginBottom: 8, fontFamily: "Satoshi, sans-serif" }}>
+                        Liquidity Investor
+                      </h3>
+                      <p style={{ fontSize: 12, color: "#8B9CC8", lineHeight: "1.6", marginBottom: 20 }}>
+                        For funds, treasuries, or accredited investors looking to purchase premium trade receivables.
+                      </p>
+                      <ul style={{ display: "grid", gap: 10, padding: 0, margin: 0, listStyle: "none", fontSize: 12, color: "#E2E8F0" }}>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
+                          <span>Purchase on-chain invoice pools with USDC</span>
+                        </li>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
+                          <span>Decrypt parameters privately using FHE</span>
+                        </li>
+                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
+                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
+                          <span>Run automated Gemini AI underwriting risk reports</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <button
+                    disabled={!selectedRole}
+                    onClick={() => setStage("KYB_FORM")}
+                    className="neon-btn-primary"
+                    style={{
+                      padding: "12px 36px",
+                      borderRadius: 14,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: selectedRole ? "pointer" : "not-allowed",
+                      opacity: selectedRole ? 1 : 0.4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    Continue to Onboarding Form
+                  </button>
+                </div>
               </GlassCard>
             </motion.div>
           )}
@@ -923,7 +1108,7 @@ export default function RegisterPage() {
               exit={{ opacity: 0, y: -18 }}
               transition={{ duration: 0.28 }}
             >
-              <GlassCard className="p-8" glow="cyan">
+              <GlassCard className="p-8" glow={selectedRole === "investor" ? "purple" : "cyan"}>
                 <div style={{ display: "grid", gap: 18 }}>
                   <div>
                     <div
@@ -936,15 +1121,21 @@ export default function RegisterPage() {
                         flexWrap: "wrap",
                       }}
                     >
-                      <h2 style={{ ...headingStyle, marginBottom: 0 }}>Account onboarding</h2>
-                      <span style={{ color: "#00F0FF", fontSize: 12, fontFamily: "JetBrains Mono, monospace" }}>
-                        Wallet Connected: {truncAddr(activeWallet ?? "")}
+                      <h2 style={{ ...headingStyle, marginBottom: 0 }}>
+                        {selectedRole === "investor" ? "Investor Registration" : "Supplier Registration"}
+                      </h2>
+                      <span style={{ color: selectedRole === "investor" ? "#A87FFF" : "#00F0FF", fontSize: 12, fontFamily: "JetBrains Mono, monospace" }}>
+                        Wallet: {truncAddr(activeWallet ?? "")}
                       </span>
                     </div>
                     <div style={{ color: "#FFBA00", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
                       Account Status: Unverified Business
                     </div>
-                    <StatusBanner>Invoice Marketplace Locked - Business Verification Required to Continue</StatusBanner>
+                    <StatusBanner>
+                      {selectedRole === "investor"
+                        ? "Investor Pool Access Locked - KYC/KYB Onboarding Required"
+                        : "Invoice Marketplace Locked - Business Verification Required to Continue"}
+                    </StatusBanner>
                   </div>
 
                   {error && (
@@ -964,27 +1155,17 @@ export default function RegisterPage() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <p style={{ ...bodyStyle, margin: 0 }}>
-                      Start Verification to unlock invoice marketplace access and submit KYB details.
+                      {selectedRole === "investor"
+                        ? "Submit your investor details to whitelist your wallet and access encrypted pools."
+                        : "Start Verification to unlock invoice marketplace access and submit KYB details."}
                     </p>
-                    <button
-                      onClick={() => setStage("KYB_FORM")}
-                      style={{
-                        background: "transparent",
-                        border: "1px solid rgba(0,240,255,0.18)",
-                        borderRadius: 999,
-                        color: "#00F0FF",
-                        padding: "8px 12px",
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    >
-                      Start Verification
-                    </button>
                   </div>
 
                   <div style={{ display: "grid", gap: 16 }}>
                     <div>
-                      <label style={labelStyle}>Company Name *</label>
+                      <label style={labelStyle}>
+                        {selectedRole === "investor" ? "Investor Entity Name / Fund Name *" : "Company Name *"}
+                      </label>
                       <input
                         value={companyName}
                         onChange={(event) => setCompanyName(event.target.value)}
@@ -992,6 +1173,7 @@ export default function RegisterPage() {
                           ...inputStyle,
                           border: kybFieldErrors.companyName ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
+                        placeholder={selectedRole === "investor" ? "e.g. Apex Alpha Fund" : "e.g. Acme Corp"}
                       />
                       {kybFieldErrors.companyName && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
@@ -1000,7 +1182,9 @@ export default function RegisterPage() {
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Country *</label>
+                      <label style={labelStyle}>
+                        {selectedRole === "investor" ? "Country of Incorporation / Residency *" : "Country *"}
+                      </label>
                       <input
                         value={country}
                         onChange={(event) => setCountry(event.target.value)}
@@ -1016,9 +1200,13 @@ export default function RegisterPage() {
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Business Registration Number *</label>
+                      <label style={labelStyle}>
+                        {selectedRole === "investor" ? "Corporate Registration Number / SEC CIK *" : "Business Registration Number *"}
+                      </label>
                       <p style={{ color: "#4F6495", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
-                        e.g. RC-12345678 (Nigeria), EIN12-3456789 (US), CRN12345678 (UK)
+                        {selectedRole === "investor"
+                          ? "e.g. CIK-00012345 (SEC), FRN-12345678 (UK), REG-12345"
+                          : "e.g. RC-12345678 (Nigeria), EIN12-3456789 (US), CRN12345678 (UK)"}
                       </p>
                       <input
                         value={registrationNumber}
@@ -1027,7 +1215,7 @@ export default function RegisterPage() {
                           ...inputStyle,
                           border: kybFieldErrors.registrationNumber ? "1px solid rgba(255,45,107,0.55)" : inputStyle.border,
                         }}
-                        placeholder="RC-12345678"
+                        placeholder={selectedRole === "investor" ? "CIK-00012345" : "RC-12345678"}
                       />
                       {kybFieldErrors.registrationNumber && (
                         <p style={{ color: "#FF5E8C", fontSize: 12, marginTop: 6, marginBottom: 0 }}>
@@ -1036,9 +1224,13 @@ export default function RegisterPage() {
                       )}
                     </div>
                     <div>
-                      <label style={labelStyle}>Tax ID / VAT Number *</label>
+                      <label style={labelStyle}>
+                        {selectedRole === "investor" ? "Entity Tax ID / TIN *" : "Tax ID / VAT Number *"}
+                      </label>
                       <p style={{ color: "#4F6495", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
-                        e.g. 12-3456789 (US EIN), GB123456789 (UK VAT), TINXXXXXXXX
+                        {selectedRole === "investor"
+                          ? "e.g. 12-3456789 (TIN), GB123456789, or corporate tax identifier"
+                          : "e.g. 12-3456789 (US EIN), GB123456789 (UK VAT), TINXXXXXXXX"}
                       </p>
                       <input
                         value={taxID}
@@ -1058,7 +1250,7 @@ export default function RegisterPage() {
                   </div>
 
                   <button onClick={handleKYBSubmit} disabled={isLoading} style={primaryBtnStyle}>
-                    {isLoading ? <Spinner /> : "Submit for Verification"}
+                    {isLoading ? <Spinner /> : selectedRole === "investor" ? "Submit Investor Onboarding" : "Submit Supplier Onboarding"}
                   </button>
                 </div>
               </GlassCard>

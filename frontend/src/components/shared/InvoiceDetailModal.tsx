@@ -9,7 +9,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useWalletClient, useAccount, usePublicClient } from "wagmi";
+import { useWalletClient, useAccount, usePublicClient, useReadContract } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useInvoice,
@@ -35,6 +35,8 @@ import {
   DEFAULT_OPERATOR_EXPIRY_SECONDS,
   InvoiceStatus,
   fromMicro,
+  SBT_ABI,
+  INVESTOR_SBT_ADDRESS,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -88,6 +90,15 @@ export function InvoiceDetailModal({
   /* USDC balance for pre-flight check */
   const { data: usdcBalanceRaw } = useUSDCBalance(currentUserAddress as `0x${string}` | undefined);
   const usdcBalance = usdcBalanceRaw ? (usdcBalanceRaw as bigint) : 0n;
+
+  /* Query Investor SBT to gate FHE access requests */
+  const { data: hasInvestorSBT } = useReadContract({
+    address: INVESTOR_SBT_ADDRESS as `0x${string}`,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [currentUserAddress ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!currentUserAddress },
+  });
 
   /* Local UI state */
   const [localBusy, setLocalBusy] = useState(false);
@@ -351,15 +362,28 @@ export function InvoiceDetailModal({
                       <p className="text-xs text-slate-400 leading-relaxed">
                         Submit an on-chain transaction to grant your wallet permanent permission to decrypt this invoice's encrypted financial parameters (face value, yield, due date).
                       </p>
-                      <NeonButton
-                        variant="primary"
-                        size="sm"
-                        loading={isGrantPending || localBusy}
-                        onClick={handleGrantAccess}
-                        className="w-full"
-                      >
-                        {isGrantPending || localBusy ? "Submitting On-Chain..." : "🔑 Grant My Wallet Decrypt Access"}
-                      </NeonButton>
+                      {hasInvestorSBT ? (
+                        <NeonButton
+                          variant="primary"
+                          size="sm"
+                          loading={isGrantPending || localBusy}
+                          onClick={handleGrantAccess}
+                          className="w-full"
+                        >
+                          {isGrantPending || localBusy ? "Submitting On-Chain..." : "🔑 Grant My Wallet Decrypt Access"}
+                        </NeonButton>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-yellow-400">
+                            ⚠️ You must complete Investor onboarding before requesting FHE access.
+                          </p>
+                          <a href="/register?role=investor&upgrade=true">
+                            <NeonButton variant="primary" size="sm" className="w-full bg-neon-purple border-neon-purple/50">
+                              Verify as Investor
+                            </NeonButton>
+                          </a>
+                        </div>
+                      )}
                       {grantError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
                           ⚠️ {grantError}

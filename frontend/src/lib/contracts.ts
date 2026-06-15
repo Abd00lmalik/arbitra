@@ -36,9 +36,17 @@ export const SBT_ADDRESS =
   (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
    "0xa2Fb6d7d6058e4407Ca685192308c0a5C346b530") as `0x${string}`;
 
+export const INVESTOR_SBT_ADDRESS =
+  (process.env.NEXT_PUBLIC_INVESTOR_SBT_ADDRESS ??
+   SBT_ADDRESS) as `0x${string}`;
+
 export const KYB_ORACLE_ADDRESS =
   (process.env.NEXT_PUBLIC_KYB_ORACLE_ADDRESS ??
    "0x27eB4eA7966C5d8700625567dFE6bD87f9Efaed3") as `0x${string}`;
+
+export const INVESTOR_KYB_ORACLE_ADDRESS =
+  (process.env.NEXT_PUBLIC_INVESTOR_KYB_ORACLE_ADDRESS ??
+   KYB_ORACLE_ADDRESS) as `0x${string}`;
 
 export const IDENTITY_ADDRESS =
   (process.env.NEXT_PUBLIC_IDENTITY_ADDRESS ??

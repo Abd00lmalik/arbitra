@@ -5,6 +5,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import {
   KYB_ORACLE_ABI,
   KYB_ORACLE_ADDRESS,
+  INVESTOR_KYB_ORACLE_ADDRESS,
 } from "@/lib/contracts";
 
 export const runtime = "nodejs";
@@ -60,6 +61,7 @@ interface KybRequestBody {
   country: string;
   registrationNumber: string;
   taxID?: string;
+  role?: string;
 }
 
 function jsonError(message: string, status: number, detail?: string) {
@@ -128,9 +130,18 @@ export async function POST(req: NextRequest) {
       return jsonError("Server configuration error: verifier key not configured.", 500);
     }
 
-    if (!KYB_ORACLE_ADDRESS || KYB_ORACLE_ADDRESS === ZERO_ADDRESS) {
-      console.error("[KYB API] FATAL: NEXT_PUBLIC_KYB_ORACLE_ADDRESS is missing or zero.");
-      return jsonError("Server configuration error: KYB oracle address not configured.", 500);
+    requestBody = await req.json().catch(() => null);
+    if (!requestBody) {
+      return jsonError("Invalid JSON request body.", 400);
+    }
+
+    const { wallet, companyName, country, registrationNumber, taxID, role } = requestBody;
+    const isInvestor = role === "investor";
+    const oracleAddress = isInvestor ? INVESTOR_KYB_ORACLE_ADDRESS : KYB_ORACLE_ADDRESS;
+
+    if (!oracleAddress || oracleAddress === ZERO_ADDRESS) {
+      console.error(`[KYB API] FATAL: Oracle address is missing or zero for role: ${role || "supplier"}.`);
+      return jsonError("Server configuration error: oracle address not configured.", 500);
     }
 
     let account;
@@ -141,7 +152,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Server configuration error: invalid verifier key format.", 500);
     }
 
-    console.log("[KYB API] Signer address:", account.address);
+    console.log("[KYB API] Signer address:", account.address, "for role:", role || "supplier", "Oracle:", oracleAddress);
 
     if (account.address.toLowerCase() !== EXPECTED_VERIFIER_ADDRESS.toLowerCase()) {
       console.error("[KYB API] FATAL: VERIFIER_PRIVATE_KEY derives to an unexpected signer.", {
@@ -151,18 +162,12 @@ export async function POST(req: NextRequest) {
       return jsonError("Server configuration error: verifier key does not match the authorized oracle signer.", 500);
     }
 
-    requestBody = await req.json().catch(() => null);
-    if (!requestBody) {
-      return jsonError("Invalid JSON request body.", 400);
-    }
-
-    const { wallet, companyName, country, registrationNumber, taxID } = requestBody;
-
     console.log("[KYB API] Incoming request:", JSON.stringify({
       wallet,
       companyName,
       country,
       registrationNumber,
+      role
     }));
 
     if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
@@ -212,8 +217,9 @@ export async function POST(req: NextRequest) {
       transport: http(rpcUrl),
     });
 
+
     const nonce = await publicClient.readContract({
-      address: KYB_ORACLE_ADDRESS as `0x${string}`,
+      address: oracleAddress as `0x${string}`,
       abi: KYB_ORACLE_ABI,
       functionName: "nonces",
       args: [wallet as `0x${string}`],
@@ -226,7 +232,7 @@ export async function POST(req: NextRequest) {
         name: "Arbitra",
         version: "2",
         chainId: 11155111,
-        verifyingContract: KYB_ORACLE_ADDRESS as `0x${string}`,
+        verifyingContract: oracleAddress as `0x${string}`,
       },
       types: {
         KYBAttestation: [
@@ -267,7 +273,7 @@ export async function POST(req: NextRequest) {
       });
 
       const txHash = await walletClient.writeContract({
-        address: KYB_ORACLE_ADDRESS as `0x${string}`,
+        address: oracleAddress as `0x${string}`,
         abi: KYB_ORACLE_ABI,
         functionName: "submitKYBAttestation",
         args: [
