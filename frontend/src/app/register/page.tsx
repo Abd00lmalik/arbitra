@@ -1,11 +1,23 @@
 /*
  * @file page.tsx
- * @description Authentication and KYB onboarding entrypoint for Arbitra suppliers.
+ * @description Authentication and KYB onboarding entrypoint for Arbitra — handles Supplier and Investor roles.
  */
 
 "use client";
 
 import React, { useEffect, useState } from "react";
+import {
+  Building2,
+  TrendingUp,
+  ArrowRight,
+  ShieldCheck,
+  Layers,
+  Banknote,
+  Lock,
+  BarChart2,
+  Cpu,
+  CheckCircle2,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useAccount,
@@ -488,8 +500,13 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;
     setIsMintingSBT(false);
-    setStage("SBT_MINTED");
-  }, [isSbtReceiptSuccess]);
+    /* Investors skip FHE compliance (ArbitraIdentity only accepts Supplier SBT). */
+    if (selectedRole === "investor") {
+      setStage("FHE_SYNCED");
+    } else {
+      setStage("SBT_MINTED");
+    }
+  }, [isSbtReceiptSuccess, selectedRole]);
 
   useEffect(() => {
     if (!sbtReceiptError) return;
@@ -660,7 +677,12 @@ export default function RegisterPage() {
         }
 
         setIsMintingSBT(false);
-        setStage("SBT_MINTED");
+        /* Investors bypass FHE compliance (ArbitraIdentity only accepts Supplier SBT). */
+        if (selectedRole === "investor") {
+          setStage("FHE_SYNCED");
+        } else {
+          setStage("SBT_MINTED");
+        }
         return;
       }
 
@@ -802,7 +824,7 @@ export default function RegisterPage() {
           "radial-gradient(circle at top, rgba(0,240,255,0.12) 0%, transparent 30%), radial-gradient(circle at bottom right, rgba(255,186,0,0.12) 0%, transparent 22%), #030814",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 560 }}>
+      <div style={{ width: "100%", maxWidth: stage === "ROLE_CHOICE" ? 900 : 560 }}>
         <AnimatePresence mode="wait">
           {isConnected && !isCorrectNetwork && (
             <motion.div
@@ -960,143 +982,380 @@ export default function RegisterPage() {
           {stage === "ROLE_CHOICE" && (
             <motion.div
               key="role-choice"
-              initial={{ opacity: 0, y: 18 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -18 }}
-              transition={{ duration: 0.28 }}
-              style={{ maxWidth: 800, width: "100%", margin: "0 auto" }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.32, ease: "easeOut" }}
+              style={{ maxWidth: 880, width: "100%", margin: "0 auto" }}
             >
-              <GlassCard className="p-8" glow="purple">
-                <div style={{ textAlign: "center", marginBottom: 30 }}>
-                  <h2 style={{ ...headingStyle, marginBottom: 8 }}>Select Protocol Access Role</h2>
-                  <p style={{ ...bodyStyle, margin: 0 }}>
-                    Choose your primary interaction role on the Arbitra RWA Platform. Credentials are role-locked.
+              {/* Page heading */}
+              <div style={{ textAlign: "center", marginBottom: 40 }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    borderRadius: 999,
+                    border: "1px solid rgba(168,127,255,0.28)",
+                    background: "rgba(168,127,255,0.07)",
+                    color: "#C4A8FF",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    padding: "5px 14px",
+                    marginBottom: 18,
+                  }}
+                >
+                  <ShieldCheck size={12} strokeWidth={2.5} />
+                  Institutional Access Portal
+                </div>
+                <h1
+                  style={{
+                    fontSize: 32,
+                    fontWeight: 900,
+                    color: "#FFFFFF",
+                    fontFamily: "Satoshi, sans-serif",
+                    letterSpacing: "-0.03em",
+                    marginBottom: 12,
+                    lineHeight: 1.15,
+                  }}
+                >
+                  Choose Your Access Role
+                </h1>
+                <p style={{ color: "#6B7FA8", fontSize: 15, maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
+                  Select the role that best describes your purpose on the Arbitra RWA platform.
+                  Credentials are role-specific and secured on-chain.
+                </p>
+              </div>
+
+              {/* Role cards */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                  gap: 20,
+                  marginBottom: 32,
+                }}
+              >
+                {/* ── Supplier Card ── */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedRole("supplier")}
+                  onKeyDown={(e) => e.key === "Enter" && setSelectedRole("supplier")}
+                  style={{
+                    position: "relative",
+                    borderRadius: 24,
+                    padding: 28,
+                    background: selectedRole === "supplier"
+                      ? "rgba(0,240,255,0.06)"
+                      : "rgba(255,255,255,0.02)",
+                    border: selectedRole === "supplier"
+                      ? "2px solid rgba(0,240,255,0.55)"
+                      : "1px solid rgba(255,255,255,0.07)",
+                    backdropFilter: "blur(20px)",
+                    cursor: "pointer",
+                    overflow: "hidden",
+                    transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)",
+                    boxShadow: selectedRole === "supplier"
+                      ? "0 0 40px rgba(0,240,255,0.12), inset 0 1px 0 rgba(0,240,255,0.1)"
+                      : "0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)",
+                    transform: selectedRole === "supplier" ? "translateY(-3px)" : "translateY(0)",
+                  }}
+                >
+                  {/* Top accent bar */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0, left: 0,
+                      width: "100%",
+                      height: 3,
+                      background: "linear-gradient(90deg, #00F0FF 0%, rgba(0,240,255,0.15) 100%)",
+                      borderRadius: "24px 24px 0 0",
+                    }}
+                  />
+                  {/* Subtle glow orb */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: -40, right: -40,
+                      width: 140,
+                      height: 140,
+                      borderRadius: "50%",
+                      background: "radial-gradient(circle, rgba(0,240,255,0.08) 0%, transparent 70%)",
+                      pointerEvents: "none",
+                    }}
+                  />
+
+                  {/* Icon + badge row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 14,
+                        background: "rgba(0,240,255,0.1)",
+                        border: "1px solid rgba(0,240,255,0.2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#00F0FF",
+                      }}
+                    >
+                      <Building2 size={22} strokeWidth={1.5} />
+                    </div>
+                    {selectedRole === "supplier" && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          color: "#00F0FF",
+                          background: "rgba(0,240,255,0.1)",
+                          border: "1px solid rgba(0,240,255,0.25)",
+                          padding: "3px 10px",
+                          borderRadius: 99,
+                        }}
+                      >
+                        <CheckCircle2 size={10} />
+                        Selected
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Title + subtitle */}
+                  <h3
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "#FFFFFF",
+                      fontFamily: "Satoshi, sans-serif",
+                      letterSpacing: "-0.02em",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Invoice Supplier
+                  </h3>
+                  <p style={{ fontSize: 13, color: "#6B7FA8", lineHeight: 1.65, marginBottom: 22 }}>
+                    For exporters and businesses seeking working capital by listing verified trade receivables on-chain.
                   </p>
+
+                  {/* Benefit list */}
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 11 }}>
+                    {[
+                      { icon: Lock, label: "Upload & encrypt invoices with FHE privacy" },
+                      { icon: ShieldCheck, label: "Debtor email verification via on-chain oracle" },
+                      { icon: Banknote, label: "Receive instant USDC financing advances" },
+                    ].map(({ icon: Icon, label }) => (
+                      <li key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
+                          style={{
+                            width: 20, height: 20,
+                            borderRadius: 6,
+                            background: "rgba(0,240,255,0.1)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0,
+                            color: "#00F0FF",
+                          }}
+                        >
+                          <Icon size={11} strokeWidth={2} />
+                        </div>
+                        <span style={{ fontSize: 12.5, color: "#B4C2DD", lineHeight: 1.5 }}>{label}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24, marginBottom: 32 }}>
-                  {/* Supplier Card */}
+                {/* ── Investor Card ── */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedRole("investor")}
+                  onKeyDown={(e) => e.key === "Enter" && setSelectedRole("investor")}
+                  style={{
+                    position: "relative",
+                    borderRadius: 24,
+                    padding: 28,
+                    background: selectedRole === "investor"
+                      ? "rgba(168,127,255,0.06)"
+                      : "rgba(255,255,255,0.02)",
+                    border: selectedRole === "investor"
+                      ? "2px solid rgba(168,127,255,0.55)"
+                      : "1px solid rgba(255,255,255,0.07)",
+                    backdropFilter: "blur(20px)",
+                    cursor: "pointer",
+                    overflow: "hidden",
+                    transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)",
+                    boxShadow: selectedRole === "investor"
+                      ? "0 0 40px rgba(168,127,255,0.12), inset 0 1px 0 rgba(168,127,255,0.1)"
+                      : "0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)",
+                    transform: selectedRole === "investor" ? "translateY(-3px)" : "translateY(0)",
+                  }}
+                >
+                  {/* Top accent bar */}
                   <div
-                    onClick={() => setSelectedRole("supplier")}
                     style={{
-                      padding: 24,
-                      borderRadius: 24,
-                      border: selectedRole === "supplier" ? "2px solid #00F0FF" : "1px solid rgba(255, 255, 255, 0.08)",
-                      background: selectedRole === "supplier" ? "rgba(0, 240, 255, 0.04)" : "rgba(255, 255, 255, 0.01)",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease",
-                      position: "relative",
-                      overflow: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
+                      position: "absolute",
+                      top: 0, left: 0,
+                      width: "100%",
+                      height: 3,
+                      background: "linear-gradient(90deg, #A87FFF 0%, rgba(168,127,255,0.15) 100%)",
+                      borderRadius: "24px 24px 0 0",
                     }}
-                  >
-                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 4, background: "linear-gradient(90deg, #00F0FF, transparent)" }} />
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                        <span style={{ fontSize: 28 }}>🏭</span>
-                        {selectedRole === "supplier" && (
-                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#00F0FF", background: "rgba(0, 240, 255, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
-                            Selected
-                          </span>
-                        )}
-                      </div>
-                      <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", marginBottom: 8, fontFamily: "Satoshi, sans-serif" }}>
-                        Invoice Supplier
-                      </h3>
-                      <p style={{ fontSize: 12, color: "#8B9CC8", lineHeight: "1.6", marginBottom: 20 }}>
-                        For companies and exporters seeking working capital by listing trade receivables for investor funding.
-                      </p>
-                      <ul style={{ display: "grid", gap: 10, padding: 0, margin: 0, listStyle: "none", fontSize: 12, color: "#E2E8F0" }}>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
-                          <span>Upload & encrypt invoices privately</span>
-                        </li>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
-                          <span>Manage debtor email notice verification</span>
-                        </li>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#00F0FF", fontWeight: 700 }}>✓</span>
-                          <span>Claim instant USDC financing advances</span>
-                        </li>
-                      </ul>
+                  />
+                  {/* Subtle glow orb */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: -40, right: -40,
+                      width: 140,
+                      height: 140,
+                      borderRadius: "50%",
+                      background: "radial-gradient(circle, rgba(168,127,255,0.08) 0%, transparent 70%)",
+                      pointerEvents: "none",
+                    }}
+                  />
+
+                  {/* Icon + badge row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 14,
+                        background: "rgba(168,127,255,0.1)",
+                        border: "1px solid rgba(168,127,255,0.2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#A87FFF",
+                      }}
+                    >
+                      <TrendingUp size={22} strokeWidth={1.5} />
                     </div>
+                    {selectedRole === "investor" && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          color: "#A87FFF",
+                          background: "rgba(168,127,255,0.1)",
+                          border: "1px solid rgba(168,127,255,0.25)",
+                          padding: "3px 10px",
+                          borderRadius: 99,
+                        }}
+                      >
+                        <CheckCircle2 size={10} />
+                        Selected
+                      </div>
+                    )}
                   </div>
 
-                  {/* Investor Card */}
-                  <div
-                    onClick={() => setSelectedRole("investor")}
+                  {/* Title + subtitle */}
+                  <h3
                     style={{
-                      padding: 24,
-                      borderRadius: 24,
-                      border: selectedRole === "investor" ? "2px solid #A87FFF" : "1px solid rgba(255, 255, 255, 0.08)",
-                      background: selectedRole === "investor" ? "rgba(168, 127, 255, 0.04)" : "rgba(255, 255, 255, 0.01)",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease",
-                      position: "relative",
-                      overflow: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "#FFFFFF",
+                      fontFamily: "Satoshi, sans-serif",
+                      letterSpacing: "-0.02em",
+                      marginBottom: 8,
                     }}
                   >
-                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 4, background: "linear-gradient(90deg, #A87FFF, transparent)" }} />
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                        <span style={{ fontSize: 28 }}>💼</span>
-                        {selectedRole === "investor" && (
-                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#A87FFF", background: "rgba(168, 127, 255, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
-                            Selected
-                          </span>
-                        )}
-                      </div>
-                      <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", marginBottom: 8, fontFamily: "Satoshi, sans-serif" }}>
-                        Liquidity Investor
-                      </h3>
-                      <p style={{ fontSize: 12, color: "#8B9CC8", lineHeight: "1.6", marginBottom: 20 }}>
-                        For funds, treasuries, or accredited investors looking to purchase premium trade receivables.
-                      </p>
-                      <ul style={{ display: "grid", gap: 10, padding: 0, margin: 0, listStyle: "none", fontSize: 12, color: "#E2E8F0" }}>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
-                          <span>Purchase on-chain invoice pools with USDC</span>
-                        </li>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
-                          <span>Decrypt parameters privately using FHE</span>
-                        </li>
-                        <li style={{ display: "flex", gap: 8, alignItems: "start" }}>
-                          <span style={{ color: "#A87FFF", fontWeight: 700 }}>✓</span>
-                          <span>Run automated Gemini AI underwriting risk reports</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+                    Liquidity Investor
+                  </h3>
+                  <p style={{ fontSize: 13, color: "#6B7FA8", lineHeight: 1.65, marginBottom: 22 }}>
+                    For funds, family offices, and accredited investors deploying capital into premium on-chain trade receivables.
+                  </p>
 
-                <div style={{ display: "flex", justifyContent: "center" }}>
-                  <button
-                    disabled={!selectedRole}
-                    onClick={() => setStage("KYB_FORM")}
-                    className="neon-btn-primary"
-                    style={{
-                      padding: "12px 36px",
-                      borderRadius: 14,
-                      fontSize: 14,
-                      fontWeight: 700,
-                      cursor: selectedRole ? "pointer" : "not-allowed",
-                      opacity: selectedRole ? 1 : 0.4,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    Continue to Onboarding Form
-                  </button>
+                  {/* Benefit list */}
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 11 }}>
+                    {[
+                      { icon: Layers, label: "Purchase invoice pools with USDC on Sepolia" },
+                      { icon: Cpu, label: "Decrypt deal terms privately using Zama FHE" },
+                      { icon: BarChart2, label: "Gemini AI-powered underwriting risk reports" },
+                    ].map(({ icon: Icon, label }) => (
+                      <li key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
+                          style={{
+                            width: 20, height: 20,
+                            borderRadius: 6,
+                            background: "rgba(168,127,255,0.1)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0,
+                            color: "#A87FFF",
+                          }}
+                        >
+                          <Icon size={11} strokeWidth={2} />
+                        </div>
+                        <span style={{ fontSize: 12.5, color: "#B4C2DD", lineHeight: 1.5 }}>{label}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </GlassCard>
+              </div>
+
+              {/* Disclaimer + CTA */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 14,
+                }}
+              >
+                {selectedRole && (
+                  <p style={{ fontSize: 12, color: "#4F6495", textAlign: "center" }}>
+                    {selectedRole === "investor"
+                      ? "Investor credentials are separate from Supplier credentials. You can add both roles later."
+                      : "Supplier credentials are separate from Investor credentials. You can add both roles later."}
+                  </p>
+                )}
+                <button
+                  id="role-continue-btn"
+                  disabled={!selectedRole}
+                  onClick={() => setStage("KYB_FORM")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    padding: "14px 44px",
+                    borderRadius: 14,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    fontFamily: "Satoshi, sans-serif",
+                    cursor: selectedRole ? "pointer" : "not-allowed",
+                    opacity: selectedRole ? 1 : 0.35,
+                    background: selectedRole === "investor"
+                      ? "linear-gradient(135deg, #A87FFF, #7B4FCC)"
+                      : selectedRole === "supplier"
+                        ? "linear-gradient(135deg, #00F0FF, #0080A8)"
+                        : "rgba(255,255,255,0.06)",
+                    color: "#0A0F1E",
+                    border: "none",
+                    boxShadow: selectedRole === "investor"
+                      ? "0 0 28px rgba(168,127,255,0.35)"
+                      : selectedRole === "supplier"
+                        ? "0 0 28px rgba(0,240,255,0.35)"
+                        : "none",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  {selectedRole ? `Continue as ${selectedRole === "investor" ? "Investor" : "Supplier"}` : "Select a role above"}
+                  {selectedRole && <ArrowRight size={16} strokeWidth={2.5} />}
+                </button>
+              </div>
             </motion.div>
           )}
 
