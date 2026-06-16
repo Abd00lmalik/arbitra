@@ -500,13 +500,8 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;
     setIsMintingSBT(false);
-    /* Investors skip FHE compliance (ArbitraIdentity only accepts Supplier SBT). */
-    if (selectedRole === "investor") {
-      setStage("FHE_SYNCED");
-    } else {
-      setStage("SBT_MINTED");
-    }
-  }, [isSbtReceiptSuccess, selectedRole]);
+    setStage("SBT_MINTED");
+  }, [isSbtReceiptSuccess]);
 
   useEffect(() => {
     if (!sbtReceiptError) return;
@@ -677,12 +672,7 @@ export default function RegisterPage() {
         }
 
         setIsMintingSBT(false);
-        /* Investors bypass FHE compliance (ArbitraIdentity only accepts Supplier SBT). */
-        if (selectedRole === "investor") {
-          setStage("FHE_SYNCED");
-        } else {
-          setStage("SBT_MINTED");
-        }
+        setStage("SBT_MINTED");
         return;
       }
 

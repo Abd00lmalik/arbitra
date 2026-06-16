@@ -84,10 +84,28 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   } catch (e) {
     console.log("- InvoiceRegistry not found, skipping SBT configuration.");
   }
+
+  /* 6. Configure investorSbtContract on ArbitraIdentity */
+  try {
+    const identityDeployment = await get("ArbitraIdentity");
+    const identity = await ethers.getContractAt("ArbitraIdentity", identityDeployment.address, signer);
+    const currentInvestorSBT = await identity.investorSbtContract();
+    
+    if (currentInvestorSBT !== sbt.address) {
+      console.log(`Updating investorSbtContract on ArbitraIdentity to Investor SBT: ${sbt.address}...`);
+      const tx = await identity.setInvestorSBTContract(sbt.address);
+      await tx.wait();
+      console.log(`- ArbitraIdentity updated successfully!`);
+    } else {
+      console.log("- ArbitraIdentity already configured with Investor SBT.");
+    }
+  } catch (e) {
+    console.log("- ArbitraIdentity not found, skipping Investor SBT configuration.");
+  }
   
   console.log("Investor Onboarding Infrastructure deployment complete.\n");
 };
 
 func.tags = ["ArbitraInvestorSBT"];
-func.dependencies = ["ArbitraInvoiceRegistry"];
+func.dependencies = ["ArbitraInvoiceRegistry", "ArbitraIdentity"];
 export default func;

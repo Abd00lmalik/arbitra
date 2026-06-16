@@ -15,19 +15,24 @@ describe("Arbitra Onboarding E2E Lifecycle", function () {
     let sbtContract: any;
     let oracleContract: any;
     let identityContract: any;
+    let investorSbtContract: any;
+    let investorOracleContract: any;
 
     let sbtAddr: string;
     let oracleAddr: string;
     let identityAddr: string;
+    let investorSbtAddr: string;
+    let investorOracleAddr: string;
 
     let deployer: HardhatEthersSigner;
     let supplier: HardhatEthersSigner;
     let bystander: HardhatEthersSigner;
     let oracleBackend: HardhatEthersSigner;
+    let investor: HardhatEthersSigner;
     let chainId: bigint;
 
     beforeEach(async function () {
-        [deployer, supplier, bystander, oracleBackend] = await ethers.getSigners();
+        [deployer, supplier, bystander, oracleBackend, investor] = await ethers.getSigners();
         chainId = (await ethers.provider.getNetwork()).chainId;
 
         /* 1. Deploy ArbitraSBT */
@@ -50,6 +55,22 @@ describe("Arbitra Onboarding E2E Lifecycle", function () {
         identityContract = await IdentityFactory.deploy(deployer.address, sbtAddr, oracleBackend.address);
         await identityContract.waitForDeployment();
         identityAddr = await identityContract.getAddress();
+
+        /* 5. Deploy ArbitraInvestorSBT */
+        investorSbtContract = await SBTFactory.deploy(deployer.address);
+        await investorSbtContract.waitForDeployment();
+        investorSbtAddr = await investorSbtContract.getAddress();
+
+        /* 6. Deploy MockKYBOracleInvestor */
+        investorOracleContract = await OracleFactory.deploy(deployer.address, investorSbtAddr, oracleBackend.address);
+        await investorOracleContract.waitForDeployment();
+        investorOracleAddr = await investorOracleContract.getAddress();
+
+        /* 7. Wire circular reference on Investor SBT */
+        await (await investorSbtContract.connect(deployer).setKYBOracle(investorOracleAddr)).wait();
+
+        /* 8. Link Investor SBT to ArbitraIdentity */
+        await (await identityContract.connect(deployer).setInvestorSBTContract(investorSbtAddr)).wait();
     });
 
     describe("MockKYBOracle EIP-712 Verification & Nonce Safety", function () {
@@ -440,6 +461,78 @@ describe("Arbitra Onboarding E2E Lifecycle", function () {
             expect(await identityContract.hasEncryptedCompliance(supplier.address)).to.be.true;
 
             const handles = await identityContract.getEncryptedHandles(supplier.address);
+            expect(handles.taxIDHandle).to.equal(ethers.hexlify(enc.handles[0]));
+            expect(handles.kybHandle).to.equal(ethers.hexlify(enc.handles[1]));
+            expect(handles.riskHandle).to.equal(ethers.hexlify(enc.handles[2]));
+        });
+
+        it("should successfully store encrypted compliance attributes if caller holds Investor SBT", async function () {
+            /* Prepare attestation signature for investor */
+            const investorVerificationId = ethers.keccak256(ethers.toUtf8Bytes("KYB-MOCK-INVESTOR-12345"));
+            const investorAttestationHash = ethers.keccak256(ethers.toUtf8Bytes("{'status':'verified'}"));
+            const investorRiskScore = 30;
+            const investorTimestamp = Math.floor(Date.now() / 1000);
+            const currentNonce = await investorOracleContract.nonces(investor.address);
+
+            const domain = {
+                name: "Arbitra",
+                version: "2",
+                chainId: chainId,
+                verifyingContract: investorOracleAddr
+            };
+
+            const types = {
+                KYBAttestation: [
+                    { name: "wallet",           type: "address" },
+                    { name: "verificationId",   type: "bytes32" },
+                    { name: "attestationHash",  type: "bytes32" },
+                    { name: "riskScore",        type: "uint8"   },
+                    { name: "timestamp",        type: "uint256" },
+                    { name: "nonce",            type: "uint256" },
+                ]
+            };
+
+            const message = {
+                wallet: investor.address,
+                verificationId: investorVerificationId,
+                attestationHash: investorAttestationHash,
+                riskScore: investorRiskScore,
+                timestamp: investorTimestamp,
+                nonce: currentNonce
+            };
+
+            const investorSignature = await oracleBackend.signTypedData(domain, types, message);
+
+            /* Mint Investor SBT first */
+            await investorOracleContract.connect(investor).submitKYBAttestation(
+                investor.address,
+                investorVerificationId,
+                investorAttestationHash,
+                investorRiskScore,
+                investorTimestamp,
+                investorSignature
+            );
+
+            /* Encrypt data for investor */
+            const input = fhevm.createEncryptedInput(identityAddr, investor.address);
+            input.add32(987654321n); /* taxID */
+            input.addBool(true); /* kybStatus */
+            input.add8(BigInt(investorRiskScore)); /* riskScore */
+            const enc = await input.encrypt();
+
+            /* Submit encrypted compliance */
+            await expect(
+                identityContract.connect(investor).submitEncryptedCompliance(
+                    enc.handles[0], enc.inputProof,
+                    enc.handles[1], enc.inputProof,
+                    enc.handles[2], enc.inputProof
+                )
+            ).to.emit(identityContract, "EncryptedComplianceSubmitted")
+             .withArgs(investor.address, (t: bigint) => t > 0n);
+
+            expect(await identityContract.hasEncryptedCompliance(investor.address)).to.be.true;
+
+            const handles = await identityContract.getEncryptedHandles(investor.address);
             expect(handles.taxIDHandle).to.equal(ethers.hexlify(enc.handles[0]));
             expect(handles.kybHandle).to.equal(ethers.hexlify(enc.handles[1]));
             expect(handles.riskHandle).to.equal(ethers.hexlify(enc.handles[2]));

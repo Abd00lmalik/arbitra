@@ -24,6 +24,9 @@ contract ArbitraIdentity is ZamaEthereumConfig, Ownable2Step {
     /* SBT contract reference for access gating */
     IArbitraSBT public immutable sbtContract;
 
+    /* Investor SBT contract reference */
+    IArbitraSBT public investorSbtContract;
+
     /* Authorized relayer for gasless compliance submissions */
     address public complianceRelayer;
 
@@ -176,6 +179,15 @@ contract ArbitraIdentity is ZamaEthereumConfig, Ownable2Step {
         emit ComplianceRelayerUpdated(previousRelayer, newRelayer);
     }
 
+    /**
+     * @notice Set the Investor SBT contract address.
+     * @param investorSbtContract_ The Investor SBT contract address.
+     */
+    function setInvestorSBTContract(address investorSbtContract_) external onlyOwner {
+        require(investorSbtContract_ != address(0), "ArbitraIdentity: zero address");
+        investorSbtContract = IArbitraSBT(investorSbtContract_);
+    }
+
     /*************** Internal ***************/
 
     /**
@@ -197,7 +209,11 @@ contract ArbitraIdentity is ZamaEthereumConfig, Ownable2Step {
         externalEuint8  encRisk,
         bytes calldata  proofRisk
     ) internal {
-        require(sbtContract.hasValidSBT(wallet), "ArbitraIdentity: no valid SBT");
+        require(
+            sbtContract.hasValidSBT(wallet) ||
+            (address(investorSbtContract) != address(0) && investorSbtContract.hasValidSBT(wallet)),
+            "ArbitraIdentity: no valid SBT"
+        );
         require(!encryptedCompliance[wallet].isSubmitted, "ArbitraIdentity: already submitted");
 
         /* Verify proofs and construct ciphertexts */
