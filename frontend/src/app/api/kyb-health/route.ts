@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 const EXPECTED_VERIFIER_ADDRESS =
   process.env.PLATFORM_VERIFIER_ADDRESS ||
   process.env.ORACLE_BACKEND_ADDRESS ||
-  "0x7e0Af9e55184b2b4bd5bac455493c035d51eee3E";
+  "0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9";
 
 function normalizeVerifierKey(rawKey: string | undefined): `0x${string}` | null {
   if (!rawKey) return null;
