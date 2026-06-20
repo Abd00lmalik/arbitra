@@ -188,6 +188,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
+  const [uploadedInvoiceId, setUploadedInvoiceId] = useState<bigint | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
 
@@ -887,6 +888,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       localStorage.removeItem(`arbitra_stake_${invoice.fingerprint.toString()}`);
       setLocalStakeTxHash(null);
       setTxHash(hash);
+      setUploadedInvoiceId(nextInvoiceId);
       setWizardStep(5);
       if (onSuccess) {
         onSuccess(nextInvoiceId);
@@ -1497,7 +1499,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   fontFamily: "Satoshi, sans-serif", marginBottom: 8,
                 }}>Invoice Uploaded Successfully</h3>
                 <p style={{ color: "#8B9CC8", fontSize: 13, marginBottom: 24, lineHeight: 1.65 }}>
-                  Invoice <strong style={{ color: "#00F0FF" }}>INV-{nextInvoiceId.toString()}</strong> is now
+                  Invoice <strong style={{ color: "#00F0FF" }}>INV-{(uploadedInvoiceId ?? nextInvoiceId).toString()}</strong> is now
                   registered on Sepolia with all fields FHE-encrypted.
                 </p>
 
@@ -1544,7 +1546,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 {/* Verification link — always visible, prominent copy button */}
                 {(() => {
                   const link = verifyUrl ??
-                    `${typeof window !== "undefined" ? window.location.origin : "https://arbitra-dapp.vercel.app"}/verify/${nextInvoiceId.toString()}`;
+                    `${typeof window !== "undefined" ? window.location.origin : "https://arbitra-dapp.vercel.app"}/verify/${(uploadedInvoiceId ?? nextInvoiceId).toString()}`;
                   const handleCopy = () => {
                     navigator.clipboard.writeText(link).then(() => {
                       setLinkCopied(true);

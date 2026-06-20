@@ -34,6 +34,7 @@ import {
   daysUntilDue,
   shortAddress,
   ARBITRA_REGISTRY_ADDRESS,
+  ARBITRA_REGISTRY_ABI,
   DEFAULT_OPERATOR_EXPIRY_SECONDS,
   InvoiceStatus,
   fromMicro,
