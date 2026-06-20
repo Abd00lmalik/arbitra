@@ -24,6 +24,69 @@ const MOCK_BANKS = [
   { name: "HSBC", code: "hsbc", color: "from-red-700 to-stone-800" }
 ];
 
+function renderBankLogo(code: string) {
+  switch (code) {
+    case "chase":
+      return (
+        <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M50 5L15 40H40V15L50 5Z" fill="#1170cf" />
+          <path d="M95 50L60 15V40H85L95 50Z" fill="#1170cf" />
+          <path d="M50 95L85 60H60V85L50 95Z" fill="#1170cf" />
+          <path d="M5 50L40 85V60H15L5 50Z" fill="#1170cf" />
+        </svg>
+      );
+    case "bofa":
+      return (
+        <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="5" y="15" width="40" height="15" rx="2" fill="#002677" />
+          <rect x="5" y="42" width="40" height="15" rx="2" fill="#002677" />
+          <rect x="5" y="70" width="40" height="15" rx="2" fill="#002677" />
+          <rect x="55" y="15" width="40" height="15" rx="2" fill="#E31B23" />
+          <rect x="55" y="42" width="40" height="15" rx="2" fill="#E31B23" />
+          <rect x="55" y="70" width="40" height="15" rx="2" fill="#E31B23" />
+        </svg>
+      );
+    case "svb":
+      return (
+        <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="16" fill="#002F6C" />
+          <path d="M25 25H75V75" stroke="#00A3E0" strokeWidth="14" strokeLinecap="square" strokeLinejoin="miter" />
+          <rect x="61" y="61" width="14" height="14" fill="#00A3E0" />
+        </svg>
+      );
+    case "citi":
+      return (
+        <svg viewBox="0 0 100 60" className="w-12 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 32C25 12 75 12 90 32" stroke="#EF3B2D" strokeWidth="8" strokeLinecap="round" />
+          <circle cx="50" cy="38" r="16" fill="#004B87" />
+          <text x="50" y="43" fill="white" fontSize="14" fontWeight="900" textAnchor="middle" fontFamily="sans-serif">citi</text>
+        </svg>
+      );
+    case "wells":
+      return (
+        <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100" height="100" rx="16" fill="#CD1409" />
+          <path d="M25 30H75V40H60V75H48V40H38V75H25V30Z" fill="#F4B223" />
+          <path d="M55 48H75V56H65V75H55V48Z" fill="#F4B223" />
+        </svg>
+      );
+    case "hsbc":
+      return (
+        <svg viewBox="0 0 120 100" className="w-12 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="100" rx="16" fill="#1C1C1C" />
+          <path d="M20 50L45 25V75L20 50Z" fill="#E31B23" />
+          <path d="M100 50L75 25V75L100 50Z" fill="#E31B23" />
+          <path d="M45 25L60 40L75 25L60 10L45 25Z" fill="#E31B23" />
+          <path d="M45 75L60 60L75 75L60 90L45 75Z" fill="#E31B23" />
+          <path d="M45 25H75L60 50L45 25Z" fill="white" />
+          <path d="M45 75H75L60 50L45 75Z" fill="white" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
   const [step, setStep] = useState<Step>("select");
   const [selectedBank, setSelectedBank] = useState<typeof MOCK_BANKS[0] | null>(null);
@@ -119,8 +182,8 @@ export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
                   onClick={() => handleBankSelect(bank)}
                   className="p-4 rounded-xl border border-white/5 bg-white/2 hover:bg-white/5 hover:border-white/15 transition-all text-left group relative overflow-hidden"
                 >
-                  <div className={`w-8 h-8 rounded-lg bg-gradient-to-tr ${bank.color} flex items-center justify-center text-white text-xs font-extrabold shadow-sm group-hover:scale-105 transition-transform`}>
-                    {bank.name.charAt(0)}
+                  <div className="w-12 h-8 flex items-center justify-start group-hover:scale-105 transition-transform">
+                    {renderBankLogo(bank.code)}
                   </div>
                   <div className="text-white font-semibold text-xs mt-3">{bank.name}</div>
                   <div className="text-[9px] text-slate-500 mt-0.5">Secure Link</div>
@@ -139,8 +202,8 @@ export function PlaidModal({ isOpen, onClose, onSuccess }: PlaidModalProps) {
         {step === "login" && selectedBank && (
           <form onSubmit={handleLoginSubmit} className="flex-1 flex flex-col pt-4">
             <div className="flex items-center gap-2 mb-3">
-              <div className={`w-6 h-6 rounded bg-gradient-to-tr ${selectedBank.color} flex items-center justify-center text-white text-[10px] font-black`}>
-                {selectedBank.name.charAt(0)}
+              <div className="w-8 h-6 flex items-center">
+                {renderBankLogo(selectedBank.code)}
               </div>
               <span className="text-xs text-slate-400">Log in to {selectedBank.name}</span>
             </div>
