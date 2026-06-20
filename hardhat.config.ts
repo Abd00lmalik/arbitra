@@ -27,9 +27,7 @@ const config = {
       chainId: 31337,
     },
     sepolia: {
-      url:
-        "https://eth-sepolia.g.alchemy.com/v2/" +
-        (process.env.ALCHEMY_API_KEY || ""),
+      url: "https://ethereum-sepolia-rpc.publicnode.com",
       chainId: 11155111,
       accounts: [DEPLOYER_PRIVATE_KEY],
     },

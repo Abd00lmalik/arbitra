@@ -40,6 +40,8 @@ import {
   fromMicro,
   SBT_ABI,
   INVESTOR_SBT_ADDRESS,
+  USDC_ADDRESS,
+  USDC_ABI,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -235,14 +237,38 @@ export function InvoiceDetailModal({
 
       /* Step 1: USDC approval if not already approved */
       if (!isApproved) {
-        const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-        const approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
+        let approvalTxHash: `0x${string}`;
+        if (isEmbedded) {
+          const signer = await getEmbeddedSigner();
+          const { ethers } = await import("ethers");
+          const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+          const tx = await usdcContract.approve(
+            ARBITRA_REGISTRY_ADDRESS,
+            115792089237316195423570985008687907853269984665640564039457584007913129639935n
+          );
+          approvalTxHash = tx.hash as `0x${string}`;
+        } else {
+          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
+          approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
+        }
         await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
         await refetchApproval();
       }
 
       /* Step 2: Factor invoice — USDC transfers to supplier */
-      const factorTxHash = await factorInvoice(invoice.invoiceId);
+      let factorTxHash: `0x${string}`;
+      if (isEmbedded) {
+        const signer = await getEmbeddedSigner();
+        const { ethers } = await import("ethers");
+        const registryContract = new ethers.Contract(ARBITRA_REGISTRY_ADDRESS, ARBITRA_REGISTRY_ABI, signer);
+        const tx = await registryContract.factorInvoice(
+          invoice.invoiceId,
+          { gasLimit: 1_000_000n } // FHE_FACTOR_GAS_LIMIT
+        );
+        factorTxHash = tx.hash as `0x${string}`;
+      } else {
+        factorTxHash = await factorInvoice(invoice.invoiceId);
+      }
       await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
 
       const disbursedStr = decrypted?.purchasePrice

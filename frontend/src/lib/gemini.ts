@@ -57,7 +57,8 @@ export async function generateRiskAssessment(
   });
 
   if (!response.ok) {
-    console.error("[Gemini] API error:", response.status);
+    const errText = await response.text().catch(() => "");
+    console.error("[Gemini] API error:", response.status, errText);
     return getMockRiskAssessment(input);
   }
 
