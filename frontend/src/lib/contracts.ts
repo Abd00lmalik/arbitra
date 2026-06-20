@@ -208,8 +208,8 @@ function toBigIntValue(value: unknown): bigint {
 }
 
 export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): InvoiceOnChain {
-  const status = Number(raw[11]) as InvoiceStatus;
-  const debtor = raw[8] as `0x${string}`;
+  const status = Number(raw[12]) as InvoiceStatus;
+  const debtor = raw[9] as `0x${string}`;
 
   return {
     invoiceId,
@@ -219,20 +219,20 @@ export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): I
     discountRateBps: raw[3] as `0x${string}`,
     fingerprintHash: raw[4] as `0x${string}`,
     faceValuePlaintext: toBigIntValue(raw[5]),
-    supplier: raw[6] as `0x${string}`,
-    investor: raw[7] as `0x${string}`,
+    supplier: raw[7] as `0x${string}`,
+    investor: raw[8] as `0x${string}`,
     debtor,
     buyer: debtor,
-    uploadTimestamp: toBigIntValue(raw[9]),
-    maturityTimestamp: toBigIntValue(raw[10]),
+    uploadTimestamp: toBigIntValue(raw[10]),
+    maturityTimestamp: toBigIntValue(raw[11]),
     status,
     isFactored: status >= InvoiceStatus.Factored,
     isRepaid: status === InvoiceStatus.Settled,
-    geminiUnderwritingEnabled: Boolean(raw[12]),
-    debtorAttestationHash: raw[13] as `0x${string}`,
-    collateralStaked: Boolean(raw[14]),
-    debtorEmailHash: raw[15] as `0x${string}`,
-    isEmailVerified: Boolean(raw[16]),
+    geminiUnderwritingEnabled: Boolean(raw[13]),
+    debtorAttestationHash: raw[14] as `0x${string}`,
+    collateralStaked: Boolean(raw[15]),
+    debtorEmailHash: raw[16] as `0x${string}`,
+    isEmailVerified: Boolean(raw[17]),
   };
 }
 
@@ -351,6 +351,7 @@ export const REGISTRY_ABI = [
       { name: "discountRateBps",    type: "bytes32" },
       { name: "fingerprintHash",    type: "bytes32" },
       { name: "faceValuePlaintext", type: "uint256" }, /* NEW */
+      { name: "discountRatePlaintext", type: "uint256" },
       { name: "supplier",           type: "address" },
       { name: "investor",           type: "address" },
       { name: "debtor",             type: "address" },

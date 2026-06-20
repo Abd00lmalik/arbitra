@@ -83,7 +83,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             riskCalcAddr,
             collateralVaultAddr,
             escrowReceiverAddr,
-            platformVerifier.address
+            platformVerifier.address,
+            deployer.address
         );
         await registry.waitForDeployment();
         registryAddr = await registry.getAddress();
