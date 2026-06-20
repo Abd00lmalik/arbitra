@@ -9,7 +9,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { useWalletClient, useAccount, usePublicClient, useReadContract } from "wagmi";
+import { Key, Unlock, Sparkles, Zap, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
+import { usePublicClient, useReadContract } from "wagmi";
+import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useInvoice,
@@ -62,13 +64,20 @@ export function InvoiceDetailModal({
   invoiceId,
   onActionSuccess,
 }: InvoiceDetailModalProps) {
-  const { address: currentUserAddress } = useAccount();
-  const { data: walletClient } = useWalletClient();
+  const { walletClient, activeWallet: currentUserAddress, isEmbedded, getEmbeddedSigner } = useActiveWalletClient();
   const publicClient = usePublicClient();
   const { isReady: zamaReady } = useZama();
 
   /* Fetch core data */
   const { data: invoice, refetch: refetchInvoice } = useInvoice(invoiceId);
+
+  const { data: purchasePricePlaintext } = useReadContract({
+    address: ARBITRA_REGISTRY_ADDRESS,
+    abi: ARBITRA_REGISTRY_ABI,
+    functionName: "getPurchasePricePlaintext",
+    args: invoiceId !== undefined ? [invoiceId] : undefined,
+    query: { enabled: invoiceId !== undefined },
+  });
 
   /* Decryption hook */
   const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
@@ -128,23 +137,30 @@ export function InvoiceDetailModal({
       : null;
 
   /* Purchase price for USDC pre-flight (uses plaintext approximation before decryption) */
-  const estimatedPurchasePrice = decrypted?.purchasePrice ?? 0n;
+  const estimatedPurchasePrice = decrypted?.purchasePrice ?? (purchasePricePlaintext as bigint ?? 0n);
   const hasEnoughUSDC = usdcBalance >= estimatedPurchasePrice || estimatedPurchasePrice === 0n;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
-    if (!walletClient) return;
+    if (!walletClient && !isEmbedded) return;
 
     const signer = {
-      getAddress: async () => (await walletClient.getAddresses())[0] as string,
+      getAddress: async () => currentUserAddress as string,
       signTypedData: async (domain: object, types: object, value: object) => {
-        return walletClient.signTypedData({
-          domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
-          types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
-          primaryType: Object.keys(types as Record<string, unknown>)[0],
-          message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
-          account: (await walletClient.getAddresses())[0],
-        });
+        if (isEmbedded) {
+          const embSigner = await getEmbeddedSigner();
+          const cleanTypes = { ...types } as any;
+          delete cleanTypes.EIP712Domain;
+          return embSigner.signTypedData(domain, cleanTypes, value);
+        } else {
+          return walletClient!.signTypedData({
+            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
+            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
+            primaryType: Object.keys(types as Record<string, unknown>)[0],
+            message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
+            account: currentUserAddress as `0x${string}`,
+          });
+        }
       },
     };
 
@@ -357,7 +373,9 @@ export function InvoiceDetailModal({
                   {/* STEP 0: Request Decrypt Access */}
                   {investorStep === 0 && (
                     <div className="text-center space-y-3">
-                      <div className="text-3xl">🔑</div>
+                      <div className="flex justify-center py-1">
+                        <Key className="w-8 h-8 text-neon-cyan" />
+                      </div>
                       <h4 className="text-sm font-bold text-white">Request FHE Decrypt Access</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
                         Submit an on-chain transaction to grant your wallet permanent permission to decrypt this invoice's encrypted financial parameters (face value, yield, due date).
@@ -370,7 +388,7 @@ export function InvoiceDetailModal({
                           onClick={handleGrantAccess}
                           className="w-full"
                         >
-                          {isGrantPending || localBusy ? "Submitting On-Chain..." : "🔑 Grant My Wallet Decrypt Access"}
+                          {isGrantPending || localBusy ? "Submitting On-Chain..." : "Grant My Wallet Decrypt Access"}
                         </NeonButton>
                       ) : (
                         <div className="space-y-2">
@@ -395,7 +413,9 @@ export function InvoiceDetailModal({
                   {/* STEP 1: Decrypt */}
                   {investorStep === 1 && (
                     <div className="text-center space-y-3">
-                      <div className="text-3xl">🔓</div>
+                      <div className="flex justify-center py-1">
+                        <Unlock className="w-8 h-8 text-neon-purple" />
+                      </div>
                       <h4 className="text-sm font-bold text-white">Decrypt Invoice Parameters</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
                         Your wallet now has on-chain decrypt permission. Sign an EIP-712 message to privately reveal the real face value, purchase price, yield, and maturity date — only visible to you.
@@ -408,7 +428,7 @@ export function InvoiceDetailModal({
                           onClick={handleDecrypt}
                           className="w-full"
                         >
-                          {isDecrypting ? "Decrypting via Zama Relayer..." : "🔓 Decrypt Financial Details"}
+                          {isDecrypting ? "Decrypting via Zama Relayer..." : "Decrypt Financial Details"}
                         </NeonButton>
                       ) : (
                         <p className="text-xs text-yellow-400">Zama SDK initializing — please wait...</p>
@@ -424,19 +444,21 @@ export function InvoiceDetailModal({
                   {/* STEP 2: Analyze with Gemini */}
                   {investorStep === 2 && (
                     <div className="text-center space-y-3">
-                      <div className="text-3xl">✨</div>
+                      <div className="flex justify-center py-1">
+                        <Sparkles className="w-8 h-8 text-indigo-400 animate-pulse" />
+                      </div>
                       <h4 className="text-sm font-bold text-white">AI Counterparty Risk Analysis</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
                         Run Gemini Flash AI on the real decrypted parameters to get a risk score, credit label, and investment recommendation before committing capital.
                       </p>
                       <NeonButton
-                        variant="primary"
-                        size="sm"
-                        loading={isRiskLoading}
-                        onClick={handleRiskAnalyze}
-                        className="w-full bg-indigo-600 border-indigo-500"
+                          variant="primary"
+                          size="sm"
+                          loading={isRiskLoading}
+                          onClick={handleRiskAnalyze}
+                          className="w-full bg-indigo-600 border-indigo-500"
                       >
-                        {isRiskLoading ? "Analyzing with Gemini Flash..." : "✨ Run Gemini Risk Analysis"}
+                        {isRiskLoading ? "Analyzing with Gemini Flash..." : "Run Gemini Risk Analysis"}
                       </NeonButton>
                       {riskError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
@@ -449,7 +471,9 @@ export function InvoiceDetailModal({
                   {/* STEP 3: Deploy Capital */}
                   {investorStep === 3 && !factorSuccess && (
                     <div className="space-y-3">
-                      <h4 className="text-sm font-bold text-white text-center">⚡ Deploy USDC Escrow Capital</h4>
+                      <h4 className="text-sm font-bold text-white text-center flex items-center justify-center gap-1.5">
+                        <Zap className="w-4 h-4 text-amber-400" /> Deploy USDC Escrow Capital
+                      </h4>
                       <p className="text-xs text-slate-400 leading-relaxed text-center">
                         Sign an EIP-712 transaction to transfer USDC to escrow. Funds are released to the supplier upon confirmation. The registry records your ownership of this invoice RWA.
                       </p>
@@ -487,7 +511,7 @@ export function InvoiceDetailModal({
                           : isFactoringPending || localBusy
                           ? `Transferring${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} to Supplier...`
                           : isApproved
-                          ? "⚡ Deploy USDC Escrow Capital"
+                          ? "Deploy USDC Escrow Capital"
                           : "Approve USDC & Deploy Capital"}
                       </NeonButton>
                       {factorError && (
@@ -501,7 +525,9 @@ export function InvoiceDetailModal({
                   {/* SUCCESS: Financing Approved */}
                   {factorSuccess && (
                     <div className="text-center space-y-3 py-2">
-                      <div className="text-4xl">🎉</div>
+                      <div className="flex justify-center py-1">
+                        <CheckCircle2 className="w-10 h-10 text-neon-green" />
+                      </div>
                       <h4 className="text-sm font-bold text-neon-green">Financing Approved</h4>
                       <p className="text-xs text-slate-300">
                         <span className="font-bold text-white">{factorSuccess.disbursed}</span> disbursed to supplier.

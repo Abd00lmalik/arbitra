@@ -90,7 +90,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     });
     fpRegistryAddress = fpRegistryDeployment.address;
 
-    riskCalcAddress   = "0xFb9F6fFaf309843ad103c6aD99eD36Ba80335434";
+    console.log(`\nDeploying RiskCalculator on Sepolia...`);
+    const riskCalcDeployment = await deploy("ArbitraRiskCalculator", {
+      from: deployer,
+      args: [],
+      log: true,
+      gasLimit: 1500000,
+      waitConfirmations: 2,
+    });
+    riskCalcAddress = riskCalcDeployment.address;
+
     console.log(`\nDeploying CollateralVault on Sepolia...`);
     const vaultDeployment = await deploy("ArbitraCollateralVault", {
       from: deployer,
@@ -100,18 +109,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       waitConfirmations: 2,
     });
     vaultAddress = vaultDeployment.address;
-    console.log(`\nReusing pre-deployed Sepolia components:`);
-    console.log(`- RiskCalculator: ${riskCalcAddress}`);
 
-    console.log(`\nDeploying EscrowReceiver on Sepolia...`);
-    const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
-      from: deployer,
-      args: [usdcAddress],
-      log: true,
-      gasLimit: 1500000,
-      waitConfirmations: 2,
-    });
-    escrowAddress = escrowDeployment.address;
+    escrowAddress = "0x897B76cAEcd5E4002637fC3d4a7A98043Ca18f79";
+    console.log(`\nReusing pre-deployed Sepolia EscrowReceiver: ${escrowAddress}`);
   } else {
     /* 1. Deploy FingerprintRegistry */
     const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
@@ -158,10 +158,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       riskCalcAddress,
       vaultAddress,
       escrowAddress,
-      platformVerifier
+      platformVerifier,
+      deployer
     ],
     log: true,
-    gasLimit: network.name === "sepolia" ? 4000000 : undefined,
+    gasLimit: network.name === "sepolia" ? 5000000 : undefined,
     waitConfirmations: network.name === "sepolia" ? 2 : 1,
   });
 

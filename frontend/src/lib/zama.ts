@@ -11,7 +11,8 @@ let sdkInitPromise: Promise<any> | null = null;
 let sdkProviderRef: any | null = null;
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
-const DEFAULT_SEPOLIA_RPC_URL = "https://sepolia.drpc.org";
+const DEFAULT_SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+const DEFAULT_SEPOLIA_RELAYER_URL = "https://relayer.testnet.zama.org/v2";
 
 function resolveBrowserProvider(preferredProvider?: any) {
   if (preferredProvider) return preferredProvider;
@@ -22,9 +23,12 @@ function resolveBrowserProvider(preferredProvider?: any) {
 function getSepoliaRpcUrl() {
   return (
     process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ||
-    process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
     DEFAULT_SEPOLIA_RPC_URL
   );
+}
+
+function getSepoliaRelayerUrl() {
+  return process.env.NEXT_PUBLIC_ZAMA_RELAYER_URL || DEFAULT_SEPOLIA_RELAYER_URL;
 }
 
 async function assertSepoliaProvider(provider: any) {
@@ -70,14 +74,17 @@ export async function getZamaSDK(network?: any) {
 
     /* Load relayer-sdk 0.4.1 /web */
     sdkInitPromise = (async () => {
-      const { initSDK, createInstance, SepoliaConfig } = await import("@zama-fhe/relayer-sdk/web");
+      const { initSDK, createInstance, SepoliaConfigV2 } = await import("@zama-fhe/relayer-sdk/web");
       const sepoliaRpcUrl = getSepoliaRpcUrl();
+      const relayerUrl = getSepoliaRelayerUrl();
       console.info("[FHE] Initializing Zama SDK on Sepolia");
       console.info("[FHE] Using RPC:", sepoliaRpcUrl);
+      console.info("[FHE] Using relayer:", relayerUrl);
       await initSDK();
       const instance = await createInstance({
-        ...SepoliaConfig,
+        ...SepoliaConfigV2,
         network: sepoliaRpcUrl,
+        relayerUrl,
       });
       console.info("[FHE] Instance created successfully");
       sdkInstance = instance;

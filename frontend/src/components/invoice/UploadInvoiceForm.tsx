@@ -21,7 +21,8 @@ import {
   useApproveUSDC,
   useStakeCollateral,
   useUSDCBalance,
-  useUSDCAllowance
+  useUSDCAllowance,
+  useSupplierInvoices
 } from "@/hooks/useArbitraRegistry";
 import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import { useZama } from "@/providers/ZamaProvider";
@@ -137,6 +138,16 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const { approveUSDC, isPending: approvePending } = useApproveUSDC();
   const { stakeCollateral, isPending: stakePending } = useStakeCollateral();
   const { data: rawCount } = useInvoiceCount();
+  const { data: supplierInvoiceIds } = useSupplierInvoices(activeWallet);
+  const { data: supplierInvoicesData } = useReadContracts({
+    contracts: (supplierInvoiceIds || []).map(id => ({
+      address: ARBITRA_REGISTRY_ADDRESS,
+      abi: ARBITRA_REGISTRY_ABI,
+      functionName: "invoices",
+      args: [BigInt(id)],
+    })),
+    query: { enabled: !!supplierInvoiceIds && supplierInvoiceIds.length > 0 },
+  });
   const { data: usdcBalance, refetch: refetchUSDC } = useUSDCBalance(activeWallet);
   const { data: ethBalance } = useBalance({
     address: activeWallet,
@@ -768,6 +779,26 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setEncryptionSubstep("blockchain");
       let hash: `0x${string}`;
 
+      // Calculate plaintext discount rate based on supplier delay history (simulating contract logic)
+      let expectedDelayDays = 10n;
+      if (supplierInvoiceIds && supplierInvoiceIds.length > 0 && supplierInvoicesData) {
+        const total = BigInt(supplierInvoiceIds.length);
+        let repaid = 0n;
+        supplierInvoicesData.forEach((res) => {
+          if (res.status === "success" && res.result) {
+            const rawInvoice = res.result as readonly any[];
+            const status = Number(rawInvoice[11]);
+            if (status === 3) { // Settled
+              repaid += 1n;
+            }
+          }
+        });
+        const ratioBps = (repaid * 10000n) / total;
+        expectedDelayDays = (10000n - ratioBps) / 1000n;
+      }
+      const rawDiscount = invoice.baseRate + invoice.reputationMultiplier * (expectedDelayDays * 15n);
+      const discountRatePlaintext = rawDiscount > 1500n ? 1500n : rawDiscount;
+
       // 1. Call confirmAndRegister on the Fingerprint Registry
       let confirmTxHash: `0x${string}`;
       if (isEmbedded) {
@@ -809,6 +840,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           true,
           invoice.faceValue,
           invoice.fingerprint,
+          discountRatePlaintext,
           { gasLimit: UPLOAD_GAS_CAP }
         );
         hash = tx.hash as `0x${string}`;
@@ -822,7 +854,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
           true,
           invoice.faceValue,
-          invoice.fingerprint
+          invoice.fingerprint,
+          discountRatePlaintext
         );
         if (!txHashResult) {
           throw new Error("Upload transaction hash was not returned.");

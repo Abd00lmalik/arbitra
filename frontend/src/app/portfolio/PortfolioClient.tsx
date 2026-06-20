@@ -7,7 +7,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAccount } from "wagmi";
+import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -23,18 +23,18 @@ import { InvoiceStatus } from "@/lib/contracts";
 import Link from "next/link";
 
 export default function PortfolioClient() {
-  const { address, isConnected } = useAccount();
+  const { activeWallet } = useActiveWalletClient();
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const allInvoices = realInvoices ?? [];
 
   /* Filter invoices for the connected user */
   const mySupplierInvoices = allInvoices.filter(
-    (inv) => inv.supplier?.toLowerCase() === address?.toLowerCase()
+    (inv) => inv.supplier?.toLowerCase() === activeWallet?.toLowerCase()
   );
   const myInvestorInvoices = allInvoices.filter(
     (inv) =>
-      inv.investor?.toLowerCase() === address?.toLowerCase() &&
+      inv.investor?.toLowerCase() === activeWallet?.toLowerCase() &&
       inv.investor !== "0x0000000000000000000000000000000000000000"
   );
 
@@ -61,7 +61,7 @@ export default function PortfolioClient() {
     }
   };
 
-  if (!isConnected) {
+  if (!activeWallet) {
     return (
       <AppLayout title="Portfolio" description="Your personal invoice activity">
         <GlassCard className="p-12 text-center max-w-md mx-auto">

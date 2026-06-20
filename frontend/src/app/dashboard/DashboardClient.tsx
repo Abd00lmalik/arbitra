@@ -15,10 +15,12 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { WalletAddressCard } from "@/components/ui/WalletAddressCard";
 import { LockedPage } from "@/components/shared/LockedPage";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
+import { readSessionWallet } from "@/lib/sessionWallet";
 import {
   fromMicro,
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
+  INVESTOR_SBT_ADDRESS,
   InvoiceStatus,
   shortAddress,
   SBT_ABI,
@@ -212,22 +214,31 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const { address, isConnected } = useAccount();
   const { data: realInvoices } = useRealInvoiceList();
   const { data: invoiceCount } = useInvoiceCount();
-  const { data: supplierIds } = useSupplierInvoices(isConnected ? address : undefined);
-  const { data: investorIds } = useInvestorInvoices(isConnected ? address : undefined);
-  const { data: usdcBalance } = useUSDCBalance(isConnected ? address : undefined);
-  const { data: hasSBT } = useReadContract({
+  const { data: supplierIds } = useSupplierInvoices(wallet);
+  const { data: investorIds } = useInvestorInvoices(wallet);
+  const { data: usdcBalance } = useUSDCBalance(wallet);
+  const { data: hasSupplierSBT, isLoading: isLoadingSupplierSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
     query: { enabled: !!wallet },
   });
-  const { data: hasEncryptedCompliance } = useReadContract({
+  const { data: hasInvestorSBT, isLoading: isLoadingInvestorSBT } = useReadContract({
+    address: INVESTOR_SBT_ADDRESS as `0x${string}`,
+    abi: SBT_ABI,
+    functionName: "hasValidSBT",
+    args: [wallet ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!wallet },
+  });
+  const hasAnySBT = hasSupplierSBT === true || hasInvestorSBT === true;
+  const isLoadingSBT = isLoadingSupplierSBT || isLoadingInvestorSBT;
+  const { data: hasEncryptedCompliance, isLoading: isLoadingCompliance } = useReadContract({
     address: IDENTITY_ADDRESS as `0x${string}`,
     abi: IDENTITY_ABI,
     functionName: "hasEncryptedCompliance",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
-    query: { enabled: !!wallet && hasSBT === true },
+    query: { enabled: !!wallet && hasAnySBT },
   });
 
   const invoices = realInvoices ?? [];
@@ -238,7 +249,7 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
   const available = invoices.filter((item) => item.status === InvoiceStatus.Pending || item.status === InvoiceStatus.Attested).length;
   const factored = invoices.filter((item) => item.status === InvoiceStatus.Factored).length;
   const settled = invoices.filter((item) => item.status === InvoiceStatus.Settled).length;
-  const isVerifiedBusiness = hasSBT === true && hasEncryptedCompliance === true;
+  const isVerifiedBusiness = hasAnySBT && hasEncryptedCompliance === true;
   const walletModal = walletOpen && typeof document !== "undefined"
     ? createPortal(
       <>
@@ -283,7 +294,11 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
     )
     : null;
 
-  if (wallet && hasSBT !== true) {
+  if (wallet && (isLoadingSBT || (hasAnySBT && isLoadingCompliance))) {
+    return <LockedPage title="Checking Access" message="Reading your SBT and encrypted compliance status from Sepolia." />;
+  }
+
+  if (wallet && !hasAnySBT) {
     return <LockedPage title="Dashboard Locked" message="Complete business verification to access the dashboard." />;
   }
 
@@ -438,10 +453,17 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
 export default function DashboardClient() {
   const { wallet: web3authWallet, isLoggedIn, isInitializing } = useWeb3Auth();
   const { address, isConnected } = useAccount();
-  const wallet = web3authWallet ?? (isConnected && address ? address : null);
+  const [sessionWallet, setSessionWallet] = useState<`0x${string}` | null>(null);
+
+  React.useEffect(() => {
+    setSessionWallet(readSessionWallet());
+  }, [web3authWallet, address, isConnected]);
+
+  const wallet = web3authWallet ?? (isConnected && address ? address : sessionWallet);
+  const hasAuthenticatedSession = isLoggedIn || isConnected || !!sessionWallet;
 
   if (isInitializing && !isConnected) return null;
-  if (!wallet || (!isLoggedIn && !isConnected)) {
+  if (!wallet || !hasAuthenticatedSession) {
     return <PublicDashboardLanding />;
   }
 

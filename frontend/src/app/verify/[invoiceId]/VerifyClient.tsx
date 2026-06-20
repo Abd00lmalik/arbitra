@@ -77,10 +77,13 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const [web2TxHash, setWeb2TxHash] = useState<string | null>(null);
   const [isPlaidOpen, setIsPlaidOpen] = useState<boolean>(false);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const [isMining, setIsMining] = useState<boolean>(false);
 
   const handleSwitchToWeb3 = () => {
-    const currentPath = window.location.pathname + window.location.search;
-    router.push(`/register?next=${encodeURIComponent(currentPath)}`);
+    setVerifyMode("web3");
+    if (!isConnected) {
+      connect({ connector: injected() });
+    }
   };
 
   const getDownloadUrl = () => {
@@ -254,12 +257,19 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
       });
 
       /* Call smart contract confirmInvoice */
-      await confirmInvoice(invoiceId, signature, attCommit);
+      setIsMining(true);
+      const hash = await confirmInvoice(invoiceId, signature, attCommit);
+      console.log("Submitted attestation to Sepolia, tx hash:", hash);
+      if (hash && publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash });
+      }
       setSuccessAttesting(true);
-      refetchInvoice();
+      await refetchInvoice();
     } catch (e: any) {
       console.error(e);
       setAttestError(e.message || "Failed to submit attestation transaction.");
+    } finally {
+      setIsMining(false);
     }
   };
 
@@ -295,14 +305,16 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         
         // Wait on the client-side for transaction block confirmation
         if (publicClient && data.txHash) {
-          publicClient.waitForTransactionReceipt({ hash: data.txHash })
-            .then(() => {
-              refetchInvoice();
-            })
-            .catch(console.error);
-        } else {
-          refetchInvoice();
+          setIsMining(true);
+          try {
+            await publicClient.waitForTransactionReceipt({ hash: data.txHash });
+          } catch (err) {
+            console.error("Error waiting for transaction receipt:", err);
+          } finally {
+            setIsMining(false);
+          }
         }
+        await refetchInvoice();
       } else {
         setAttestError(data.error || "Failed to attest invoice via platform service.");
       }
@@ -313,6 +325,61 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
       setSubmittingWeb2(false);
     }
   };
+
+  if (isMining || confirmPending || submittingWeb2) {
+    const activeHash = web2TxHash || web3TxHash;
+    return (
+      <div className="max-w-md mx-auto">
+        <GlassCard className="p-8 text-center relative overflow-hidden space-y-6">
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: "2px",
+              background: "linear-gradient(90deg, #7B2FFF 0%, #00F0FF 100%)",
+            }}
+          />
+          <div className="flex flex-col items-center justify-center space-y-4 py-6">
+            <div className="relative">
+              {/* Outer pulsing ring */}
+              <div className="absolute -inset-4 rounded-full bg-neon-cyan/10 animate-ping opacity-75" />
+              {/* Spinning gradient loader */}
+              <div className="w-16 h-16 rounded-full border-4 border-slate-800 border-t-neon-cyan border-r-neon-purple animate-spin" />
+            </div>
+            <h3 className="text-white font-bold text-lg mt-4 font-heading" style={{ fontFamily: "Satoshi, sans-serif" }}>
+              {submittingWeb2 ? "Generating Attestation" : isMining ? "Confirming on Sepolia" : "Confirming Attestation"}
+            </h3>
+            <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+              {submittingWeb2 
+                ? "Securing your email verification and preparing compliance signature..." 
+                : isMining 
+                ? "Transaction submitted. Waiting for Sepolia network consensus..." 
+                : "Awaiting wallet signature and authorization..."}
+            </p>
+          </div>
+
+          {activeHash && (
+            <div className="p-4 rounded-xl bg-white/2 border border-white/5 text-left text-xs space-y-2">
+              <span className="text-slate-500 block text-[10px]">Transaction Hash</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-neon-cyan truncate select-all">{activeHash}</span>
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${activeHash}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-neon-purple hover:text-white transition-colors text-[10px] font-semibold flex-shrink-0"
+                >
+                  View on Etherscan ↗
+                </a>
+              </div>
+            </div>
+          )}
+        </GlassCard>
+      </div>
+    );
+  }
 
   if (invoiceLoading || tokenValidating) {
     return (
@@ -340,7 +407,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     );
   }
 
-  if (invoice.status !== InvoiceStatus.Pending) {
+  if (successAttesting || invoice.status !== InvoiceStatus.Pending) {
     const finalTxHash = web2TxHash || web3TxHash;
     return (
       <div className="max-w-md mx-auto space-y-6">

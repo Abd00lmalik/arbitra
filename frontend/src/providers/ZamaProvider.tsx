@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useAccount, useChainId } from "wagmi";
+import { usePathname } from "next/navigation";
 import type { FhevmInstance } from "@/lib/zama";
 
 interface ZamaContextValue {
@@ -34,6 +35,7 @@ interface Props {
 export function ZamaProvider({ children }: Props) {
   const { isConnected } = useAccount();
   const chainId = useChainId();
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [instance, setInstance] = useState<FhevmInstance | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -45,8 +47,23 @@ export function ZamaProvider({ children }: Props) {
     return (window as any).web3authProvider ?? (window as any).ethereum ?? null;
   }, []);
 
+  const shouldInitialize =
+    pathname.startsWith("/upload") ||
+    pathname.startsWith("/marketplace") ||
+    pathname.startsWith("/portfolio") ||
+    pathname.startsWith("/verify") ||
+    pathname.startsWith("/dashboard");
+
   const init = useCallback(async () => {
     const provider = resolveProvider();
+    if (!shouldInitialize) {
+      attemptedProviderRef.current = null;
+      setInstance(null);
+      setIsReady(false);
+      setError(null);
+      return;
+    }
+
     if (!provider) {
       attemptedProviderRef.current = null;
       setInstance(null);
@@ -93,7 +110,7 @@ export function ZamaProvider({ children }: Props) {
       setError(`FHEVM init failed: ${msg}`);
       setIsReady(false);
     }
-  }, [chainId, error, instance, isConnected, isReady, resolveProvider]);
+  }, [chainId, error, instance, isConnected, isReady, resolveProvider, shouldInitialize]);
 
   useEffect(() => {
     setMounted(true);
@@ -109,7 +126,7 @@ export function ZamaProvider({ children }: Props) {
 
     const poll = window.setInterval(() => {
       const provider = resolveProvider();
-      const hasInstance = provider !== null && isConnected && chainId === 11155111;
+      const hasInstance = shouldInitialize && provider !== null && isConnected && chainId === 11155111;
       if (!hasInstance && (instance || isReady || error)) {
         attemptedProviderRef.current = null;
         setInstance(null);
@@ -124,7 +141,7 @@ export function ZamaProvider({ children }: Props) {
     }, 1000);
 
     return () => window.clearInterval(poll);
-  }, [mounted, resolveProvider, init, instance, isReady, error, isConnected, chainId]);
+  }, [mounted, resolveProvider, init, instance, isReady, error, isConnected, chainId, shouldInitialize]);
 
   /* Do not render until mounted to prevent SSR hydration mismatch */
   if (!mounted) return null;

@@ -8,7 +8,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 
 const walletConnectProjectId =
-  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "";
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() ?? "";
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
+  "https://arbitra-dapp.vercel.app";
 
 export const wagmiConfig = createConfig({
   chains: [sepolia],
@@ -29,9 +32,10 @@ export const wagmiConfig = createConfig({
             metadata: {
               name: "Arbitra",
               description: "Confidential Invoice Factoring",
-              url: "https://arbitra-dapp.vercel.app",
-              icons: ["https://arbitra-dapp.vercel.app/favicon.ico"],
+              url: appUrl,
+              icons: [`${appUrl}/favicon.ico`],
             },
+            isNewChainsStale: false,
             showQrModal: true,
           }),
         ]

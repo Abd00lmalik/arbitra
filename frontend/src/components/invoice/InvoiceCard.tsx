@@ -6,7 +6,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useWalletClient } from "wagmi";
+import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
 import type { InvoiceOnChain } from "@/lib/contracts";
 import {
   formatUSDC,
@@ -46,7 +46,7 @@ export function InvoiceCard({
 }: InvoiceCardProps) {
   const [showDecryptModal, setShowDecryptModal] = useState(false);
   const { isReady: zamaReady } = useZama();
-  const { data: walletClient } = useWalletClient();
+  const { walletClient, activeWallet: activeAddress, isEmbedded, getEmbeddedSigner } = useActiveWalletClient();
 
   /* Fetch encrypted handles */
   const { data: handles } = useInvoiceHandles(invoice.invoiceId);
@@ -76,18 +76,27 @@ export function InvoiceCard({
     : <span className="badge-yellow" role="status">● Available</span>;
 
   const handleDecrypt = async () => {
-    if (!handles || !walletClient) return;
+    if (!handles || (!walletClient && !isEmbedded)) return;
+
+    const signerAddress = currentUserAddress || activeAddress;
 
     const signer = {
-      getAddress: async () => (await walletClient.getAddresses())[0] as string,
+      getAddress: async () => signerAddress as string,
       signTypedData: async (domain: object, types: object, value: object) => {
-        return walletClient.signTypedData({
-          domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
-          types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
-          primaryType: Object.keys(types as Record<string, unknown>)[0],
-          message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
-          account: (await walletClient.getAddresses())[0],
-        });
+        if (isEmbedded) {
+          const embSigner = await getEmbeddedSigner();
+          const cleanTypes = { ...types } as any;
+          delete cleanTypes.EIP712Domain;
+          return embSigner.signTypedData(domain, cleanTypes, value);
+        } else {
+          return walletClient!.signTypedData({
+            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
+            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
+            primaryType: Object.keys(types as Record<string, unknown>)[0],
+            message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
+            account: signerAddress as `0x${string}`,
+          });
+        }
       },
     };
 

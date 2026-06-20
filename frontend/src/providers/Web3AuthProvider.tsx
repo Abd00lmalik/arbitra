@@ -213,8 +213,6 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
 
         if (instance.status === ADAPTER_STATUS.CONNECTED && instance.provider) {
           await restoreSession(instance);
-        } else {
-          clearSessionCookie();
         }
       } catch (error) {
         console.error("[Web3Auth] init error:", error);

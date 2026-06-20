@@ -21,7 +21,7 @@ import {
   type InvoiceHandles,
 } from "@/lib/contracts";
 
-const FHE_FACTOR_GAS_LIMIT  = 5_000_000n;
+const FHE_FACTOR_GAS_LIMIT  = 1_000_000n;
 /* uploadInvoice calls FingerprintRegistry + RiskCalculator inline via FHE coprocessor.
  * Gas estimation overflows Sepolia's block cap (16,777,216). Cap explicitly at 14M. */
 const FHE_UPLOAD_GAS_LIMIT  = 1_800_000n;
@@ -172,7 +172,8 @@ export function useUploadInvoice() {
       debtor: `0x${string}`,
       enableGemini: boolean,
       faceValuePlaintext: bigint,
-      plaintextFingerprint: bigint
+      plaintextFingerprint: bigint,
+      discountRatePlaintext: bigint
     ) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
@@ -188,7 +189,8 @@ export function useUploadInvoice() {
           debtor,
           enableGemini,
           faceValuePlaintext,
-          plaintextFingerprint
+          plaintextFingerprint,
+          discountRatePlaintext
         ],
       });
     },

@@ -1,5 +1,6 @@
 /**
- * Arbitra v2.2 contract addresses and utilities.
+ * @file contracts.ts
+ * @description Arbitra v2.2 contract addresses, ABIs, and utility helpers.
  *
  * ARCHITECTURE NOTE:
  * Payment token: Standard ERC-20 USDC on Sepolia (NOT wrapped cUSDC).
@@ -10,57 +11,91 @@
  * while using standard USDC for frictionless payments.
  */
 
-/* ── Payment token ── */
-export const USDC_ADDRESS =
-  (process.env.NEXT_PUBLIC_USDC_ADDRESS ??
-   "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238") as `0x${string}`;
+const USE_ENV_CONTRACT_ADDRESSES =
+  process.env.NEXT_PUBLIC_USE_ENV_CONTRACT_ADDRESSES === "true";
 
-/* ── Protocol contracts ── */
+const envAddress = (
+  key: string,
+  fallback: `0x${string}`,
+): `0x${string}` => {
+  if (!USE_ENV_CONTRACT_ADDRESSES) return fallback;
+
+  const value = process.env[key];
+  if (!value || !/^0x[0-9a-fA-F]{40}$/.test(value)) return fallback;
+  return value as `0x${string}`;
+};
+
+/* Payment Token */
+export const USDC_ADDRESS =
+  envAddress(
+    "NEXT_PUBLIC_USDC_ADDRESS",
+    "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  );
+
+/* Protocol Contracts */
 export const ARBITRA_REGISTRY_ADDRESS =
-  (process.env.NEXT_PUBLIC_REGISTRY_ADDRESS ??
-   "0x31d17A1DB4d72c63FD4E484A324E06b55c27c9CA") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_REGISTRY_ADDRESS",
+    "0x90512d8b10Ae535FBDF4Ba5e36e5437303571124",
+  );
 
 export const ESCROW_RECEIVER_ADDRESS =
-  (process.env.NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS ??
-   "0xE3d7c0E21D892f788ee5d1e1FDa25c7fcFAaD7e0") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS",
+    "0x897B76cAEcd5E4002637fC3d4a7A98043Ca18f79",
+  );
 
 export const COLLATERAL_VAULT_ADDRESS =
-  (process.env.NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS ??
-   "0x1e8fdFAC6ecaac3fcf186B30A947000e4d604e88") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS",
+    "0xB60747bd18ad3680AfAc6A74F155F48024be2053",
+  );
 
 export const FINGERPRINT_REGISTRY_ADDRESS =
-  (process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS ??
-   "0xe9ECB140583D81c2b7A81705CE8Bd4317CF3a720") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS",
+    "0x16D38F1836444247209d4b72cbA8b72F0EC50712",
+  );
 
 export const SBT_ADDRESS =
-  (process.env.NEXT_PUBLIC_SBT_ADDRESS ??
-   "0xa2Fb6d7d6058e4407Ca685192308c0a5C346b530") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_SBT_ADDRESS",
+    "0x1B88e4d2c70F137B0F7e40c52921D03e7849DF65",
+  );
 
 export const INVESTOR_SBT_ADDRESS =
-  (process.env.NEXT_PUBLIC_INVESTOR_SBT_ADDRESS ??
-   SBT_ADDRESS) as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_INVESTOR_SBT_ADDRESS",
+    "0x52DfdBA750528207216f3d558D5f3aD04Be23e3b",
+  );
 
 export const KYB_ORACLE_ADDRESS =
-  (process.env.NEXT_PUBLIC_KYB_ORACLE_ADDRESS ??
-   "0x27eB4eA7966C5d8700625567dFE6bD87f9Efaed3") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_KYB_ORACLE_ADDRESS",
+    "0x995910d02e0f98d3A15834BDe8aead5230754819",
+  );
 
 export const INVESTOR_KYB_ORACLE_ADDRESS =
-  (process.env.NEXT_PUBLIC_INVESTOR_KYB_ORACLE_ADDRESS ??
-   KYB_ORACLE_ADDRESS) as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_INVESTOR_KYB_ORACLE_ADDRESS",
+    "0xa36ef46077BFD31A0877413a68551c47Dd472708",
+  );
 
 export const IDENTITY_ADDRESS =
-  (process.env.NEXT_PUBLIC_IDENTITY_ADDRESS ??
-   "0x31dA844d811f94ff34e8B3E84aC9a5fcB5eAB584") as `0x${string}`;
+  envAddress(
+    "NEXT_PUBLIC_IDENTITY_ADDRESS",
+    "0xF343B260c40C77670c40ED575dF8f42B8b1EB592",
+  );
 
 
-/* ── Constants ── */
+/* Constants */
 export const TOKEN_DECIMALS  = 6;
 export const TOKEN_SYMBOL    = "USDC";
 export const ETHERSCAN_BASE  = "https://sepolia.etherscan.io";
 export const COLLATERAL_BPS  = 500; /* 5% of face value */
 export const DEFAULT_OPERATOR_EXPIRY_SECONDS = 31536000; /* 365 days */
 
-/* ── Utilities ── */
+/* Utilities */
 export const toMicro = (n: number): bigint =>
   BigInt(Math.round(n * 10 ** TOKEN_DECIMALS));
 
@@ -70,7 +105,7 @@ export const fromMicro = (b: bigint): string =>
   });
 
 export const truncAddr = (a?: string): string =>
-  a && a.length > 10 ? `${a.slice(0, 6)}…${a.slice(-4)}` : (a ?? "");
+  a && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : (a ?? "");
 
 /* Compatibility helper aliases */
 export const toMicroUnits = toMicro;
@@ -106,7 +141,7 @@ export const daysUntilDue = (dueTimestamp: bigint | undefined): number => {
   return Math.max(0, Math.floor(diff / 86400));
 };
 
-/* ── Invoice status ── */
+/* Invoice Status */
 export enum InvoiceStatus {
   Pending   = 0,
   Attested  = 1,
@@ -230,6 +265,7 @@ export const REGISTRY_ABI = [
       { name: "enableGeminiUnderwriting", type: "bool" },
       { name: "faceValuePlaintext_",   type: "uint256" },
       { name: "plaintextFingerprint",  type: "uint256" },
+      { name: "discountRatePlaintext_", type: "uint256" },
     ],
     outputs: [{ name: "invoiceId", type: "uint256" }],
   },
@@ -553,7 +589,7 @@ export const ESCROW_RECEIVER_ABI = [
   },
 ] as const;
 
-/* ── Collateral Vault ABI ── */
+/* Collateral Vault ABI */
 export const COLLATERAL_VAULT_ABI = [
   {
     type: "function", name: "stakeCollateral",
@@ -596,7 +632,7 @@ export const COLLATERAL_VAULT_ABI = [
   },
 ] as const;
 
-/* ── ArbitraSBT ABI ── */
+/* ArbitraSBT ABI */
 export const SBT_ABI = [
   {
     type: "function", name: "hasValidSBT",
@@ -643,7 +679,7 @@ export const SBT_ABI = [
   },
 ] as const;
 
-/* ── MockKYBOracle ABI ── */
+/* MockKYBOracle ABI */
 export const KYB_ORACLE_ABI = [
   {
     type: "function", name: "submitKYBAttestation",
@@ -675,7 +711,7 @@ export const KYB_ORACLE_ABI = [
   },
 ] as const;
 
-/* ── ArbitraIdentity ABI ── */
+/* ArbitraIdentity ABI */
 export const IDENTITY_ABI = [
   {
     type: "function", name: "submitEncryptedCompliance",

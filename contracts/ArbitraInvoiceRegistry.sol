@@ -79,6 +79,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
                                 The encrypted faceValue is used for all FHE
                                 calculations; this field is used only when
                                 transferring USDC between wallets. */
+        uint256 discountRatePlaintext; /* Plaintext discount rate approximation in BPS */
         address  supplier;
         address  investor;
         address  debtor;
@@ -155,6 +156,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
      * @param _collateralVault The address of the collateral vault.
      * @param _escrowReceiver The address of the escrow receiver.
      * @param _platformVerifier The address of the platform verifier.
+     * @param initialOwner The address of the initial owner of the contract.
      */
     constructor(
         address _usdc,
@@ -162,14 +164,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         address _riskCalculator,
         address _collateralVault,
         address _escrowReceiver,
-        address _platformVerifier
-    ) EIP712("Arbitra", "2") Ownable(msg.sender) {
+        address _platformVerifier,
+        address initialOwner
+    ) EIP712("Arbitra", "2") Ownable(initialOwner) {
         require(_usdc != address(0), "Arbitra: zero USDC");
         require(_fpRegistry != address(0), "Arbitra: zero fpRegistry");
         require(_riskCalculator != address(0), "Arbitra: zero riskCalculator");
         require(_collateralVault != address(0), "Arbitra: zero collateralVault");
         require(_escrowReceiver != address(0), "Arbitra: zero escrowReceiver");
         require(_platformVerifier != address(0), "Arbitra: zero verifier");
+        require(initialOwner != address(0), "Arbitra: zero initial owner");
 
         usdc = IERC20(_usdc);
         fpRegistry = _fpRegistry;
@@ -239,7 +243,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         address          debtor,
         bool             enableGeminiUnderwriting,
         uint256          faceValuePlaintext_,
-        uint256          plaintextFingerprint
+        uint256          plaintextFingerprint,
+        uint256          discountRatePlaintext_
     ) external returns (uint256 invoiceId) {
         if (debtor != address(0)) {
             require(debtor != msg.sender, "Arbitra: debtor cannot be supplier");
@@ -298,6 +303,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         Invoice storage inv = invoices[invoiceId];
         inv.faceValue = faceValue;
         inv.faceValuePlaintext = faceValuePlaintext_;
+        inv.discountRatePlaintext = discountRatePlaintext_;
         inv.dueDate = dueDate;
         inv.purchasePrice = purchasePrice;
         inv.discountRateBps = discountRateBps;
@@ -598,13 +604,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     function _computePurchasePricePlaintext(uint256 invoiceId) internal view returns (uint256) {
         Invoice storage inv = invoices[invoiceId];
         uint256 fv          = inv.faceValuePlaintext;
-        uint256 ttmDays     = (inv.maturityTimestamp > block.timestamp)
-            ? (inv.maturityTimestamp - block.timestamp) / 86400
-            : 0;
-        /* Use DEFAULT_DISCOUNT_BPS (800 = 8%) as the floor discount */
-        uint256 discBps     = DEFAULT_DISCOUNT_BPS; /* 800 */
-        /* P = V * (1 - d * t) where d = discBps/10000 and t = ttmDays/365 */
-        uint256 discountAmt = (fv * discBps * ttmDays) / (10000 * 365);
+        /* Use stored discountRatePlaintext or fallback to DEFAULT_DISCOUNT_BPS */
+        uint256 discBps     = inv.discountRatePlaintext;
+        if (discBps == 0) {
+            discBps = DEFAULT_DISCOUNT_BPS;
+        }
+        /* Changed from annualized to flat discount calculation per user feedback.
+           Trade finance users expect a simple flat financing fee rather than a time-amortized yield,
+           which simplifies reconciliations and matches real-world factoring pricing. */
+        /* Formula: P = V * (1 - d) where d = discBps/10000 */
+        uint256 discountAmt = (fv * discBps) / 10000;
         return fv > discountAmt ? fv - discountAmt : 0;
     }
 

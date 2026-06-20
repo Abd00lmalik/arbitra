@@ -17,6 +17,7 @@ import { InvoiceDetailModal } from "@/components/shared/InvoiceDetailModal";
 import { LockedPage } from "@/components/shared/LockedPage";
 import { useRealInvoiceList } from "@/hooks/useArbitraRegistry";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
+import { readSessionWallet } from "@/lib/sessionWallet";
 import {
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/contracts";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Briefcase } from "lucide-react";
 
 type FilterTab = "all" | "available" | "factored" | "repaid";
 
@@ -37,9 +39,15 @@ export default function MarketplaceClient() {
   const { address, isConnected } = useAccount();
   const searchParams = useSearchParams();
   const newInvoiceId = searchParams.get("new");
-  const wallet = web3authWallet ?? (isConnected && address ? address : null);
+  const [sessionWallet, setSessionWallet] = useState<`0x${string}` | null>(null);
 
-  const { data: hasSupplierSBT } = useReadContract({
+  React.useEffect(() => {
+    setSessionWallet(readSessionWallet());
+  }, [web3authWallet, address, isConnected]);
+
+  const wallet = web3authWallet ?? (isConnected && address ? address : sessionWallet);
+
+  const { data: hasSupplierSBT, isLoading: isLoadingSupplierSBT } = useReadContract({
     address: SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
@@ -47,7 +55,7 @@ export default function MarketplaceClient() {
     query: { enabled: !!wallet },
   });
 
-  const { data: hasInvestorSBT } = useReadContract({
+  const { data: hasInvestorSBT, isLoading: isLoadingInvestorSBT } = useReadContract({
     address: INVESTOR_SBT_ADDRESS as `0x${string}`,
     abi: SBT_ABI,
     functionName: "hasValidSBT",
@@ -55,34 +63,51 @@ export default function MarketplaceClient() {
     query: { enabled: !!wallet },
   });
 
-  const { data: hasEncryptedCompliance } = useReadContract({
+  const { data: hasEncryptedCompliance, isLoading: isLoadingCompliance } = useReadContract({
     address: IDENTITY_ADDRESS as `0x${string}`,
     abi: IDENTITY_ABI,
     functionName: "hasEncryptedCompliance",
     args: [wallet ?? "0x0000000000000000000000000000000000000000"],
     query: { enabled: !!wallet && hasInvestorSBT === true },
   });
+  const isLoadingAccess = isLoadingSupplierSBT || isLoadingInvestorSBT || (hasInvestorSBT === true && isLoadingCompliance);
 
   const { data: realInvoices, isLoading: isLoadingInvoices, refetch: refetchInvoices } = useRealInvoiceList();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<bigint | undefined>(undefined);
   const invoices = realInvoices ?? [];
 
+  if (wallet && isLoadingAccess) {
+    return <LockedPage title="Checking Access" message="Reading your investor credentials from Sepolia." />;
+  }
+
   if (wallet && hasInvestorSBT !== true) {
     if (hasSupplierSBT === true) {
       return (
         <AppLayout title="Marketplace Locked" description="Role authorization required.">
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
-            <GlassCard className="p-8 text-center max-w-md mx-auto" glow="purple">
-              <div className="text-3xl mb-4">💼</div>
-              <h2 className="text-lg font-bold text-white mb-2" style={{ fontFamily: "Satoshi, sans-serif" }}>
+          <div className="flex justify-center items-center min-h-[60vh] py-16 px-6">
+            <GlassCard className="p-8 text-center max-w-md mx-auto relative overflow-hidden" glow="purple">
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: "2px",
+                  background: "linear-gradient(90deg, #7B2FFF 0%, #00F0FF 100%)",
+                }}
+              />
+              <div className="w-14 h-14 rounded-full bg-neon-purple/10 border border-neon-purple/30 flex items-center justify-center text-neon-purple mx-auto mb-4">
+                <Briefcase className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2 font-heading" style={{ fontFamily: "Satoshi, sans-serif" }}>
                 Verify as Investor
               </h2>
-              <p className="text-sm text-slate-400 mb-6">
-                You are registered as a **Supplier**. To access RWA pools and fund invoices as an Investor, you must complete Investor KYC/accreditation checks.
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                You are registered as a <strong className="text-neon-purple font-semibold">Supplier</strong>. To access RWA pools and fund invoices as an Investor, you must complete Investor KYC/accreditation checks.
               </p>
-              <Link href="/register?role=investor&upgrade=true">
-                <button className="neon-btn-primary px-6 py-2.5 text-sm rounded-xl">
+              <Link href="/register?role=investor&upgrade=true" className="w-full block">
+                <button className="neon-btn-primary w-full py-3 text-xs font-semibold rounded-xl">
                   Start Investor Onboarding
                 </button>
               </Link>

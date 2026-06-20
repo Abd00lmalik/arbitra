@@ -41,20 +41,23 @@ contract ArbitraRiskCalculator is ZamaEthereumConfig {
 
     /**
      * @notice Calculate the purchase price for an invoice.
-     * @dev P = V - V * d * t / (10000 * 365)
+     * @dev Flat discount pricing per user feedback: P = V - V * d / 10000.
+     *      timeToMaturityDays is unused but kept in signature for compatibility.
      * @param eFaceValue          Encrypted face value of the invoice.
      * @param eDiscountBps        Encrypted discount rate in basis points.
-     * @param timeToMaturityDays  Time to maturity in days (plaintext).
      * @return ePurchasePrice     Encrypted purchase price.
      */
     function calculatePurchasePrice(
         euint64 eFaceValue,
         euint64 eDiscountBps,
-        uint64 timeToMaturityDays
+        uint64 /* timeToMaturityDays */
     ) external returns (euint64 ePurchasePrice) {
         euint64 eVtimesD   = FHE.mul(eFaceValue, eDiscountBps);
-        euint64 eVtimesDtT = FHE.mul(eVtimesD, timeToMaturityDays);
-        euint64 eDiscount  = FHE.div(eVtimesDtT, 3_650_000); /* 10000 * 365 */
+        /* Changed from annualized to flat discount calculation per user feedback.
+           Trade finance operations prefer flat fees over time-compounded calculations,
+           simplifying reconciliation and aligning with real-world factoring expectations. */
+        /* Flat discount calculation: Discount = FaceValue * DiscountBps / 10000 */
+        euint64 eDiscount  = FHE.div(eVtimesD, 10000);
         euint64 ePrice     = FHE.sub(eFaceValue, eDiscount);
 
         ePurchasePrice = ePrice;

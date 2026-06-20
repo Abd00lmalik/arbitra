@@ -5,7 +5,7 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Building2,
   TrendingUp,
@@ -31,6 +31,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Spinner } from "@/components/ui/Spinner";
+import { readSessionWallet } from "@/lib/sessionWallet";
 import {
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
@@ -153,20 +154,31 @@ async function pollForReceipt(txHash: `0x${string}`, maxAttempts = 30): Promise<
   throw new Error("Transaction not confirmed after 90 seconds. Check Sepolia Etherscan.");
 }
 
-const SBT_CHECK_TIMEOUT_MS = 10_000;
+const CREDENTIAL_READ_TIMEOUT_MS = 20_000;
 
-async function checkSBTWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
+async function readCredentialWithTimeout(
+  readFn: () => Promise<boolean>,
+  label: string,
+): Promise<boolean> {
   try {
     return await Promise.race([
       readFn(),
       new Promise<boolean>((_, reject) => {
-        setTimeout(() => reject(new Error("SBT check timed out")), SBT_CHECK_TIMEOUT_MS);
+        setTimeout(() => reject(new Error(`${label} read timed out`)), CREDENTIAL_READ_TIMEOUT_MS);
       }),
     ]);
   } catch (error) {
-    console.warn("[Arbitra] SBT check failed or timed out, defaulting to false:", error);
+    console.warn(`[Arbitra] ${label} read failed or timed out, defaulting to false:`, error);
     return false;
   }
+}
+
+async function checkSBTWithTimeout(readFn: () => Promise<boolean>, label: string): Promise<boolean> {
+  return readCredentialWithTimeout(readFn, label);
+}
+
+async function readBooleanWithTimeout(readFn: () => Promise<boolean>): Promise<boolean> {
+  return readCredentialWithTimeout(readFn, "Compliance credential");
 }
 
 interface KybFieldErrors {
@@ -328,6 +340,7 @@ export default function RegisterPage() {
   const [kybStep, setKybStep] = useState(0);
   const [isCheckingCredentials, setIsCheckingCredentials] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Preparing your account status...");
+  const lastCredentialCheckKeyRef = useRef<string | null>(null);
 
   const [selectedRole, setSelectedRole] = useState<"supplier" | "investor" | null>(null);
   const [companyName, setCompanyName] = useState("");
@@ -341,11 +354,16 @@ export default function RegisterPage() {
   const [isEncryptingFHE, setIsEncryptingFHE] = useState(false);
   const [sbtTxHash, setSbtTxHash] = useState<`0x${string}` | undefined>(undefined);
   const [fheTxHash, setFheTxHash] = useState<`0x${string}` | undefined>(undefined);
+  const [sessionWallet, setSessionWallet] = useState<`0x${string}` | null>(null);
 
   const browserWalletConnector = connectors.find((connector) => connector.id === "injected");
   const walletConnectConnector = connectors.find((connector) => connector.id === "walletConnect");
-  const activeWallet = wallet ?? (isConnected && address ? address : null);
-  const hasAuthenticatedWallet = isLoggedIn || isConnected;
+  useEffect(() => {
+    setSessionWallet(readSessionWallet());
+  }, [wallet, address, isConnected]);
+
+  const activeWallet = wallet ?? (isConnected && address ? address : sessionWallet);
+  const hasAuthenticatedWallet = isLoggedIn || isConnected || !!sessionWallet;
   const isCorrectNetwork = !isConnected || chainId === 11155111;
   const kybFieldErrors = submitted
     ? validateKYBForm({ companyName, country, registrationNumber, taxID })
@@ -394,6 +412,15 @@ export default function RegisterPage() {
 
     const client = publicClient;
     const walletAddress = activeWallet;
+    const roleParam = searchParams.get("role") ?? "";
+    const upgradeParam = searchParams.get("upgrade") ?? "";
+    const checkKey = `${walletAddress.toLowerCase()}::${nextPath}::${roleParam}::${upgradeParam}`;
+
+    if (lastCredentialCheckKeyRef.current === checkKey) {
+      return;
+    }
+
+    lastCredentialCheckKeyRef.current = checkKey;
     let active = true;
 
     async function checkExistingSBTAndRoute() {
@@ -403,35 +430,39 @@ export default function RegisterPage() {
       setStatusMessage("Preparing your account status...");
 
       try {
-        const urlRole = searchParams.get("role");
-        const isUpgrade = searchParams.get("upgrade") === "true";
+        const urlRole = roleParam || null;
 
-        const hasSupplierSBT = await checkSBTWithTimeout(async () => (
-          await client.readContract({
-            address: SBT_ADDRESS,
-            abi: SBT_ABI,
-            functionName: "hasValidSBT",
-            args: [walletAddress],
-          }) as boolean
-        ));
-
-        const hasInvestorSBT = await checkSBTWithTimeout(async () => (
-          await client.readContract({
-            address: INVESTOR_SBT_ADDRESS,
-            abi: SBT_ABI,
-            functionName: "hasValidSBT",
-            args: [walletAddress],
-          }) as boolean
-        ));
+        const [hasSupplierSBT, hasInvestorSBT] = await Promise.all([
+          checkSBTWithTimeout(async () => (
+            await client.readContract({
+              address: SBT_ADDRESS,
+              abi: SBT_ABI,
+              functionName: "hasValidSBT",
+              args: [walletAddress],
+            }) as boolean
+          ), "Supplier SBT"),
+          checkSBTWithTimeout(async () => (
+            await client.readContract({
+              address: INVESTOR_SBT_ADDRESS,
+              abi: SBT_ABI,
+              functionName: "hasValidSBT",
+              args: [walletAddress],
+            }) as boolean
+          ), "Investor SBT"),
+        ]);
 
         if (!active) return;
 
-        const hasFHE = (await client.readContract({
-          address: IDENTITY_ADDRESS,
-          abi: IDENTITY_ABI,
-          functionName: "hasEncryptedCompliance",
-          args: [walletAddress],
-        })) as boolean;
+        const hasFHE = hasSupplierSBT || hasInvestorSBT
+          ? await readBooleanWithTimeout(async () => (
+              await client.readContract({
+                address: IDENTITY_ADDRESS,
+                abi: IDENTITY_ABI,
+                functionName: "hasEncryptedCompliance",
+                args: [walletAddress],
+              }) as boolean
+            ))
+          : false;
 
         if (!active) return;
 
@@ -496,6 +527,12 @@ export default function RegisterPage() {
       active = false;
     };
   }, [hasAuthenticatedWallet, activeWallet, isInitializing, publicClient, router, nextPath, isCorrectNetwork, searchParams]);
+
+  useEffect(() => {
+    if (!hasAuthenticatedWallet || !activeWallet) {
+      lastCredentialCheckKeyRef.current = null;
+    }
+  }, [hasAuthenticatedWallet, activeWallet]);
 
   useEffect(() => {
     if (!isSbtReceiptSuccess) return;

@@ -152,7 +152,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                     debtor.address,
                     true,
                     faceValue,
-                    fingerprint
+                    fingerprint,
+                    1050n
                 )
             ).to.emit(registry, "InvoiceUploaded").withArgs(nextInvoiceId, supplier.address, debtor.address, (val: bigint) => val > 0n);
 
@@ -273,7 +274,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 debtor.address,
                 true,
                 faceValue,
-                fingerprint
+                fingerprint,
+                1050n
             )).wait();
 
             /* 3. Check duplicate for the same fingerprint - should be true */
@@ -338,7 +340,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 debtor.address,
                 true,
                 faceValue,
-                fingerprint
+                fingerprint,
+                1050n
             )).wait();
 
             /* 5. Expect the count of fingerprints has NOT increased again */
@@ -374,7 +377,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 debtor.address,
                 true,
                 faceValue,
-                fingerprint
+                fingerprint,
+                1050n
             )).wait();
 
             /* Attest and factor */
@@ -444,7 +448,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 debtor.address,
                 true,
                 faceValue,
-                fingerprint
+                fingerprint,
+                1050n
             )).wait();
 
             /* Platform-signed email attestation flow */
