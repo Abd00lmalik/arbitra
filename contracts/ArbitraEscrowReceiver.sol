@@ -83,6 +83,20 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step {
         arbitraRegistry = _registry;
     }
 
+    /**
+     * @notice Emergency admin function to clear a stale or orphaned escrow record.
+     *         Only callable by the owner. Use when a prior partial factoring attempt
+     *         left a stale escrow entry that prevents re-factoring an Attested invoice.
+     * @param invoiceId  The invoice whose escrow record should be cleared.
+     */
+    function adminClearEscrow(uint256 invoiceId) external onlyOwner {
+        require(
+            !escrows[invoiceId].isSettled,
+            "Arbitra: cannot clear a settled escrow"
+        );
+        delete escrows[invoiceId];
+    }
+
     /*************** Registry Functions ***************/
 
     /**
@@ -102,7 +116,15 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step {
         uint256 faceValuePlaintext,
         uint256 maturityTs
     ) external onlyRegistry {
-        require(escrows[invoiceId].supplier == address(0), "Arbitra: escrow already exists");
+        /*
+         * Allow overwriting a stale escrow record (from a prior partial factoring attempt
+         * on this invoice ID before the registry was redeployed) as long as it has not
+         * already been settled.  A settled escrow must never be overwritten.
+         */
+        require(
+            !escrows[invoiceId].isSettled,
+            "Arbitra: escrow already settled"
+        );
 
         escrows[invoiceId] = EscrowRecord({
             supplier: supplier,
