@@ -35,13 +35,13 @@ import {
   shortAddress,
   ARBITRA_REGISTRY_ADDRESS,
   ARBITRA_REGISTRY_ABI,
+  USDC_ADDRESS,
+  USDC_ABI,
   DEFAULT_OPERATOR_EXPIRY_SECONDS,
   InvoiceStatus,
   fromMicro,
   SBT_ABI,
   INVESTOR_SBT_ADDRESS,
-  USDC_ADDRESS,
-  USDC_ABI,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -184,13 +184,34 @@ export function InvoiceDetailModal({
     setGrantError(null);
     try {
       if (!publicClient) throw new Error("Sepolia public client unavailable.");
-      const txHash = await grantAccess(invoice.invoiceId);
-      await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      let txHash: `0x${string}`;
+
+      if (isEmbedded) {
+        /* Web3Auth embedded wallet — must use ethers.js, not wagmi writeContractAsync */
+        const { ethers } = await import("ethers");
+        const signer = await getEmbeddedSigner();
+        const contract = new ethers.Contract(
+          ARBITRA_REGISTRY_ADDRESS,
+          ARBITRA_REGISTRY_ABI,
+          signer
+        );
+        const tx = await contract["requestRiskAssessmentAccess"](invoice.invoiceId);
+        const receipt = await tx.wait();
+        txHash = receipt.hash as `0x${string}`;
+      } else {
+        /* External wallet (MetaMask / WalletConnect) — wagmi works fine */
+        txHash = await grantAccess(invoice.invoiceId);
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+
       setHasGrantedAccess(true);
       await refetchInvoice();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Access grant failed";
-      const clean = msg.includes("User rejected") ? "Transaction cancelled by user." : msg.slice(0, 120);
+      const clean = msg.includes("User rejected") || msg.includes("user rejected")
+        ? "Transaction cancelled by user."
+        : msg.slice(0, 200);
       setGrantError(clean);
     } finally {
       setLocalBusy(false);
@@ -235,41 +256,59 @@ export function InvoiceDetailModal({
         );
       }
 
-      /* Step 1: USDC approval if not already approved */
-      if (!isApproved) {
-        let approvalTxHash: `0x${string}`;
-        if (isEmbedded) {
-          const signer = await getEmbeddedSigner();
-          const { ethers } = await import("ethers");
-          const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
-          const tx = await usdcContract.approve(
-            ARBITRA_REGISTRY_ADDRESS,
-            115792089237316195423570985008687907853269984665640564039457584007913129639935n
-          );
-          approvalTxHash = tx.hash as `0x${string}`;
-        } else {
-          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-          approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
-        }
-        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
-        await refetchApproval();
-      }
-
-      /* Step 2: Factor invoice — USDC transfers to supplier */
-      let factorTxHash: `0x${string}`;
       if (isEmbedded) {
-        const signer = await getEmbeddedSigner();
+        /*
+         * Web3Auth embedded wallet path.
+         * wagmi's writeContractAsync does NOT dispatch through the Web3Auth EIP-1193
+         * provider — transactions must go through ethers.js instead.
+         */
         const { ethers } = await import("ethers");
-        const registryContract = new ethers.Contract(ARBITRA_REGISTRY_ADDRESS, ARBITRA_REGISTRY_ABI, signer);
-        const tx = await registryContract.factorInvoice(
-          invoice.invoiceId,
-          { gasLimit: 1_000_000n } // FHE_FACTOR_GAS_LIMIT
+        const signer = await getEmbeddedSigner();
+
+        /* Step 1: USDC max approval if not already set */
+        if (!isApproved) {
+          const usdcContract = new ethers.Contract(
+            USDC_ADDRESS,
+            USDC_ABI,
+            signer
+          );
+          const MAX_UINT256 = ethers.MaxUint256;
+          const approveTx = await usdcContract["approve"](ARBITRA_REGISTRY_ADDRESS, MAX_UINT256);
+          await approveTx.wait();
+          await refetchApproval();
+        }
+
+        /* Step 2: Factor the invoice — USDC moves investor → supplier on-chain */
+        const registryContract = new ethers.Contract(
+          ARBITRA_REGISTRY_ADDRESS,
+          ARBITRA_REGISTRY_ABI,
+          signer
         );
-        factorTxHash = tx.hash as `0x${string}`;
+        const factorTx = await registryContract["factorInvoice"](invoice.invoiceId, {
+          gasLimit: 1_000_000n,
+        });
+        const receipt = await factorTx.wait();
+        if (!receipt || receipt.status !== 1) {
+          throw new Error("factorInvoice transaction reverted on-chain.");
+        }
       } else {
-        factorTxHash = await factorInvoice(invoice.invoiceId);
+        /*
+         * External wallet path (MetaMask / WalletConnect).
+         * wagmi hooks work correctly here.
+         */
+
+        /* Step 1: USDC approval if not already approved */
+        if (!isApproved) {
+          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
+          const approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
+          await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
+          await refetchApproval();
+        }
+
+        /* Step 2: Factor invoice — USDC transfers to supplier */
+        const factorTxHash = await factorInvoice(invoice.invoiceId);
+        await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
       }
-      await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
 
       const disbursedStr = decrypted?.purchasePrice
         ? `$${fromMicro(decrypted.purchasePrice)} USDC`
@@ -280,11 +319,11 @@ export function InvoiceDetailModal({
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Factoring failed";
-      const clean = msg.includes("User rejected")
+      const clean = msg.includes("User rejected") || msg.includes("user rejected")
         ? "Transaction cancelled by user."
         : msg.includes("Insufficient USDC")
         ? msg
-        : msg.slice(0, 180);
+        : msg.slice(0, 220);
       setFactorError(clean);
     } finally {
       setLocalBusy(false);

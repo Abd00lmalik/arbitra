@@ -49,16 +49,16 @@ export async function generateRiskAssessment(
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 512,
+        temperature: 0.4,
+        maxOutputTokens: 1024,
         responseMimeType: "application/json",
       },
     }),
   });
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    console.error("[Gemini] API error:", response.status, errText);
+    const errBody = await response.text().catch(() => "");
+    console.error("[Gemini] API error:", response.status, errBody.slice(0, 200));
     return getMockRiskAssessment(input);
   }
 
@@ -69,14 +69,20 @@ export async function generateRiskAssessment(
   try {
     const parsed = JSON.parse(text);
     return {
-      riskScore: Number(parsed.riskScore) || 50,
-      riskLabel: parsed.riskLabel || "Medium",
-      summary: parsed.summary || "Risk assessment complete.",
-      factors: Array.isArray(parsed.factors) ? parsed.factors : [],
-      recommendation: parsed.recommendation || "Review before investing.",
+      riskScore: Math.min(100, Math.max(0, Number(parsed.riskScore) || 50)),
+      riskLabel: (["Low", "Medium", "High"].includes(parsed.riskLabel) ? parsed.riskLabel : "Medium") as "Low" | "Medium" | "High",
+      summary: typeof parsed.summary === "string" && parsed.summary.length > 10
+        ? parsed.summary
+        : "Risk assessment complete.",
+      factors: Array.isArray(parsed.factors) && parsed.factors.length > 0
+        ? parsed.factors.slice(0, 6)
+        : ["Insufficient data to generate factors."],
+      recommendation: typeof parsed.recommendation === "string" && parsed.recommendation.length > 5
+        ? parsed.recommendation
+        : "Review before investing.",
     };
   } catch (e) {
-    console.error("[Gemini] Parse error:", e);
+    console.error("[Gemini] Parse error:", e, "Raw text:", text.slice(0, 300));
     return getMockRiskAssessment(input);
   }
 }
@@ -236,39 +242,73 @@ function buildLogisticsProofHash(proofBase64?: string): string {
 function buildPrompt(input: RiskAssessmentInput): string {
   const repaymentRatio = input.repaymentRatioBpsHint
     ? `${(input.repaymentRatioBpsHint / 100).toFixed(1)}%`
-    : "Unknown (no history)";
+    : "Unknown — no prior on-chain repayment history for this supplier";
 
   const discountRate = input.discountRateBpsHint
-    ? `${(input.discountRateBpsHint / 100).toFixed(2)}%`
+    ? `${(input.discountRateBpsHint / 100).toFixed(2)}% (${input.discountRateBpsHint} bps)`
+    : "Undisclosed (FHE-encrypted)";
+
+  const dueDays = input.dueDaysHint !== undefined
+    ? `${input.dueDaysHint} calendar days`
     : "Unknown";
 
-  const dueDays = input.dueDaysHint !== undefined ? `${input.dueDaysHint} days` : "Unknown";
-  const faceValue = input.faceValueHint || "Encrypted";
+  const faceValue = input.faceValueHint || "Confidential (FHE-encrypted on-chain)";
 
-  return `You are a credit risk analyst for an invoice factoring platform using blockchain and FHE encryption.
+  const ageHours = Math.round((Date.now() / 1000 - input.uploadTimestamp) / 3600);
+  const ageLabel = ageHours < 24 ? `${ageHours}h` : `${Math.round(ageHours / 24)}d`;
 
-Analyze the following invoice and return a JSON risk assessment:
+  const status = input.isRepaid
+    ? "Settled (fully repaid)"
+    : input.isFactored
+    ? "Factored — investor capital deployed, awaiting debtor repayment"
+    : "Open — available for investor factoring";
 
-Invoice Details:
-- Invoice ID: #${input.invoiceId}
-- Status: ${input.isFactored ? "Factored (sold)" : "Available for factoring"}${input.isRepaid ? ", Repaid" : ""}
-- Supplier: ${input.supplierAddress}
-- Buyer: ${input.buyerAddress}
-- Face Value: ${faceValue} (encrypted on-chain for privacy)
-- Days to Maturity: ${dueDays}
-- Discount Rate: ${discountRate} (computed from repayment history)
-- Supplier Repayment History: ${repaymentRatio} on-time repayment rate
-- Upload Date: ${new Date(input.uploadTimestamp * 1000).toLocaleDateString()}
+  return `You are a senior trade-finance credit analyst at an institutional asset manager.
+You are performing DUE DILIGENCE on a tokenised invoice listed on the Arbitra decentralised factoring protocol.
+Your analysis will be read by accredited investors deciding whether to commit capital.
+Do NOT produce generic or boilerplate output. Every sentence must be grounded in the specific numbers provided.
 
-Context: This is a decentralized invoice factoring protocol. Lower discount rates indicate better supplier credit history. The FHE (Fully Homomorphic Encryption) system protects exact financial figures.
+═══════════════ INVOICE DATA ═══════════════
+  Invoice ID      : #${input.invoiceId}
+  Status          : ${status}
+  Listed           : ${ageLabel} ago (${new Date(input.uploadTimestamp * 1000).toUTCString()})
+  Face Value      : ${faceValue}
+  Days to Maturity: ${dueDays}
+  Discount Rate   : ${discountRate}
+  Supplier        : ${input.supplierAddress}
+  Buyer / Debtor  : ${input.buyerAddress}
+  On-chain Repay  : ${repaymentRatio}
+═══════════════════════════════════════════
 
-Return ONLY valid JSON in this exact format:
+SCORING RUBRIC (riskScore 0-100, lower = safer):
+  • 0-25   → Low Risk    (strong history, adequate runway, normal discount)
+  • 26-55  → Medium Risk (some unknowns or marginal metrics)
+  • 56-100 → High Risk   (no history, tight tenor, abnormal discount, or red flags)
+
+Assess the following SEVEN dimensions and include ONE bullet per dimension in "factors":
+  1. COUNTERPARTY RISK     — On-chain repayment history, address novelty, KYC unknowns
+  2. CONCENTRATION RISK    — Single-buyer / single-supplier exposure
+  3. TENOR / MATURITY RISK — Days to maturity vs. DeFi settlement latency (3-5 day risk window)
+  4. LIQUIDITY RISK        — Whether discount rate fairly compensates for illiquidity duration
+  5. PROTOCOL / SMART-CONTRACT RISK — Decentralised factoring vs. traditional legal recourse
+  6. OPACITY RISK          — FHE-encrypted values limit independent verification
+  7. MACRO / RECEIVABLES RISK — General receivables default rate context for the invoice size range
+
+Return ONLY valid JSON — no markdown fences, no trailing text:
 {
-  "riskScore": <integer 0-100, lower is better>,
+  "riskScore": <integer 0-100>,
   "riskLabel": "<Low|Medium|High>",
-  "summary": "<2-3 sentence assessment>",
-  "factors": ["<risk factor 1>", "<risk factor 2>", "<risk factor 3>"],
-  "recommendation": "<actionable recommendation for investor>"
+  "summary": "<3-4 sentence analyst summary grounded in the specific invoice data above. Do not mention 'this invoice' without quantifying why.>",
+  "factors": [
+    "<Counterparty: specific observation>",
+    "<Concentration: specific observation>",
+    "<Tenor: specific observation>",
+    "<Liquidity: specific observation>",
+    "<Protocol: specific observation>",
+    "<Opacity: specific observation>",
+    "<Macro/Receivables: specific observation>"
+  ],
+  "recommendation": "<One concrete, actionable sentence for the investor — include a specific action, condition, or threshold.>"
 }`;
 }
 
