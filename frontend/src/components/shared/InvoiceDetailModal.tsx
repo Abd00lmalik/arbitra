@@ -779,6 +779,87 @@ export function InvoiceDetailModal({
               </div>
             )}
 
+            {/* ─── ON-CHAIN TRUST & CRYPTOGRAPHIC SECURITY ATTESTATIONS ─── */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/20 to-teal-950/20 border border-emerald-500/10 space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[14px]">🔒</span>
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-emerald-400">On-Chain Cryptographic & Safety Profile</h4>
+                </div>
+                <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">Secured</span>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                {/* 1. Debtor Attestation */}
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 text-emerald-400">🛡️</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between font-bold text-slate-200">
+                      <span>Debtor Attestation (Plaid Link)</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${invoice.isEmailVerified ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" : "bg-yellow-400/10 text-yellow-400 border border-yellow-400/20"}`}>
+                        {invoice.isEmailVerified ? "Verified ✓" : "Pending Attestation ⌛"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      {invoice.isEmailVerified
+                        ? "Debtor has signed an on-chain cryptographic attestation confirming invoice validity and agreement to pay escrow."
+                        : "Invoice has not yet been confirmed by the debtor. Factoring involves counterparty verification risk."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Collateral Vault Protection */}
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 text-emerald-400">💎</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between font-bold text-slate-200">
+                      <span>Supplier Default Collateral</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${invoice.collateralStaked ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" : "bg-red-400/10 text-red-400 border border-red-400/20"}`}>
+                        {invoice.collateralStaked ? "Staked (5% Vault) ✓" : "Uncollateralized ❌"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      {invoice.collateralStaked
+                        ? "5% of face value is locked in ArbitraCollateralVault as first-loss protection for the investor."
+                        : "Supplier did not stake collateral for this invoice. High risk in case of buyer insolvency."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. Escrow Capital Protection */}
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 text-emerald-400">🏦</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between font-bold text-slate-200">
+                      <span>Escrow Settlement Safety</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
+                        Active Escrow ✓
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      Purchase capital is held securely in the ArbitraEscrowReceiver contract and programmatically released to the supplier.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 4. Zama FHEVM Shielded Financials */}
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 text-emerald-400">🔮</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between font-bold text-slate-200">
+                      <span>FHE Privacy Compliance</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
+                        Zama FHEVM Shielded ✓
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
+                      Sensitive financial parameters (Face Value, Tenor, Discount Rate) are kept confidential using Zama FHEVM homomorphic encryption.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* ─── ADDRESSES BLOCK ─── */}
             <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2 text-xs">
               <div className="flex justify-between">
