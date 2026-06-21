@@ -219,15 +219,94 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             await ethers.provider.send("evm_increaseTime", [30 * 86400 + 10]);
             await ethers.provider.send("evm_mine", []);
 
-            /* Step 6: Simulate maturity payment by Debtor */
-            await (await mockUSDC.connect(debtor).approve(escrowReceiverAddr, faceValue)).wait();
-            await (await escrowReceiver.connect(debtor).settleInvoice(nextInvoiceId)).wait();
+            /* Step 6: Simulate mock bank repayment with oracle-signed payment proof */
+            const paymentReference = ethers.keccak256(ethers.toUtf8Bytes("ARB-LOCKBOX-INV-1"));
+            const bankTraceId = ethers.keccak256(ethers.toUtf8Bytes("MOCKBANK-TRACE-1"));
+            const latestPaymentBlock = await ethers.provider.getBlock("latest");
+            const receivedAt = BigInt(latestPaymentBlock!.timestamp);
+            const paymentNonce = 1n;
+            const purchasePrice = await registry.getPurchasePricePlaintext(nextInvoiceId);
+            const supplierReserve = faceValue - purchasePrice;
+
+            const paymentDomain = {
+                name: "ArbitraSettlement",
+                version: "1",
+                chainId: chainId,
+                verifyingContract: escrowReceiverAddr
+            };
+
+            const paymentTypes = {
+                PaymentReceived: [
+                    { name: "invoiceId",        type: "uint256" },
+                    { name: "paymentReference", type: "bytes32" },
+                    { name: "amount",           type: "uint256" },
+                    { name: "receivedAt",       type: "uint256" },
+                    { name: "nonce",            type: "uint256" }
+                ]
+            };
+
+            const paymentMessage = {
+                invoiceId: nextInvoiceId,
+                paymentReference,
+                amount: faceValue,
+                receivedAt,
+                nonce: paymentNonce
+            };
+
+            const paymentSignature = await platformVerifier.signTypedData(paymentDomain, paymentTypes, paymentMessage);
+            const settlementReceiptHash = ethers.keccak256(
+                ethers.AbiCoder.defaultAbiCoder().encode(
+                    ["uint256", "bytes32", "uint256", "uint256", "uint256", "bytes32", "address"],
+                    [nextInvoiceId, paymentReference, faceValue, receivedAt, paymentNonce, bankTraceId, platformVerifier.address]
+                )
+            );
+
+            await expect(
+                escrowReceiver.connect(bystander).repayInvoice(
+                    nextInvoiceId,
+                    paymentReference,
+                    faceValue,
+                    receivedAt,
+                    paymentNonce,
+                    bankTraceId,
+                    paymentSignature
+                )
+            ).to.emit(escrowReceiver, "SettlementFinalized")
+             .withArgs(nextInvoiceId, paymentReference, settlementReceiptHash);
+
+            await expect(
+                escrowReceiver.connect(bystander).repayInvoice(
+                    nextInvoiceId,
+                    paymentReference,
+                    faceValue,
+                    receivedAt,
+                    paymentNonce,
+                    bankTraceId,
+                    paymentSignature
+                )
+            ).to.be.revertedWith("Arbitra: already settled");
+
+            const investorSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(investor.address);
+            const supplierSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(supplier.address);
+            const platformSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(deployer.address);
+
+            const investorSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, investorSettlementHandle);
+            const supplierSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, supplierSettlementHandle);
+            const platformSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, platformSettlementHandle);
+
+            expect(investorSettlementBalance).to.equal(purchasePrice);
+            expect(supplierSettlementBalance).to.equal(supplierReserve);
+            expect(platformSettlementBalance).to.equal(0n);
 
             /* Check that escrow status is settled and supplier collateral released */
             const invAfterRepay = await registry.invoices(nextInvoiceId);
             expect(invAfterRepay.status).to.equal(3n); /* Settled */
             expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(0n);
             expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(5n); // STAKE_RELEASED
+
+            const ratioHandle = await registry.getSupplierRatioHandle(supplier.address);
+            const repaymentRatio = await fhevm.debugger.decryptEuint(FhevmType.euint64, ratioHandle);
+            expect(repaymentRatio).to.equal(10000n);
         });
 
         it("should process on-chain FHE duplicate checking loop correctly", async function () {

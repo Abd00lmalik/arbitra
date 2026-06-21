@@ -561,8 +561,22 @@ export const USDC_ABI = [
   },
 ] as const;
 
-/* Escrow Receiver ABI (v2.2, standard USDC settle) */
+/* Escrow Receiver ABI (v2.3, signed settlement proof) */
 export const ESCROW_RECEIVER_ABI = [
+  {
+    type: "function", name: "repayInvoice",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "invoiceId",         type: "uint256" },
+      { name: "paymentReference",  type: "bytes32" },
+      { name: "amount",            type: "uint256" },
+      { name: "receivedAt",        type: "uint256" },
+      { name: "nonce",             type: "uint256" },
+      { name: "bankTraceId",       type: "bytes32" },
+      { name: "signature",         type: "bytes" },
+    ],
+    outputs: [],
+  },
   {
     type: "function", name: "settleInvoice",
     stateMutability: "nonpayable",
@@ -584,9 +598,39 @@ export const ESCROW_RECEIVER_ABI = [
       { name: "investor",          type: "address" },
       { name: "encFaceValue",      type: "bytes32" },
       { name: "faceValuePlaintext",type: "uint256" },
+      { name: "purchasePricePlaintext", type: "uint256" },
+      { name: "platformFeePlaintext", type: "uint256" },
       { name: "maturityTimestamp", type: "uint256" },
     ],
     outputs: [],
+  },
+  {
+    type: "function", name: "getSettlementAudit",
+    stateMutability: "view",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [
+      { name: "paymentReference", type: "bytes32" },
+      { name: "bankTraceId", type: "bytes32" },
+      { name: "settlementReceiptHash", type: "bytes32" },
+      { name: "settledAt", type: "uint256" },
+      { name: "purchasePricePlaintext", type: "uint256" },
+      { name: "supplierReservePlaintext", type: "uint256" },
+      { name: "platformFeePlaintext", type: "uint256" },
+    ],
+  },
+  {
+    type: "function", name: "getConfidentialSettlementBalance",
+    stateMutability: "view",
+    inputs: [{ name: "beneficiary", type: "address" }],
+    outputs: [{ name: "balanceHandle", type: "bytes32" }],
+  },
+  {
+    type: "event", name: "SettlementFinalized",
+    inputs: [
+      { name: "invoiceId", type: "uint256", indexed: true },
+      { name: "paymentReference", type: "bytes32", indexed: true },
+      { name: "settlementReceiptHash", type: "bytes32", indexed: true },
+    ],
   },
 ] as const;
 

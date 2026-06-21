@@ -44,6 +44,8 @@ interface IArbitraEscrowReceiver {
         address investor,
         euint64 encFaceValue,
         uint256 faceValuePlaintext,
+        uint256 purchasePricePlaintext,
+        uint256 platformFeePlaintext,
         uint256 maturityTs
     ) external;
     function initiateDispute(uint256 invoiceId) external;
@@ -459,6 +461,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
          * The encrypted values are still used for all FHE display and calculation logic.
          */
         uint256 purchasePricePlaintext = _computePurchasePricePlaintext(invoiceId);
+        uint256 platformFeePlaintext = 0;
 
         inv.investor = msg.sender;
         inv.status = InvoiceStatus.Factored;
@@ -481,6 +484,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
             msg.sender,
             inv.faceValue,
             inv.faceValuePlaintext,
+            purchasePricePlaintext,
+            platformFeePlaintext,
             inv.maturityTimestamp
         );
 

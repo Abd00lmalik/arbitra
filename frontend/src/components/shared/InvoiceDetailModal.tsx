@@ -35,6 +35,8 @@ import {
   shortAddress,
   ARBITRA_REGISTRY_ADDRESS,
   ARBITRA_REGISTRY_ABI,
+  ESCROW_RECEIVER_ADDRESS,
+  ESCROW_RECEIVER_ABI,
   USDC_ADDRESS,
   USDC_ABI,
   DEFAULT_OPERATOR_EXPIRY_SECONDS,
@@ -49,6 +51,24 @@ interface InvoiceDetailModalProps {
   onClose: () => void;
   invoiceId: bigint | undefined;
   onActionSuccess?: () => void;
+}
+
+interface MockSettlementProof {
+  paymentReference: `0x${string}`;
+  paymentReferencePlain: string;
+  amount: string;
+  receivedAt: string;
+  nonce: string;
+  bankTraceId: `0x${string}`;
+  bankTracePlain: string;
+  signature: `0x${string}`;
+}
+
+interface SettlementSuccessState {
+  txHash: `0x${string}`;
+  paymentReferencePlain: string;
+  bankTracePlain: string;
+  settlementReceiptHash?: `0x${string}`;
 }
 
 /* Compute annualized yield % from decrypted face value, purchase price, and days to maturity */
@@ -78,6 +98,14 @@ export function InvoiceDetailModal({
     address: ARBITRA_REGISTRY_ADDRESS,
     abi: ARBITRA_REGISTRY_ABI,
     functionName: "getPurchasePricePlaintext",
+    args: invoiceId !== undefined ? [invoiceId] : undefined,
+    query: { enabled: invoiceId !== undefined },
+  });
+
+  const { data: settlementAudit, refetch: refetchSettlementAudit } = useReadContract({
+    address: ESCROW_RECEIVER_ADDRESS,
+    abi: ESCROW_RECEIVER_ABI,
+    functionName: "getSettlementAudit",
     args: invoiceId !== undefined ? [invoiceId] : undefined,
     query: { enabled: invoiceId !== undefined },
   });
@@ -118,6 +146,9 @@ export function InvoiceDetailModal({
   const [grantError, setGrantError] = useState<string | null>(null);
   const [factorError, setFactorError] = useState<string | null>(null);
   const [factorSuccess, setFactorSuccess] = useState<{ disbursed: string; invoiceIdStr: string } | null>(null);
+  const [settlementBusy, setSettlementBusy] = useState(false);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
+  const [settlementSuccess, setSettlementSuccess] = useState<SettlementSuccessState | null>(null);
 
   if (!isOpen || invoiceId === undefined || !invoice) return null;
 
@@ -327,6 +358,99 @@ export function InvoiceDetailModal({
       setFactorError(clean);
     } finally {
       setLocalBusy(false);
+    }
+  };
+
+  const handleSimulateRepayment = async () => {
+    setSettlementBusy(true);
+    setSettlementError(null);
+    setSettlementSuccess(null);
+
+    try {
+      if (!publicClient) throw new Error("Sepolia public client unavailable.");
+      if (!invoice.faceValuePlaintext || invoice.faceValuePlaintext === 0n) {
+        throw new Error("Invoice face value is unavailable for mock lockbox reconciliation.");
+      }
+
+      const webhookResponse = await fetch("/api/mock-bank-webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          invoiceId: invoice.invoiceId.toString(),
+          amount: invoice.faceValuePlaintext.toString(),
+        }),
+      });
+      const webhookPayload = await webhookResponse.json();
+      if (!webhookResponse.ok || !webhookPayload?.proof) {
+        throw new Error(webhookPayload?.error || "Mock bank webhook failed.");
+      }
+
+      const proof = webhookPayload.proof as MockSettlementProof;
+      let txHash: `0x${string}`;
+
+      if (isEmbedded) {
+        const { ethers } = await import("ethers");
+        const signer = await getEmbeddedSigner();
+        const escrowContract = new ethers.Contract(
+          ESCROW_RECEIVER_ADDRESS,
+          ESCROW_RECEIVER_ABI,
+          signer
+        );
+        const tx = await escrowContract["repayInvoice"](
+          invoice.invoiceId,
+          proof.paymentReference,
+          BigInt(proof.amount),
+          BigInt(proof.receivedAt),
+          BigInt(proof.nonce),
+          proof.bankTraceId,
+          proof.signature,
+          { gasLimit: 1_200_000n }
+        );
+        const receipt = await tx.wait();
+        if (!receipt || receipt.status !== 1) {
+          throw new Error("repayInvoice transaction reverted on-chain.");
+        }
+        txHash = receipt.hash as `0x${string}`;
+      } else {
+        if (!walletClient || !currentUserAddress) {
+          throw new Error("Connect a wallet to submit the settlement proof.");
+        }
+        txHash = await walletClient.writeContract({
+          account: currentUserAddress as `0x${string}`,
+          address: ESCROW_RECEIVER_ADDRESS,
+          abi: ESCROW_RECEIVER_ABI,
+          functionName: "repayInvoice",
+          args: [
+            invoice.invoiceId,
+            proof.paymentReference,
+            BigInt(proof.amount),
+            BigInt(proof.receivedAt),
+            BigInt(proof.nonce),
+            proof.bankTraceId,
+            proof.signature,
+          ],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+
+      const auditResult = await refetchSettlementAudit();
+      await refetchInvoice();
+      if (onActionSuccess) onActionSuccess();
+
+      setSettlementSuccess({
+        txHash,
+        paymentReferencePlain: proof.paymentReferencePlain,
+        bankTracePlain: proof.bankTracePlain,
+        settlementReceiptHash: auditResult.data?.[2] as `0x${string}` | undefined,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Settlement simulation failed";
+      const clean = msg.includes("User rejected") || msg.includes("user rejected")
+        ? "Transaction cancelled by user."
+        : msg.slice(0, 220);
+      setSettlementError(clean);
+    } finally {
+      setSettlementBusy(false);
     }
   };
 
@@ -667,6 +791,77 @@ export function InvoiceDetailModal({
                   <span className="text-[11px] text-slate-400">Computed from decrypted face value, purchase price, and maturity</span>
                 </div>
                 <span className="text-xl font-black text-neon-green font-mono">{realYield}</span>
+              </div>
+            )}
+
+            {isFactored && (
+              <div className="p-4 rounded-2xl bg-cyan-950/20 border border-neon-cyan/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-neon-cyan">
+                      Settlement Reconciliation
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Mock SPV lockbox webhook, oracle proof, and confidential payout ledger.
+                    </p>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono border ${
+                    isRepaid
+                      ? "bg-neon-green/10 text-neon-green border-neon-green/20"
+                      : "bg-yellow-400/10 text-yellow-400 border-yellow-400/20"
+                  }`}>
+                    {isRepaid ? "SETTLED" : "READY"}
+                  </span>
+                </div>
+
+                {!isRepaid && (
+                  <NeonButton
+                    variant="primary"
+                    size="sm"
+                    loading={settlementBusy}
+                    onClick={handleSimulateRepayment}
+                    className="w-full bg-gradient-to-r from-neon-cyan to-emerald-500 border-neon-cyan/50"
+                  >
+                    {settlementBusy ? "Reconciling Mock Lockbox..." : "Simulate Repayment"}
+                  </NeonButton>
+                )}
+
+                {settlementError && (
+                  <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
+                    {settlementError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-2 text-[11px]">
+                  <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
+                    <span className="text-slate-500">Payment Reference</span>
+                    <span className="font-mono text-slate-300 truncate">
+                      {settlementSuccess?.paymentReferencePlain || (settlementAudit?.[0] && settlementAudit[0] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementAudit[0]) : "-")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
+                    <span className="text-slate-500">Mock Bank Trace</span>
+                    <span className="font-mono text-slate-300 truncate">
+                      {settlementSuccess?.bankTracePlain || (settlementAudit?.[1] && settlementAudit[1] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementAudit[1]) : "-")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
+                    <span className="text-slate-500">Oracle Proof Tx</span>
+                    <span className="font-mono text-slate-300 truncate">
+                      {settlementSuccess?.txHash ? shortAddress(settlementSuccess.txHash) : "-"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
+                    <span className="text-slate-500">Settlement Receipt</span>
+                    <span className="font-mono text-slate-300 truncate">
+                      {settlementSuccess?.settlementReceiptHash
+                        ? shortAddress(settlementSuccess.settlementReceiptHash)
+                        : settlementAudit?.[2] && settlementAudit[2] !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        ? shortAddress(settlementAudit[2])
+                        : "-"}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 
