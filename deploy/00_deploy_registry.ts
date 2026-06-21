@@ -5,6 +5,14 @@
 
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction }             from "hardhat-deploy/types";
+import * as dotenv from "dotenv";
+import * as path from "path";
+
+// Load environment variables from both root and frontend
+dotenv.config({ path: path.join(__dirname, "../frontend/.env.local") });
+dotenv.config({ path: path.join(__dirname, "../frontend/.env") });
+dotenv.config({ path: path.join(__dirname, "../.env.local") });
+dotenv.config({ path: path.join(__dirname, "../.env") });
 
 /*
  * Zama Wrappers Registry on Sepolia.
@@ -85,7 +93,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       from: deployer,
       args: [],
       log: true,
-      gasLimit: 1500000,
+      gasLimit: 3500000,
       waitConfirmations: 2,
     });
     fpRegistryAddress = fpRegistryDeployment.address;
@@ -95,7 +103,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       from: deployer,
       args: [],
       log: true,
-      gasLimit: 1500000,
+      gasLimit: 3500000,
       waitConfirmations: 2,
     });
     riskCalcAddress = riskCalcDeployment.address;
@@ -105,13 +113,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       from: deployer,
       args: [usdcAddress],
       log: true,
-      gasLimit: 1500000,
+      gasLimit: 3500000,
       waitConfirmations: 2,
     });
     vaultAddress = vaultDeployment.address;
 
-    escrowAddress = "0x897B76cAEcd5E4002637fC3d4a7A98043Ca18f79";
-    console.log(`\nReusing pre-deployed Sepolia EscrowReceiver: ${escrowAddress}`);
+    /* Deploy the NEW ArbitraEscrowReceiver bytecode on Sepolia */
+    console.log(`\nDeploying EscrowReceiver on Sepolia...`);
+    const escrowDeployment = await deploy("ArbitraEscrowReceiver", {
+      from: deployer,
+      args: [usdcAddress],
+      log: true,
+      gasLimit: 3500000,
+      waitConfirmations: 2,
+    });
+    escrowAddress = escrowDeployment.address;
   } else {
     /* 1. Deploy FingerprintRegistry */
     const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
@@ -140,13 +156,25 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   /* 5. Deploy main InvoiceRegistry */
   let platformVerifier = process.env.PLATFORM_VERIFIER_ADDRESS;
+  const verifierPrivateKey = process.env.VERIFIER_PRIVATE_KEY;
+  if (verifierPrivateKey && verifierPrivateKey.startsWith("0x")) {
+    try {
+      const verifierWallet = new hEthers.Wallet(verifierPrivateKey);
+      platformVerifier = verifierWallet.address;
+      console.log(`- Derived platformVerifier address from VERIFIER_PRIVATE_KEY: ${platformVerifier}`);
+    } catch (e: any) {
+      console.warn(`- Failed to derive platformVerifier from VERIFIER_PRIVATE_KEY: ${e.message}`);
+    }
+  }
+
   if (!platformVerifier) {
     if (network.name === "sepolia") {
-      throw new Error("PLATFORM_VERIFIER_ADDRESS not set in env");
+      throw new Error("PLATFORM_VERIFIER_ADDRESS or VERIFIER_PRIVATE_KEY not set in env");
     } else {
       /* For local testing, use a known account (e.g. signer 9 or deployer) */
       const signers = await hEthers.getSigners();
       platformVerifier = signers[9] ? signers[9].address : deployer;
+      console.log(`- Using local test verifier (signer 9 / deployer): ${platformVerifier}`);
     }
   }
 
@@ -186,7 +214,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     console.log("- Setting Registry on EscrowReceiver...");
     await (await escrowReceiver.setRegistry(registryDeployment.address)).wait();
   }
-  if ((await registry.fpRegistry()) !== fpRegistryAddress) {
+
+  // Robust target contracts wiring checks
+  const currentFpRegistry = await registry.fpRegistry();
+  const currentRiskCalc = await registry.riskCalc();
+  const currentVault = await registry.collateralVault();
+  const currentEscrow = await registry.escrowReceiver();
+
+  if (
+    currentFpRegistry !== fpRegistryAddress ||
+    currentRiskCalc !== riskCalcAddress ||
+    currentVault !== vaultAddress ||
+    currentEscrow !== escrowAddress
+  ) {
     console.log("- Configuring target contracts on InvoiceRegistry...");
     await (await registry.setContracts(
       fpRegistryAddress,
@@ -194,6 +234,18 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       vaultAddress,
       escrowAddress
     )).wait();
+  }
+
+  /* Fix platformVerifier mismatch */
+  if (platformVerifier) {
+    const currentVerifier = await registry.platformVerifier();
+    if (currentVerifier.toLowerCase() !== platformVerifier.toLowerCase()) {
+      console.log(`- Updating platformVerifier from ${currentVerifier} → ${platformVerifier}...`);
+      await (await registry.setPlatformVerifier(platformVerifier)).wait();
+      console.log("- platformVerifier updated successfully.");
+    } else {
+      console.log(`- platformVerifier already correct: ${currentVerifier}`);
+    }
   }
 
   try {
