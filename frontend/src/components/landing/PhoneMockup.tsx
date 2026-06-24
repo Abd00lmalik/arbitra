@@ -498,7 +498,7 @@ export function PhoneMockup() {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                   <span style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", fontWeight: 600 }}>
-                    Gemini Risk
+                    Risk Review
                   </span>
                   <span style={{ fontSize: "10px", color: "#00FF88", fontWeight: 700 }}>LOW RISK</span>
                 </div>

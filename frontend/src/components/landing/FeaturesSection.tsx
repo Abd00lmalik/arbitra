@@ -103,8 +103,8 @@ export function FeaturesSection() {
     },
     {
       illustration: <LockVaultIllustration />,
-      title: "AI Risk Assessment",
-      description: "Gemini Underwriter retrieves and analyzes privacy-preserving credit profiles off-chain. Generates automated, secure risk scores without exposing underlying transaction data.",
+      title: "Deterministic Risk Review",
+      description: "Structured invoice fields and privacy-preserving contract data feed a deterministic underwriting model. Investors get a stable recommendation without external inference APIs in the financial core.",
       accentColor: "rgba(123, 47, 255, 0.25)",
       shadowColor: "rgba(123, 47, 255, 0.12)"
     },

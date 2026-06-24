@@ -90,10 +90,10 @@ export function TrustBar() {
         {/* Item 4 */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "140px" }}>
           <span style={{ fontSize: "11px", color: "#8B9CC8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
-            AI Underwriter
+            Underwriting
           </span>
           <span style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", fontFamily: "Satoshi, sans-serif" }}>
-            Google Gemini
+            Deterministic Model
           </span>
         </div>
 

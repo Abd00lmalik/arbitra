@@ -46,8 +46,8 @@ export function HowItWorks() {
     },
     {
       number: "03",
-      title: "AI Risk Assessment",
-      description: "Investors sign an EIP-712 message to decrypt a privacy-safe summary. Gemini Underwriter returns a structured risk score and recommendation.",
+      title: "Deterministic Risk Assessment",
+      description: "Investors sign an EIP-712 message to decrypt a privacy-safe summary. Arbitra returns a deterministic risk score and recommendation from structured invoice and protocol signals.",
       icon: (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="1.5">
           <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />

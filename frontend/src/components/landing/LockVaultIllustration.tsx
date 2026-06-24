@@ -1,6 +1,6 @@
 /**
  * @file LockVaultIllustration.tsx
- * @description SVG illustration representing the AI risk assessment engine.
+ * @description SVG illustration representing the deterministic risk assessment engine.
  */
 
 import React from "react";
@@ -87,7 +87,7 @@ export function LockVaultIllustration() {
         RISK
       </text>
 
-      {/* Gemini badge */}
+      {/* Deterministic review badge */}
       <rect
         x="110"
         y="115"
@@ -106,7 +106,7 @@ export function LockVaultIllustration() {
         fontSize="8"
         fontFamily="Satoshi, sans-serif"
       >
-        GEMINI
+        MODEL
       </text>
 
       {/* Connections from neural net to output */}

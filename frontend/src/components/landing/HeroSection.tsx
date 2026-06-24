@@ -328,8 +328,8 @@ export function HeroSection() {
             }}
           >
             Suppliers tokenize invoices as encrypted RWAs. Investors assess risk
-            via Gemini AI and factor them onchain - all financial data protected
-            by Fully Homomorphic Encryption. Zero plaintext, ever.
+            through deterministic underwriting signals and factor them onchain -
+            all financial data protected by Fully Homomorphic Encryption.
           </motion.p>
 
           {/* CTA buttons */}
@@ -407,7 +407,7 @@ export function HeroSection() {
               { icon: "lock", label: "Zama FHEVM" },
               { icon: "layers", label: "ERC-7984" },
               { icon: "cpu", label: "Sepolia Testnet" },
-              { icon: "stars", label: "Gemini AI" },
+              { icon: "stars", label: "Deterministic Core" },
               { icon: "shield", label: "Zero Plaintext" }
             ].map(({ icon, label }) => (
               <div key={label} style={{

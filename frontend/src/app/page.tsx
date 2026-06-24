@@ -16,7 +16,7 @@ import { BackgroundGrid } from "@/components/landing/BackgroundGrid";
 export const metadata: Metadata = {
   title: "Arbitra - Confidential Invoice Factoring",
   description:
-    "Tokenize invoices as private RWAs. FHE-encrypted face values, AI-powered risk assessment, and on-chain credit scoring - all on Sepolia testnet using Zama FHEVM.",
+    "Tokenize invoices as private RWAs. FHE-encrypted face values, deterministic ingestion, and on-chain credit scoring - all on Sepolia testnet using Zama FHEVM.",
   openGraph: {
     title: "Arbitra - Confidential Invoice Factoring",
     description:

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
 import { useRiskAssessment } from "@/hooks/useRiskAssessment";
-import type { RiskAssessmentInput, RiskAssessmentResult } from "@/lib/gemini";
+import type { RiskAssessmentInput, RiskAssessmentResult } from "@/lib/risk-assessment";
 import type { InvoiceOnChain } from "@/lib/contracts";
 
 interface RiskAssessmentPanelProps {
@@ -177,16 +177,16 @@ export function RiskAssessmentPanel({
             <path d="M8 2L14 11H2L8 2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
             <path d="M8 7v2M8 11v.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </svg>
-          <span className="text-sm font-semibold text-white">AI Risk Assessment</span>
+          <span className="text-sm font-semibold text-white">Risk Assessment</span>
         </div>
-        <span className="text-[10px] text-slate-500 font-mono">Gemini Flash</span>
+        <span className="text-[10px] text-slate-500 font-mono">Deterministic</span>
       </div>
 
       {/* Content */}
       {!assessment && !isLoading && (
         <div className="text-center py-4">
           <div className="text-slate-500 text-sm mb-4">
-            Get an AI-powered risk assessment for this invoice based on supplier history,
+            Get a deterministic risk assessment for this invoice based on supplier history,
             maturity, and discount rate.
           </div>
           <NeonButton
@@ -210,7 +210,7 @@ export function RiskAssessmentPanel({
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span className="text-sm text-slate-400">Analyzing with Gemini...</span>
+          <span className="text-sm text-slate-400">Calculating risk profile...</span>
         </div>
       )}
 
