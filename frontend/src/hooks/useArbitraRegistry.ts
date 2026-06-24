@@ -152,7 +152,7 @@ export function useFactorInvoice() {
 }
 
 /*
- * Hook: upload a new invoice (takes 5 encrypted handles and proofs, debtor, and gemini config).
+ * Hook: upload a new invoice (takes 5 encrypted handles and proofs plus the protocol config flags).
  */
 export function useUploadInvoice() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
@@ -170,7 +170,7 @@ export function useUploadInvoice() {
       encRepMultiplier: `0x${string}`,
       proofRepMultiplier: `0x${string}`,
       debtor: `0x${string}`,
-      enableGemini: boolean,
+      enableUnderwriting: boolean,
       faceValuePlaintext: bigint,
       plaintextFingerprint: bigint,
       discountRatePlaintext: bigint
@@ -187,7 +187,7 @@ export function useUploadInvoice() {
           encBaseRate, proofBaseRate,
           encRepMultiplier, proofRepMultiplier,
           debtor,
-          enableGemini,
+          enableUnderwriting,
           faceValuePlaintext,
           plaintextFingerprint,
           discountRatePlaintext

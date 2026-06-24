@@ -19,8 +19,7 @@ type VerifyTokenPayload = {
 function getTokenSecret() {
   const secret =
     process.env.VERIFIER_PRIVATE_KEY ||
-    process.env.RESEND_API_KEY ||
-    process.env.GEMINI_API_KEY;
+    process.env.RESEND_API_KEY;
 
   if (!secret) {
     throw new Error("Verification token secret is not configured.");

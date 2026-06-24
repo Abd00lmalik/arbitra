@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { RiskAssessmentResult, RiskAssessmentInput } from "@/lib/gemini";
+import type { RiskAssessmentResult, RiskAssessmentInput } from "@/lib/risk-assessment";
 
 interface UseRiskAssessmentResult {
   assessment: RiskAssessmentResult | null;
@@ -11,8 +11,7 @@ interface UseRiskAssessmentResult {
 }
 
 /**
- * Hook to fetch AI risk assessment from the /api/risk-assessment endpoint.
- * Calls Gemini Flash via the Next.js API route (server-side, key never exposed).
+ * Hook to fetch deterministic risk assessment data from the server-side API route.
  */
 export function useRiskAssessment(): UseRiskAssessmentResult {
   const [assessment, setAssessment] = useState<RiskAssessmentResult | null>(null);

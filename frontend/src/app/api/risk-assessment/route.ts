@@ -1,17 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { generateRiskAssessment } from "@/lib/gemini";
-import type { RiskAssessmentInput } from "@/lib/gemini";
-
-/**
- * POST /api/risk-assessment
- * Accepts RiskAssessmentInput JSON body, returns RiskAssessmentResult.
- * Server-side only — GEMINI_API_KEY stays on the server.
+/*
+ * @file route.ts
+ * @description POST /api/risk-assessment returns a deterministic investor risk summary.
  */
+
+import { NextRequest, NextResponse } from "next/server";
+import { generateRiskAssessment } from "@/lib/risk-assessment";
+import type { RiskAssessmentInput } from "@/lib/risk-assessment";
+
 export async function POST(req: NextRequest) {
   try {
     const body: RiskAssessmentInput = await req.json();
 
-    /* Basic validation */
     if (
       typeof body.invoiceId !== "number" ||
       typeof body.supplierAddress !== "string" ||
@@ -19,11 +18,11 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Invalid request body" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const result = await generateRiskAssessment(body);
+    const result = generateRiskAssessment(body);
     return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Internal error";
