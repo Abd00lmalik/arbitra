@@ -5,7 +5,6 @@
 
 import type { ExtractionResult, InvoiceDraft } from "./types";
 import { extractPdfText } from "./pdf.extractor";
-import { extractOcrText } from "./ocr.extractor";
 import { parseInvoiceText } from "./invoice.parser";
 import { validateExtractionText } from "./ingestion.validator";
 
@@ -17,7 +16,7 @@ export type IngestionResult = {
 
 export type IngestionDependencies = {
   extractPdfText: typeof extractPdfText;
-  extractOcrText: typeof extractOcrText;
+  extractOcrText: typeof import("./ocr.extractor").extractOcrText;
 };
 
 /**
@@ -27,6 +26,8 @@ export type IngestionDependencies = {
  * @returns Parsed invoice draft plus extraction metadata.
  */
 export async function ingestInvoice(pdfBuffer: Buffer): Promise<IngestionResult> {
+  const { extractOcrText } = await import("./ocr.extractor");
+
   return ingestInvoiceWithDependencies(pdfBuffer, {
     extractPdfText,
     extractOcrText,

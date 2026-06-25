@@ -289,7 +289,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     file.name.toLowerCase().endsWith(".xml") ||
     file.name.toLowerCase().endsWith(".json");
 
-  /* Process invoice and logistics proof files through the AI parsing API. */
+  /* Process invoice and logistics proof files through the deterministic parsing API. */
   const processFiles = async (pdfFile: File, proofFile: File | null) => {
     if (pdfFile.type !== "application/pdf") {
       setErrorMsg("Please upload a valid PDF invoice document.");
@@ -304,7 +304,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setIsParsing(true);
     setErrorMsg(null);
 
-    // Read PDF file as base64
+    /* Preserve a local PDF preview payload for downstream upload steps. */
     const reader = new FileReader();
     reader.onload = (e) => {
       setPdfBase64(e.target?.result as string);
@@ -323,11 +323,24 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         body: formData,
       });
 
+      const contentType = res.headers.get("content-type");
+      if (!contentType?.includes("application/json")) {
+        const responseText = await res.text();
+        throw new Error(
+          `Invoice parsing failed: expected JSON but received ${contentType ?? "unknown content type"}. Response: ${responseText.slice(0, 500)}`,
+        );
+      }
+
       const data = await res.json();
 
       if (!res.ok) {
-        const errorText = data.details ? `${data.error ?? "Failed to parse invoice via Gemini AI."} ${data.details}` : data.error;
-        throw new Error(errorText ?? "Failed to parse invoice via Gemini AI.");
+        const baseMessage =
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error.trim()
+            : "Failed to parse invoice.";
+        const detailMessage =
+          typeof data?.details === "string" && data.details.trim().length > 0 ? data.details.trim() : "";
+        throw new Error(detailMessage ? `${baseMessage} ${detailMessage}` : baseMessage);
       }
         
       setInvoice({
@@ -700,7 +713,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
 
       setStakeStep("Collateral locked ✓");
-      // Save to localStorage
+      /* Keep the local tx reference so refreshes do not strand the stake step. */
       const stakeData = {
         fingerprint: invoice.fingerprint.toString(),
         supplier: activeWallet,
@@ -780,7 +793,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       setEncryptionSubstep("blockchain");
       let hash: `0x${string}`;
 
-      // Calculate plaintext discount rate based on supplier delay history (simulating contract logic)
+      /* Mirror the contract-facing discount hint so the wizard preview stays deterministic. */
       let expectedDelayDays = 10n;
       if (supplierInvoiceIds && supplierInvoiceIds.length > 0 && supplierInvoicesData) {
         const total = BigInt(supplierInvoiceIds.length);
@@ -789,7 +802,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           if (res.status === "success" && res.result) {
             const rawInvoice = res.result as readonly any[];
             const status = Number(rawInvoice[11]);
-            if (status === 3) { // Settled
+            if (status === 3) { /* Settled */
               repaid += 1n;
             }
           }
@@ -800,7 +813,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       const rawDiscount = invoice.baseRate + invoice.reputationMultiplier * (expectedDelayDays * 15n);
       const discountRatePlaintext = rawDiscount > 1500n ? 1500n : rawDiscount;
 
-      // 1. Call confirmAndRegister on the Fingerprint Registry
+      /* Register the fingerprint before the invoice write to preserve duplicate protection. */
       let confirmTxHash: `0x${string}`;
       if (isEmbedded) {
         const signer = await getEmbeddedSigner();
@@ -826,7 +839,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         timeout: 120_000,
       });
 
-      // 2. Call uploadInvoice on the Invoice Registry
+      /* Submit the encrypted invoice payload to the registry after duplicate confirmation. */
       if (isEmbedded) {
         const signer = await getEmbeddedSigner();
         const { ethers } = await import("ethers");
@@ -1032,7 +1045,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
               {isParsing ? (
                 <div className="space-y-3 flex flex-col items-center">
                   <div className="w-8 h-8 rounded-full border-2 border-neon-cyan/20 border-t-neon-cyan animate-spin" />
-                  <span className="text-xs text-slate-400">Gemini AI parsing document...</span>
+                  <span className="text-xs text-slate-400">Parsing document...</span>
                 </div>
               ) : (
                 <div className="space-y-2 flex flex-col items-center text-center">
@@ -1080,7 +1093,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             <div className="text-center">
               <h3 className="text-sm font-semibold text-white mb-1">Verify Extracted Details</h3>
               <p className="text-xs text-slate-500">
-                Confirm underwriting parameters processed by Gemini AI.
+                Confirm deterministic underwriting parameters before submission.
               </p>
             </div>
 
