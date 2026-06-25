@@ -10,12 +10,12 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { promisify } from "util";
 import { createWorker } from "tesseract.js";
+import { resolvePackageAsset } from "./runtime-paths";
 
 const execFileAsync = promisify(execFile);
-const projectRoot = process.cwd();
-const workerPath = path.join(projectRoot, "node_modules", "tesseract.js", "dist", "worker.min.js");
-const corePath = path.join(projectRoot, "node_modules", "tesseract.js-core");
-const langPath = path.join(projectRoot, "node_modules", "@tesseract.js-data", "eng", "4.0.0");
+const workerPath = resolvePackageAsset("tesseract.js", "dist", "worker.min.js");
+const corePath = resolvePackageAsset("tesseract.js-core");
+const langPath = resolvePackageAsset("@tesseract.js-data/eng", "4.0.0");
 
 /**
  * Render the first pages of a PDF into PNGs using the local pdf-parse CLI.
@@ -24,12 +24,12 @@ const langPath = path.join(projectRoot, "node_modules", "@tesseract.js-data", "e
  * @param outputDir Target directory for screenshots.
  */
 async function renderPdfScreenshots(pdfPath: string, outputDir: string): Promise<void> {
-  const cliPath = path.join(projectRoot, "node_modules", "pdf-parse", "bin", "cli.mjs");
+  const cliPath = resolvePackageAsset("pdf-parse", "bin", "cli.mjs");
   await execFileAsync(
     process.execPath,
     [cliPath, "screenshot", pdfPath, "--output", outputDir, "--scale", "2.0"],
     {
-      cwd: projectRoot,
+      cwd: path.dirname(cliPath),
       maxBuffer: 16 * 1024 * 1024,
     },
   );
@@ -49,7 +49,7 @@ export async function extractOcrText(pdfBuffer: Buffer): Promise<{ text: string;
     workerPath,
     corePath,
     langPath,
-    cachePath: path.join(projectRoot, ".tesseract-cache"),
+    cachePath: path.join(tmpdir(), "arbitra-tesseract-cache"),
     gzip: true,
   });
 

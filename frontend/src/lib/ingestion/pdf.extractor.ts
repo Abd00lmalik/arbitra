@@ -9,6 +9,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { resolvePackageAsset } from "./runtime-paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,10 +21,9 @@ const execFileAsync = promisify(execFile);
  * @throws If the PDF cannot be parsed.
  */
 export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  const workspaceRoot = process.cwd();
   const tempDir = await mkdtemp(path.join(tmpdir(), "arbitra-pdf-"));
   const pdfPath = path.join(tempDir, "invoice.pdf");
-  const cliPath = path.join(workspaceRoot, "node_modules", "pdf-parse", "bin", "cli.mjs");
+  const cliPath = resolvePackageAsset("pdf-parse", "bin", "cli.mjs");
 
   try {
     await writeFile(pdfPath, pdfBuffer);
@@ -31,7 +31,7 @@ export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string;
       process.execPath,
       [cliPath, "text", pdfPath],
       {
-        cwd: workspaceRoot,
+        cwd: path.dirname(cliPath),
         maxBuffer: 16 * 1024 * 1024,
       },
     );
