@@ -1,101 +1,38 @@
 /*
  * @file ocr.extractor.ts
- * @description Renders scanned PDFs locally and runs OCR with bundled Tesseract language data.
+ * @description Renders scanned PDFs through the local pdf-parse CLI and runs OCR with bundled Tesseract data.
  */
 
 import path from "path";
 import { createHash } from "crypto";
+import { execFile } from "child_process";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { promisify } from "util";
 import { createWorker } from "tesseract.js";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
+const execFileAsync = promisify(execFile);
 const projectRoot = process.cwd();
 const workerPath = path.join(projectRoot, "node_modules", "tesseract.js", "dist", "worker.min.js");
 const corePath = path.join(projectRoot, "node_modules", "tesseract.js-core");
 const langPath = path.join(projectRoot, "node_modules", "@tesseract.js-data", "eng", "4.0.0");
 
-type CanvasLike = {
-  width: number;
-  height: number;
-  toBuffer: (mimeType: string) => Buffer;
-};
-
-type CanvasAndContext = {
-  canvas: CanvasLike;
-  context: CanvasRenderingContext2D;
-};
-
-type CanvasModule = {
-  createCanvas: (width: number, height: number) => unknown;
-};
-
 /**
- * Load the native canvas module at runtime so Next does not try to bundle the binary.
+ * Render the first pages of a PDF into PNGs using the local pdf-parse CLI.
  *
- * @returns Runtime canvas module.
+ * @param pdfPath Source PDF path.
+ * @param outputDir Target directory for screenshots.
  */
-function loadCanvasModule(): CanvasModule {
-  const runtimeRequire = Function("return require")() as NodeRequire;
-  const moduleName = "@napi-rs/" + "canvas";
-  return runtimeRequire(moduleName) as CanvasModule;
-}
-
-/**
- * Minimal canvas factory for PDF.js page rendering in Node.
- *
- * @param width Target canvas width.
- * @param height Target canvas height.
- * @returns Canvas plus 2D context.
- */
-function createCanvasSurface(
-  createCanvasFn: (width: number, height: number) => unknown,
-  width: number,
-  height: number,
-): CanvasAndContext {
-  const canvas = createCanvasFn(Math.ceil(width), Math.ceil(height)) as unknown as CanvasLike & {
-    getContext: (kind: "2d") => CanvasRenderingContext2D;
-  };
-  const context = canvas.getContext("2d");
-
-  return {
-    canvas,
-    context,
-  };
-}
-
-/**
- * Convert a PDF page into a PNG buffer for deterministic OCR.
- *
- * @param pdfBuffer Source PDF bytes.
- * @param pageNumber Zero-based page index.
- * @returns PNG bytes for the rendered page.
- */
-async function renderPageToPng(pdfBuffer: Buffer, pageNumber: number): Promise<Buffer> {
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(pdfBuffer),
-    useSystemFonts: false,
-  });
-
-  try {
-    const { createCanvas } = loadCanvasModule();
-    const document = await loadingTask.promise;
-    const page = await document.getPage(pageNumber + 1);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvasAndContext = createCanvasSurface(createCanvas, viewport.width, viewport.height);
-
-    try {
-      await page.render({
-        canvasContext: canvasAndContext.context,
-        viewport,
-      }).promise;
-
-      return canvasAndContext.canvas.toBuffer("image/png");
-    } finally {
-      canvasAndContext.canvas.width = 0;
-      canvasAndContext.canvas.height = 0;
-    }
-  } finally {
-    await loadingTask.destroy();
-  }
+async function renderPdfScreenshots(pdfPath: string, outputDir: string): Promise<void> {
+  const cliPath = path.join(projectRoot, "node_modules", "pdf-parse", "bin", "cli.mjs");
+  await execFileAsync(
+    process.execPath,
+    [cliPath, "screenshot", pdfPath, "--output", outputDir, "--scale", "2.0"],
+    {
+      cwd: projectRoot,
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
 }
 
 /**
@@ -105,6 +42,9 @@ async function renderPageToPng(pdfBuffer: Buffer, pageNumber: number): Promise<B
  * @returns OCR text plus confidence and a stable hash.
  */
 export async function extractOcrText(pdfBuffer: Buffer): Promise<{ text: string; confidence: number; rawTextHash: string }> {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "arbitra-ocr-"));
+  const pdfPath = path.join(tempDir, "invoice.pdf");
+  const screenshotDir = path.join(tempDir, "screens");
   const worker = await createWorker("eng", 1, {
     workerPath,
     corePath,
@@ -114,19 +54,19 @@ export async function extractOcrText(pdfBuffer: Buffer): Promise<{ text: string;
   });
 
   try {
-    const loadingTask = pdfjs.getDocument({
-      data: new Uint8Array(pdfBuffer),
-      useSystemFonts: false,
-    });
-    const document = await loadingTask.promise;
-    const pageCount = Math.min(document.numPages, 3);
-    await loadingTask.destroy();
+    await writeFile(pdfPath, pdfBuffer);
+    await renderPdfScreenshots(pdfPath, screenshotDir);
+
+    const screenshotFiles = (await readdir(screenshotDir))
+      .filter((entry) => entry.toLowerCase().endsWith(".png"))
+      .sort()
+      .slice(0, 3);
 
     const pageTexts: string[] = [];
     const confidences: number[] = [];
 
-    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-      const imageBuffer = await renderPageToPng(pdfBuffer, pageIndex);
+    for (const screenshotFile of screenshotFiles) {
+      const imageBuffer = await readFile(path.join(screenshotDir, screenshotFile));
       const result = await worker.recognize(imageBuffer);
       const text = result.data.text.replace(/\u0000/g, " ").trim();
 
@@ -151,5 +91,6 @@ export async function extractOcrText(pdfBuffer: Buffer): Promise<{ text: string;
     };
   } finally {
     await worker.terminate();
+    await rm(tempDir, { recursive: true, force: true });
   }
 }
