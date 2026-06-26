@@ -3,8 +3,14 @@
  * @description Extracts raw text from PDFs without using any external inference or heuristics.
  */
 
+import { execFile } from "child_process";
 import { createHash } from "crypto";
-const { PDFParse } = require("pdf-parse");
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Extract raw text from a PDF buffer using native PDF parsing only.
@@ -14,16 +20,23 @@ const { PDFParse } = require("pdf-parse");
  * @throws If the PDF cannot be parsed.
  */
 export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  const parser = new PDFParse({ data: pdfBuffer });
+  const tempDir = await mkdtemp(path.join(tmpdir(), "arbitra-pdf-text-"));
+  const pdfPath = path.join(tempDir, "invoice.pdf");
+  const workerPath = path.join(process.cwd(), "src", "lib", "ingestion", "pdf-text-worker.cjs");
+
   try {
-    const result = await parser.getText();
-    const text = result.text.replace(/\u0000/g, " ").trim();
+    await writeFile(pdfPath, pdfBuffer);
+    const { stdout } = await execFileAsync(process.execPath, [workerPath, pdfPath], {
+      cwd: process.cwd(),
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const mergedText = stdout.trim();
 
     return {
-      text,
-      rawTextHash: createHash("sha256").update(text, "utf8").digest("hex"),
+      text: mergedText,
+      rawTextHash: createHash("sha256").update(mergedText, "utf8").digest("hex"),
     };
   } finally {
-    await parser.destroy();
+    await rm(tempDir, { recursive: true, force: true });
   }
 }
