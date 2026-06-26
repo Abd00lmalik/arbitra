@@ -17,6 +17,12 @@ const nextConfig = {
         "./node_modules/node-tfhe/**/*",
         "./node_modules/node-tkms/**/*",
       ],
+      "/api/parse-invoice": [
+        "./node_modules/pdf-parse/**/*",
+        "./node_modules/tesseract.js/**/*",
+        "./node_modules/tesseract.js-core/**/*",
+        "./node_modules/@tesseract.js-data/eng/**/*",
+      ],
     },
     serverComponentsExternalPackages: [
       "@zama-fhe/relayer-sdk",
