@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "crypto";
+const { PDFParse } = require("pdf-parse");
 
 /**
  * Extract raw text from a PDF buffer using native PDF parsing only.
@@ -13,9 +14,6 @@ import { createHash } from "crypto";
  * @throws If the PDF cannot be parsed.
  */
 export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  const { createRequire } = await import("module");
-  const requireFromFrontend = createRequire(`${process.cwd()}/frontend/package.json`);
-  const { PDFParse } = requireFromFrontend("pdf-parse");
   const parser = new PDFParse({ data: pdfBuffer });
   try {
     const result = await parser.getText();
