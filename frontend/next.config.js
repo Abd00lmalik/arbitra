@@ -19,6 +19,8 @@ const nextConfig = {
       ],
       "/api/parse-invoice": [
         "./node_modules/pdf-parse/**/*",
+        "./node_modules/pdfjs-dist/**/*",
+        "./node_modules/@napi-rs/canvas/**/*",
         "./node_modules/tesseract.js/**/*",
         "./node_modules/tesseract.js-core/**/*",
         "./node_modules/@tesseract.js-data/eng/**/*",
