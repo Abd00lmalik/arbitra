@@ -4,14 +4,6 @@
  */
 
 import { createHash } from "crypto";
-import { mkdtemp, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import { resolvePackageAsset } from "./runtime-paths";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Extract raw text from a PDF buffer using native PDF parsing only.
@@ -21,27 +13,17 @@ const execFileAsync = promisify(execFile);
  * @throws If the PDF cannot be parsed.
  */
 export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  const tempDir = await mkdtemp(path.join(tmpdir(), "arbitra-pdf-"));
-  const pdfPath = path.join(tempDir, "invoice.pdf");
-  const cliPath = resolvePackageAsset("pdf-parse", "bin", "cli.mjs");
-
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: pdfBuffer });
   try {
-    await writeFile(pdfPath, pdfBuffer);
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [cliPath, "text", pdfPath],
-      {
-        cwd: path.dirname(cliPath),
-        maxBuffer: 16 * 1024 * 1024,
-      },
-    );
-    const text = stdout.replace(/\u0000/g, " ").trim();
+    const result = await parser.getText();
+    const text = result.text.replace(/\u0000/g, " ").trim();
 
     return {
       text,
       rawTextHash: createHash("sha256").update(text, "utf8").digest("hex"),
     };
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    await parser.destroy();
   }
 }

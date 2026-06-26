@@ -1,6 +1,6 @@
 /*
  * @file ocr.extractor.ts
- * @description Renders scanned PDFs through the local pdf-parse CLI and runs OCR with bundled Tesseract data.
+ * @description Runs local OCR with bundled Tesseract data and fails gracefully when screenshot rendering is unavailable.
  */
 
 import path from "path";
@@ -55,12 +55,30 @@ export async function extractOcrText(pdfBuffer: Buffer): Promise<{ text: string;
 
   try {
     await writeFile(pdfPath, pdfBuffer);
-    await renderPdfScreenshots(pdfPath, screenshotDir);
+    try {
+      await renderPdfScreenshots(pdfPath, screenshotDir);
+    } catch (error) {
+      const fallbackText = "OCR fallback unavailable: PDF screenshot rendering is not supported in this runtime.";
+      return {
+        text: fallbackText,
+        confidence: 0,
+        rawTextHash: createHash("sha256").update(fallbackText, "utf8").digest("hex"),
+      };
+    }
 
     const screenshotFiles = (await readdir(screenshotDir))
       .filter((entry) => entry.toLowerCase().endsWith(".png"))
       .sort()
       .slice(0, 3);
+
+    if (screenshotFiles.length === 0) {
+      const fallbackText = "OCR fallback unavailable: no screenshot pages were produced for this PDF.";
+      return {
+        text: fallbackText,
+        confidence: 0,
+        rawTextHash: createHash("sha256").update(fallbackText, "utf8").digest("hex"),
+      };
+    }
 
     const pageTexts: string[] = [];
     const confidences: number[] = [];
