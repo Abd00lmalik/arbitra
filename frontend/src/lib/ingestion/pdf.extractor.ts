@@ -10,7 +10,6 @@ import path from "path";
 import { promisify } from "util";
 import { PDFDocument } from "pdf-lib";
 import { PipelineLimitError, withTimeout } from "./pipeline-timing";
-import { resolvePackageAsset } from "./runtime-paths";
 
 const execFileAsync = promisify(execFile);
 export const MAX_PDF_PAGES = 8;
@@ -56,52 +55,6 @@ export function assertPdfPageLimit(pageCount: number): void {
  * @throws If the PDF cannot be parsed.
  */
 export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  try {
-    return await withTimeout("PDF text extraction", PDF_EXTRACTION_TIMEOUT_MS, extractPdfTextInProcess(pdfBuffer));
-  } catch (error) {
-    if (error instanceof Error && error.name === "PipelineTimeoutError") {
-      throw error;
-    }
-
-    return extractPdfTextWithWorker(pdfBuffer);
-  }
-}
-
-async function extractPdfTextInProcess(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
-  const pdfjs = await import(resolvePackageAsset("pdfjs-dist", "legacy", "build", "pdf.js"));
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(pdfBuffer),
-    verbosity: 0,
-    isEvalSupported: false,
-    useWorkerFetch: false,
-    disableFontFace: true,
-  });
-
-  try {
-    const document = await loadingTask.promise;
-    const pageTexts: string[] = [];
-
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item: { str?: unknown }) => (typeof item?.str === "string" ? item.str : ""))
-        .join(" ")
-        .replace(/\u0000/g, " ")
-        .trim();
-
-      if (text) {
-        pageTexts.push(text);
-      }
-    }
-
-    return buildTextResult(pageTexts.join("\n\n").trim());
-  } finally {
-    await loadingTask.destroy();
-  }
-}
-
-async function extractPdfTextWithWorker(pdfBuffer: Buffer): Promise<{ text: string; rawTextHash: string }> {
   const workerPath = resolvePdfTextWorkerPath();
   const child = execFileAsync(process.execPath, [workerPath], {
     cwd: process.cwd(),

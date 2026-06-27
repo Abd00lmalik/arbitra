@@ -5,21 +5,34 @@
 
 import type { InvoiceDraft, InvoiceFields, InvoiceLineItem } from "./types";
 
-const currencyPattern = /\b(?:USD|US\$|\$)\s*([0-9][0-9,]*(?:\.[0-9]{2})?)\b/i;
+const currencyPattern = /(?:\bUSD\b|US\$|\$|\btotal\s+due\b|\bamount\s+due\b|\bbalance\s+due\b|\bgrand\s+total\b|\btotal\b)/i;
+const totalAmountPatterns = [
+  /(?:total\s+due|amount\s+due|balance\s+due|grand\s+total|invoice\s+total|total)(?:\s*\([A-Z]{3}\))?[\s:]*\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+  /(?:total\s+due|amount\s+due|balance\s+due|grand\s+total|invoice\s+total|total)[\s:]*[A-Z]{3}\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+  /(?:USD|US\$)\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+  /\$\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+];
+const fullTextAmountPatterns = [
+  /(?:total\s+due|amount\s+due|balance\s+due|grand\s+total|invoice\s+total|total)(?:\s*\([A-Z]{3}\))?[\s:]*\$?\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+  /(?:total\s+due|amount\s+due|balance\s+due|grand\s+total|invoice\s+total|total)[\s:]*[A-Z]{3}\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+  /(?:USD|US\$)\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i,
+];
 const dueDatePatterns = [
-  /(?:due\s+date|payment\s+due|maturity\s+date)[:\s]*([0-9]{4}-[0-9]{2}-[0-9]{2})/i,
-  /(?:due\s+date|payment\s+due|maturity\s+date)[:\s]*([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})/i,
-  /(?:due\s+date|payment\s+due|maturity\s+date)[:\s]*([A-Za-z]{3,9}\s+[0-9]{1,2},\s+[0-9]{4})/i,
+  /(?:due\s+date|payment\s+due|maturity\s+date|pay(?:ment)?\s+by)[:\s]*([0-9]{4}-[0-9]{2}-[0-9]{2})/i,
+  /(?:due\s+date|payment\s+due|maturity\s+date|pay(?:ment)?\s+by)[:\s]*([0-9]{1,2}[\/-][0-9]{1,2}[\/-][0-9]{2,4})/i,
+  /(?:due\s+date|payment\s+due|maturity\s+date|pay(?:ment)?\s+by)[:\s]*([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})/i,
 ];
 const issueDatePatterns = [
   /(?:issue\s+date|invoice\s+date|date)[:\s]*([0-9]{4}-[0-9]{2}-[0-9]{2})/i,
-  /(?:issue\s+date|invoice\s+date|date)[:\s]*([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})/i,
-  /(?:issue\s+date|invoice\s+date|date)[:\s]*([A-Za-z]{3,9}\s+[0-9]{1,2},\s+[0-9]{4})/i,
+  /(?:issue\s+date|invoice\s+date|date)[:\s]*([0-9]{1,2}[\/-][0-9]{1,2}[\/-][0-9]{2,4})/i,
+  /(?:issue\s+date|invoice\s+date|date)[:\s]*([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})/i,
 ];
 const invoicePatterns = [
-  /(?:invoice\s*(?:number|no\.?|#)|inv(?:oice)?\s*#?)[:\s]*([A-Z0-9\-\/]+)/i,
-  /\bINV[-\/]?[A-Z0-9\-]+\b/i,
+  /(?:invoice\s*(?:number|no\.?|#)|inv\s*#)[:\s]*([A-Z0-9][A-Z0-9\-\/]{2,})/i,
+  /\bINV[-\/][A-Z0-9][A-Z0-9\-\/]{2,}\b/i,
+  /\b[A-Z]{2,6}[-\/][0-9]{2,}(?:[-\/][A-Z0-9]+)*\b/i,
 ];
+const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
 /**
  * Normalize whitespace to improve deterministic regex parsing.
@@ -30,7 +43,7 @@ const invoicePatterns = [
 function normalizeText(text: string): string {
   return text
     .replace(/\r/g, "\n")
-    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]{3,}/g, "  ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -53,15 +66,46 @@ function normalizeDate(input: string | null): string | null {
 
   if (/^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(value)) {
     const [first, second, year] = value.split(/[\/-]/);
-    return `${year}-${second.padStart(2, "0")}-${first.padStart(2, "0")}`;
+    return `${expandYear(year)}-${first.padStart(2, "0")}-${second.padStart(2, "0")}`;
   }
 
-  const parsedDate = new Date(value);
+  const monthMatch = value.match(/^([A-Za-z]{3,9})\s+([0-9]{1,2}),?\s+([0-9]{4})$/);
+  if (monthMatch) {
+    const month = monthNumber(monthMatch[1]);
+    if (month) {
+      return `${monthMatch[3]}-${month}-${monthMatch[2].padStart(2, "0")}`;
+    }
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(parsedDate.getTime())) {
     return null;
   }
 
   return parsedDate.toISOString().slice(0, 10);
+}
+
+function expandYear(year: string): string {
+  return year.length === 2 ? `20${year}` : year;
+}
+
+function monthNumber(month: string): string | null {
+  const index = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+  ].findIndex((candidate) => month.toLowerCase().startsWith(candidate));
+
+  return index >= 0 ? String(index + 1).padStart(2, "0") : null;
 }
 
 /**
@@ -78,7 +122,7 @@ function firstMatch(text: string, patterns: RegExp[]): string | null {
       return match[1].trim();
     }
 
-    if (match?.[0] && pattern === invoicePatterns[1]) {
+    if (match?.[0] && pattern !== invoicePatterns[0]) {
       return match[0].trim();
     }
   }
@@ -106,6 +150,41 @@ function parseAmount(value: string | null): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parseTotalAmount(text: string, lineItems: InvoiceLineItem[]): number | null {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const totalLines = lines.filter((line) =>
+    /\b(total\s+due|amount\s+due|balance\s+due|grand\s+total|invoice\s+total|total)\b/i.test(line) &&
+    !/\b(subtotal|tax|vat|discount|paid)\b/i.test(line)
+  );
+
+  for (const line of totalLines) {
+    const amount = firstAmount(line, totalAmountPatterns);
+    if (amount !== null) {
+      return amount;
+    }
+  }
+
+  const labeledAmount = firstAmount(text, fullTextAmountPatterns);
+  if (labeledAmount !== null) {
+    return labeledAmount;
+  }
+
+  return lineItems.length > 0
+    ? Number(lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2))
+    : null;
+}
+
+function firstAmount(text: string, patterns: RegExp[]): number | null {
+  for (const pattern of patterns) {
+    const amount = parseAmount(text.match(pattern)?.[1] ?? null);
+    if (amount !== null) {
+      return amount;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Extract simple line items from invoice text.
  *
@@ -117,7 +196,7 @@ function parseLineItems(text: string): InvoiceLineItem[] {
   const items: InvoiceLineItem[] = [];
 
   for (const line of lines) {
-    const match = line.match(/^(.{3,}?)\s+([0-9][0-9,]*(?:\.[0-9]{2}))$/);
+    const match = line.match(/^(.{3,}?)\s+\$?([0-9][0-9,]*(?:\.[0-9]{2}))$/);
     if (!match) {
       continue;
     }
@@ -136,6 +215,86 @@ function parseLineItems(text: string): InvoiceLineItem[] {
   return items.slice(0, 12);
 }
 
+function sectionAfter(text: string, labels: RegExp[], stopLabels: RegExp[]): string {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const start = lines.findIndex((line) => labels.some((label) => label.test(line)));
+
+  if (start < 0) {
+    return "";
+  }
+
+  const collected: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (stopLabels.some((label) => label.test(line))) {
+      break;
+    }
+
+    collected.push(line);
+  }
+
+  return collected.join(" ").trim();
+}
+
+function compactEmail(text: string): string {
+  return text
+    .replace(/([A-Z0-9._%+-]+@[A-Z0-9.-]+)\s+([A-Z]{2,})(?=\s|$)/gi, "$1$2")
+    .replace(/([A-Z0-9._%+-]+@[A-Z0-9.-]+)\s+([A-Z0-9.-]+\.[A-Z]{2,})(?=\s|$)/gi, "$1$2");
+}
+
+function firstNonEmptyLine(value: string): string {
+  return value.split(/\n| {2,}/).map((line) => line.trim()).find(Boolean) ?? value.trim();
+}
+
+function trimInvoiceMetadata(value: string): string {
+  return value
+    .replace(/\s+(?:invoice\s+number|invoice\s+date|due\s+date|payment\s+terms):.*$/i, "")
+    .trim();
+}
+
+function likelyBusinessName(value: string): string {
+  const cleaned = trimInvoiceMetadata(value);
+  return cleaned
+    .split(/\s{2,}|\s+(?=Invoice\s+(?:Number|Date)|Due\s+Date|Payment\s+Terms)/i)
+    .map((part) => part.trim())
+    .find(Boolean) ?? cleaned;
+}
+
+function splitColumnSegments(line: string): string[] {
+  return line.split(/\s{2,}/).map((part) => part.trim()).filter(Boolean);
+}
+
+function twoColumnPartySections(text: string): { supplier: string; debtor: string } {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const headerIndex = lines.findIndex((line) => /\bbill\s+from\b/i.test(line) && /\bbill\s+to\b/i.test(line));
+
+  if (headerIndex < 0) {
+    return { supplier: "", debtor: "" };
+  }
+
+  const supplier: string[] = [];
+  const debtor: string[] = [];
+
+  for (const line of lines.slice(headerIndex + 1)) {
+    if (/^(description|item|subtotal|total|note|payment\s+instructions)\b/i.test(line)) {
+      break;
+    }
+
+    const segments = splitColumnSegments(line);
+    if (segments[0] && !/^(invoice|due date|payment terms)\b/i.test(segments[0])) {
+      supplier.push(segments[0]);
+    }
+
+    if (segments[1] && !/^(invoice|due date|payment terms)\b/i.test(segments[1])) {
+      debtor.push(segments[1]);
+    }
+  }
+
+  return {
+    supplier: supplier.join(" ").trim(),
+    debtor: debtor.join(" ").trim(),
+  };
+}
+
 /**
  * Parse supplier and debtor names from labeled lines.
  *
@@ -151,18 +310,35 @@ function parseParties(text: string): {
   debtorAddress: string;
 } {
   const labeledValue = (patterns: RegExp[]) => firstMatch(text, patterns) ?? "";
+  const columns = twoColumnPartySections(text);
+  const billFrom = sectionAfter(text, [/^bill\s+from\b/i, /^from\b/i], [
+    /^bill\s+to\b/i,
+    /^ship\s+to\b/i,
+    /^description\b/i,
+    /^item\b/i,
+  ]);
+  const billTo = sectionAfter(text, [/^bill\s+to\b/i, /^sold\s+to\b/i, /^customer\b/i], [
+    /^description\b/i,
+    /^item\b/i,
+    /^subtotal\b/i,
+    /^total\b/i,
+    /^payment\b/i,
+  ]);
+  const searchable = compactEmail(text);
+  const billToEmail = compactEmail(billTo).match(emailPattern)?.[0] ?? "";
+  const columnDebtorEmail = compactEmail(columns.debtor).match(emailPattern)?.[0] ?? "";
 
   return {
-    supplierName: labeledValue([
+    supplierName: likelyBusinessName(firstNonEmptyLine(columns.supplier)) || likelyBusinessName(firstNonEmptyLine(billFrom)) || labeledValue([
       /(?:supplier|seller|vendor|from)[:\s]*([^\n]+)/i,
       /bill\s+from[:\s]*([^\n]+)/i,
     ]),
-    debtorName: labeledValue([
+    debtorName: likelyBusinessName(firstNonEmptyLine(columns.debtor)) || likelyBusinessName(firstNonEmptyLine(billTo)) || labeledValue([
       /(?:debtor|buyer|customer|bill\s+to|sold\s+to|to)[:\s]*([^\n]+)/i,
     ]),
-    debtorEmail: labeledValue([
+    debtorEmail: columnDebtorEmail || billToEmail || labeledValue([
       /(?:debtor\s+email|buyer\s+email|customer\s+email|email)[:\s]*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
-    ]),
+    ]) || (searchable.match(emailPattern)?.[0] ?? ""),
     supplierTaxId: labeledValue([
       /(?:supplier\s+tax\s+id|seller\s+tax\s+id|vendor\s+tax\s+id|supplier\s+tin)[:\s]*([A-Z0-9\-]+)/i,
     ]),
@@ -223,11 +399,7 @@ export function parseInvoiceText(
   const dueDate = normalizeDate(firstMatch(text, dueDatePatterns));
   const parties = parseParties(text);
   const lineItems = parseLineItems(text);
-  const totalFromCurrencyLabel = parseAmount(text.match(currencyPattern)?.[1] ?? null);
-  const totalFromLineItems = lineItems.length > 0
-    ? Number(lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2))
-    : null;
-  const faceValue = totalFromCurrencyLabel ?? totalFromLineItems;
+  const faceValue = parseTotalAmount(text, lineItems);
 
   const status = invoiceId && dueDate && faceValue !== null ? "success" : "incomplete";
 
@@ -269,7 +441,7 @@ export function validateExtractionText(rawText: string): { isValid: boolean; iss
     issues.push("Due date was not found.");
   }
 
-  if (!currencyPattern.test(normalized)) {
+  if (!currencyPattern.test(normalized) || parseTotalAmount(normalized, parseLineItems(normalized)) === null) {
     issues.push("Invoice amount was not found.");
   }
 

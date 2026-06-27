@@ -27,11 +27,7 @@ async function main() {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => (typeof item?.str === "string" ? item.str : ""))
-        .join(" ")
-        .replace(/\u0000/g, " ")
-        .trim();
+      const text = extractPageText(content.items);
 
       if (text) {
         pageTexts.push(text);
@@ -51,6 +47,53 @@ function readStdin() {
     process.stdin.on("end", () => resolve(Buffer.concat(chunks)));
     process.stdin.on("error", reject);
   });
+}
+
+function extractPageText(items) {
+  const rows = [];
+
+  for (const item of items) {
+    if (typeof item?.str !== "string" || !item.str.trim()) {
+      continue;
+    }
+
+    const transform = Array.isArray(item.transform) ? item.transform : [];
+    const x = typeof transform[4] === "number" ? transform[4] : 0;
+    const y = typeof transform[5] === "number" ? transform[5] : 0;
+    const width = typeof item.width === "number" ? item.width : item.str.length * 5;
+    const row = rows.find((candidate) => Math.abs(candidate.y - y) < 3);
+
+    if (row) {
+      row.parts.push({ x, width, text: item.str });
+    } else {
+      rows.push({ y, parts: [{ x, width, text: item.str }] });
+    }
+  }
+
+  return rows
+    .sort((left, right) => right.y - left.y)
+    .map((row) => joinRowParts(row.parts))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function joinRowParts(parts) {
+  const ordered = parts.sort((left, right) => left.x - right.x);
+  let line = "";
+  let previousEnd = null;
+
+  for (const part of ordered) {
+    const gap = previousEnd === null ? 0 : part.x - previousEnd;
+    const separator = gap > 18 ? "  " : " ";
+    line = `${line}${line ? separator : ""}${part.text}`;
+    previousEnd = part.x + part.width;
+  }
+
+  return line
+    .replace(/\u0000/g, " ")
+    .replace(/[ \t]{3,}/g, "  ")
+    .replace(/[ \t]+$/g, "")
+    .trim();
 }
 
 main().catch((error) => {

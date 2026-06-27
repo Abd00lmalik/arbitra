@@ -353,6 +353,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         debtor: data.debtor,
         invoiceNumber: data.invoiceFields?.invoiceNumber || "",
       });
+      setDebtorEmail(data.invoiceFields?.debtorEmail || "");
 
       setWizardStep(2);
       setIsParsing(false);
