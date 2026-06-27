@@ -4,9 +4,10 @@
  */
 
 import type { ExtractionResult, InvoiceDraft } from "./types";
-import { extractPdfText } from "./pdf.extractor";
+import { assertPdfPageLimit, countPdfPages, extractPdfText } from "./pdf.extractor";
 import { parseInvoiceText } from "./invoice.parser";
 import { validateExtractionText } from "./ingestion.validator";
+import type { PipelineTimer } from "./pipeline-timing";
 
 export type IngestionResult = {
   draft: InvoiceDraft;
@@ -16,7 +17,8 @@ export type IngestionResult = {
 
 export type IngestionDependencies = {
   extractPdfText: typeof extractPdfText;
-  extractOcrText: typeof import("./ocr.extractor").extractOcrText;
+  loadOcrExtractor: () => Promise<typeof import("./ocr.extractor").extractOcrText>;
+  countPdfPages: typeof countPdfPages;
 };
 
 /**
@@ -25,13 +27,15 @@ export type IngestionDependencies = {
  * @param pdfBuffer Source PDF bytes.
  * @returns Parsed invoice draft plus extraction metadata.
  */
-export async function ingestInvoice(pdfBuffer: Buffer): Promise<IngestionResult> {
-  const { extractOcrText } = await import("./ocr.extractor");
-
+export async function ingestInvoice(pdfBuffer: Buffer, timer?: PipelineTimer): Promise<IngestionResult> {
   return ingestInvoiceWithDependencies(pdfBuffer, {
     extractPdfText,
-    extractOcrText,
-  });
+    loadOcrExtractor: async () => {
+      const { extractOcrText } = await import("./ocr.extractor");
+      return extractOcrText;
+    },
+    countPdfPages,
+  }, timer);
 }
 
 /**
@@ -44,13 +48,35 @@ export async function ingestInvoice(pdfBuffer: Buffer): Promise<IngestionResult>
 export async function ingestInvoiceWithDependencies(
   pdfBuffer: Buffer,
   dependencies: IngestionDependencies,
+  timer?: PipelineTimer,
 ): Promise<IngestionResult> {
-  const pdfTextResult = await dependencies.extractPdfText(pdfBuffer);
-  const pdfValidation = validateExtractionText(pdfTextResult.text);
+  const pageCount = await measure(timer, "PDF page validation", () => dependencies.countPdfPages(pdfBuffer));
+  assertPdfPageLimit(pageCount);
+
+  const pdfTextResult = await measure(
+    timer,
+    "PDF text extraction",
+    () => dependencies.extractPdfText(pdfBuffer),
+    (result) => `${result.text.length} chars from ${pageCount} pages`,
+  );
+  const pdfValidation = await measure(
+    timer,
+    "validation",
+    () => validateExtractionText(pdfTextResult.text),
+    (result) => result.isValid ? "text layer sufficient" : result.issues.join(" "),
+  );
 
   if (pdfValidation.isValid) {
+    const draft = await measure(
+      timer,
+      "deterministic parsing",
+      () => parseInvoiceText(pdfTextResult.text, "pdf-text", 92, pdfTextResult.rawTextHash),
+      (result) => result.status,
+    );
+    timer?.skip("OCR fallback", "text layer sufficient");
+
     return {
-      draft: parseInvoiceText(pdfTextResult.text, "pdf-text", 92, pdfTextResult.rawTextHash),
+      draft,
       extraction: {
         method: "pdf-text",
         text: pdfTextResult.text,
@@ -63,13 +89,31 @@ export async function ingestInvoiceWithDependencies(
     };
   }
 
-  const ocrTextResult = await dependencies.extractOcrText(pdfBuffer);
-  const ocrValidation = validateExtractionText(ocrTextResult.text);
-  const draft = parseInvoiceText(
-    ocrTextResult.text,
-    "ocr",
-    Math.max(0, Math.min(100, ocrTextResult.confidence)),
-    ocrTextResult.rawTextHash,
+  const ocrTextResult = await measure(
+    timer,
+    "OCR fallback",
+    async () => {
+      const extractOcrText = await dependencies.loadOcrExtractor();
+      return extractOcrText(pdfBuffer);
+    },
+    (result) => `${result.text.length} chars confidence=${Math.max(0, Math.min(100, result.confidence))}`,
+  );
+  const ocrValidation = await measure(
+    timer,
+    "validation",
+    () => validateExtractionText(ocrTextResult.text),
+    (result) => result.isValid ? "OCR text sufficient" : result.issues.join(" "),
+  );
+  const draft = await measure(
+    timer,
+    "deterministic parsing",
+    () => parseInvoiceText(
+      ocrTextResult.text,
+      "ocr",
+      Math.max(0, Math.min(100, ocrTextResult.confidence)),
+      ocrTextResult.rawTextHash,
+    ),
+    (result) => result.status,
   );
 
   return {
@@ -87,4 +131,13 @@ export async function ingestInvoiceWithDependencies(
     },
     rawText: ocrTextResult.text,
   };
+}
+
+async function measure<T>(
+  timer: PipelineTimer | undefined,
+  stage: Parameters<PipelineTimer["measure"]>[0],
+  action: () => Promise<T> | T,
+  detail?: (value: T) => string | undefined,
+): Promise<T> {
+  return timer ? timer.measure(stage, action, detail) : action();
 }

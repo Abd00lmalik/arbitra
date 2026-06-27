@@ -3,18 +3,17 @@
  * @description Node-only helper that extracts PDF text with pdfjs-dist outside the Next.js bundle graph.
  */
 
-const fs = require("fs");
 const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 
 async function main() {
   const pdfPath = process.argv[2];
 
-  if (!pdfPath) {
-    throw new Error("PDF path argument is required.");
-  }
+  const data = pdfPath
+    ? require("fs").readFileSync(pdfPath)
+    : await readStdin();
 
   const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(fs.readFileSync(pdfPath)),
+    data: new Uint8Array(data),
     verbosity: 0,
     isEvalSupported: false,
     useWorkerFetch: false,
@@ -43,6 +42,15 @@ async function main() {
   } finally {
     await loadingTask.destroy();
   }
+}
+
+function readStdin() {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("end", () => resolve(Buffer.concat(chunks)));
+    process.stdin.on("error", reject);
+  });
 }
 
 main().catch((error) => {

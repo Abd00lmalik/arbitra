@@ -4,15 +4,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { ingestInvoice } from "@/lib/ingestion/ingestion.service";
 import { buildInvoiceFields } from "@/lib/ingestion/invoice.parser";
 import type { InvoiceFields } from "@/lib/ingestion/types";
+import { PipelineLimitError, PipelineTimeoutError, PipelineTimer } from "@/lib/ingestion/pipeline-timing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const DEFAULT_BASE_RATE_BPS = 300;
 const DEFAULT_REPUTATION_MULTIPLIER = 5;
+const REQUEST_TIMEOUT_MS = 52_000;
 
 function hashFingerprint(material: string) {
   let hash = 5381n;
@@ -148,42 +151,60 @@ async function parseLogistics(xmlFile: File | null) {
 }
 
 export async function POST(req: NextRequest) {
+  const timer = new PipelineTimer(randomUUID());
+
   try {
-    const { pdfFile, xmlFile } = await getRequestFiles(req);
+    const { pdfFile, xmlFile } = await timer.measure(
+      "request received",
+      () => getRequestFiles(req),
+      ({ pdfFile: file }) => file ? `file=${file.name} type=${file.type || "unknown"}` : "missing pdf",
+    );
 
     if (!pdfFile) {
-      return NextResponse.json({ error: "PDF file required" }, { status: 400 });
+      return await jsonWithTiming(timer, { error: "PDF file required" }, 400);
     }
 
-    const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
+    const pdfBuffer = await timer.measure(
+      "PDF read",
+      async () => Buffer.from(await pdfFile.arrayBuffer()),
+      (buffer) => `${Math.round((buffer.length / 1024) * 10) / 10}KB`,
+    );
     const fileSizeMB = pdfBuffer.length / (1024 * 1024);
 
     if (fileSizeMB > 19) {
-      return NextResponse.json(
+      return await jsonWithTiming(
+        timer,
         { error: `PDF too large (${fileSizeMB.toFixed(1)}MB). Maximum is 19MB.` },
-        { status: 413 },
+        413,
       );
     }
 
     const { logisticsVerified, logisticsData } = await parseLogistics(xmlFile);
-    const ingestion = await ingestInvoice(pdfBuffer);
+    const ingestion = await withRouteTimeout(timer, ingestInvoice(pdfBuffer, timer));
 
     if (ingestion.draft.faceValue === null || !ingestion.draft.dueDate) {
-      return NextResponse.json(
+      return await jsonWithTiming(
+        timer,
         {
           error: "Failed to extract the required invoice fields from the uploaded PDF.",
           details: ingestion.extraction.issues.join(" "),
           invoiceDraft: ingestion.draft,
           extractionMeta: ingestion.draft.extractionMeta,
         },
-        { status: 422 },
+        422,
       );
     }
 
-    const invoiceFields = buildInvoiceFields(ingestion.rawText, ingestion.draft);
-    const normalized = validateAndNormalize(invoiceFields, logisticsData, pdfFile.name);
+    const { invoiceFields, normalized } = await timer.measure(
+      "deterministic parsing",
+      () => {
+        const fields = buildInvoiceFields(ingestion.rawText, ingestion.draft);
+        return { invoiceFields: fields, normalized: validateAndNormalize(fields, logisticsData, pdfFile.name) };
+      },
+      () => "field normalization complete",
+    );
 
-    return NextResponse.json({
+    return await jsonWithTiming(timer, {
       success: true,
       invoiceDraft: ingestion.draft,
       invoiceFields,
@@ -202,12 +223,44 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[parse-invoice] Unhandled error:", err);
-    return NextResponse.json(
-      {
-        error: "Invoice parsing failed.",
-        details: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 },
-    );
+    const status = err instanceof PipelineLimitError
+      ? (err.stage === "PDF page validation" && err.message.startsWith("PDF has") ? 413 : 400)
+      : err instanceof PipelineTimeoutError
+        ? 504
+        : 500;
+
+    return await jsonWithTiming(timer, {
+      error: status === 504
+        ? "Invoice parsing timed out."
+        : err instanceof PipelineLimitError
+          ? err.message
+          : "Invoice parsing failed.",
+      details: err instanceof Error ? err.message : String(err),
+      code: err instanceof PipelineLimitError || err instanceof PipelineTimeoutError ? err.code : "PIPELINE_ERROR",
+    }, status);
   }
+}
+
+async function withRouteTimeout<T>(timer: PipelineTimer, action: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      action,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new PipelineTimeoutError("JSON response", REQUEST_TIMEOUT_MS)), REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function jsonWithTiming(timer: PipelineTimer, body: Record<string, unknown>, status = 200) {
+  await timer.measure("JSON response", () => null, () => `status=${status}`);
+  const timing = timer.snapshot();
+  timer.log(status < 500 ? "ok" : "failed");
+  return NextResponse.json({ ...body, timing }, { status });
 }

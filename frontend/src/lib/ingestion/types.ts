@@ -5,6 +5,29 @@
 
 export type ExtractionMethod = "pdf-text" | "ocr";
 
+export type IngestionStage =
+  | "request received"
+  | "PDF read"
+  | "PDF page validation"
+  | "PDF text extraction"
+  | "validation"
+  | "OCR fallback"
+  | "deterministic parsing"
+  | "JSON response";
+
+export type StageTiming = {
+  stage: IngestionStage;
+  durationMs: number;
+  status: "ok" | "skipped" | "failed";
+  detail?: string;
+};
+
+export type IngestionTiming = {
+  requestId: string;
+  totalMs: number;
+  stages: StageTiming[];
+};
+
 export type InvoiceLineItem = {
   description: string;
   amount: number;

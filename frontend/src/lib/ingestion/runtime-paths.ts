@@ -27,9 +27,15 @@ export function resolvePackageAsset(packageName: string, ...pathParts: string[])
   }
 
   for (const root of rootsToTry) {
-    const candidate = path.join(root, "node_modules", packageName, ...pathParts);
-    if (fs.existsSync(candidate)) {
-      return candidate;
+    const candidates = [
+      path.join(root, "node_modules", packageName, ...pathParts),
+      path.join(root, "frontend", "node_modules", packageName, ...pathParts),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
     }
   }
 
