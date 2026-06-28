@@ -5,6 +5,20 @@
 
 const hre = require("hardhat");
 
+async function assertCleanVault(vault, registryAddress) {
+  const linkedRegistry = await vault.arbitraRegistry();
+  if (linkedRegistry.toLowerCase() !== registryAddress.toLowerCase()) {
+    throw new Error(`Fresh vault registry mismatch: ${linkedRegistry}`);
+  }
+
+  for (const invoiceId of [1n, 2n, 3n]) {
+    const stake = await vault.stakedCollateral(invoiceId);
+    if (stake !== 0n) {
+      throw new Error(`Fresh vault has unexpected stake at invoice ${invoiceId}: ${stake}`);
+    }
+  }
+}
+
 async function main() {
   const { ethers } = hre;
   const [owner] = await ethers.getSigners();
@@ -26,11 +40,27 @@ async function main() {
   }
 
   console.log("owner", owner.address);
-  console.log("ownerBalance", ethers.formatEther(await ethers.provider.getBalance(owner.address)));
+  const ownerBalance = await ethers.provider.getBalance(owner.address);
+  console.log("ownerBalance", ethers.formatEther(ownerBalance));
   console.log("registry", registryAddress);
   console.log("currentVault", await registry.collateralVault());
 
   const VaultFactory = await ethers.getContractFactory("ArbitraCollateralVault", owner);
+  const deployTx = await VaultFactory.getDeployTransaction(usdcAddress);
+  const estimatedDeployGas = await ethers.provider.estimateGas({ ...deployTx, from: owner.address });
+  const fee = await ethers.provider.getFeeData();
+  const conservativeMaxFee = fee.maxFeePerGas ?? fee.gasPrice ?? 3_000_000_000n;
+  const estimatedDeployCost = estimatedDeployGas * conservativeMaxFee;
+  const minimumBalance = estimatedDeployCost + 600_000n * conservativeMaxFee;
+  console.log("estimatedDeployGas", estimatedDeployGas.toString());
+  console.log("estimatedMinimumBalance", ethers.formatEther(minimumBalance));
+
+  if (ownerBalance < minimumBalance) {
+    throw new Error(
+      `Insufficient Sepolia ETH. Balance ${ethers.formatEther(ownerBalance)} ETH, need about ${ethers.formatEther(minimumBalance)} ETH.`,
+    );
+  }
+
   const vault = await VaultFactory.deploy(usdcAddress);
   await vault.waitForDeployment();
   const newVaultAddress = await vault.getAddress();
@@ -48,6 +78,12 @@ async function main() {
   );
   await setContractsTx.wait(1);
   console.log("setContractsTx", setContractsTx.hash);
+
+  await assertCleanVault(vault, registryAddress);
+  const registryVault = await registry.collateralVault();
+  if (registryVault.toLowerCase() !== newVaultAddress.toLowerCase()) {
+    throw new Error(`Registry did not retain fresh vault: ${registryVault}`);
+  }
 
   console.log(JSON.stringify({
     NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS: newVaultAddress,

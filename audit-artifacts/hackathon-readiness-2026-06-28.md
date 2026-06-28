@@ -17,6 +17,13 @@ After this fix, the final upload call no longer fails with `Arbitra: only regist
 
 The secure remediation is to deploy a fresh collateral vault, set its registry to the active registry, update the active registry to point to the fresh vault, then update frontend and Vercel environment variables. This does not bypass access control or weaken `onlyRegistry`.
 
+Known existing vault candidates were checked and are not suitable:
+
+- `0x5DbD519573770b7cE26D744C568e465566a86ddd` has occupied invoice slots `1` through `5`.
+- `0x1e8fdFAC6ecaac3fcf186B30A947000e4d604e88` has occupied invoice slots `1` and `2`.
+
+Because the active registry starts at `invoiceCount = 0`, reusing either vault would preserve the same low-ID collision class. A fresh vault is the clean remediation.
+
 ## Current Upload Call Chain
 
 ```text
@@ -160,3 +167,4 @@ Recommendation: include `bankTraceId` in `PAYMENT_RECEIVED_TYPEHASH`.
 - `npm run build` in `frontend`: passed.
 - `scratch/check_sepolia_wiring.js`: coherent registry/fingerprint/vault/escrow/verifier wiring passed.
 - Final upload tx `0x7a522f05ac9e5a8e5e524e99bc9640835114f41e19b3750c8668a76cf4ee2fd2`: no longer `onlyRegistry`; reverted with `Arbitra: invoice ID already staked` by `eth_call` replay.
+- Vault candidate scan: both known existing vaults are dirty at low invoice IDs, so `scripts/remediate_fresh_collateral_vault.js` is the recommended remediation path.
