@@ -23,6 +23,7 @@ describe("Deterministic invoice ingestion", () => {
     "Total Due USD 12500.50",
     "Widgets Batch A 12500.50",
   ].join("\n");
+  const countPdfPages = async () => 1;
 
   it("returns the same InvoiceDraft for identical text input", () => {
     const first = parseInvoiceText(sampleText, "pdf-text", 92, "hash-a");
@@ -41,7 +42,7 @@ describe("Deterministic invoice ingestion", () => {
         text: sampleText,
         rawTextHash: "pdf-hash",
       }),
-      extractOcrText: async () => {
+      loadOcrExtractor: async () => async () => {
         ocrCalled = true;
         return {
           text: "should-not-run",
@@ -49,6 +50,7 @@ describe("Deterministic invoice ingestion", () => {
           rawTextHash: "ocr-hash",
         };
       },
+      countPdfPages,
     });
 
     expect(result.extraction.method).to.equal("pdf-text");
@@ -63,7 +65,7 @@ describe("Deterministic invoice ingestion", () => {
         text: "blurred scan",
         rawTextHash: "pdf-short",
       }),
-      extractOcrText: async () => {
+      loadOcrExtractor: async () => async () => {
         ocrCalls += 1;
         return {
           text: sampleText,
@@ -71,6 +73,7 @@ describe("Deterministic invoice ingestion", () => {
           rawTextHash: "ocr-good",
         };
       },
+      countPdfPages,
     });
 
     expect(validateExtractionText("blurred scan").isValid).to.equal(false);
@@ -86,11 +89,12 @@ describe("Deterministic invoice ingestion", () => {
         text: "too short",
         rawTextHash: "pdf-short",
       }),
-      extractOcrText: async () => ({
+      loadOcrExtractor: async () => async () => ({
         text: "still incomplete",
         confidence: 12,
         rawTextHash: "ocr-short",
       }),
+      countPdfPages,
     });
 
     expect(result.extraction.method).to.equal("ocr");
