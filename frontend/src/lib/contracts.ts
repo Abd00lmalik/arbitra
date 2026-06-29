@@ -619,6 +619,17 @@ export const ESCROW_RECEIVER_ABI = [
     ],
   },
   {
+    type: "function", name: "getSettlementCommitments",
+    stateMutability: "view",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [
+      { name: "paymentReference", type: "bytes32" },
+      { name: "bankTraceId", type: "bytes32" },
+      { name: "settlementReceiptHash", type: "bytes32" },
+      { name: "settledAt", type: "uint256" },
+    ],
+  },
+  {
     type: "function", name: "getConfidentialSettlementBalance",
     stateMutability: "view",
     inputs: [{ name: "beneficiary", type: "address" }],

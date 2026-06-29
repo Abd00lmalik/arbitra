@@ -373,6 +373,27 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         platformFeePlaintext = rec.platformFeePlaintext;
     }
 
+    /**
+     * @notice Get settlement commitments for an invoice without returning plaintext economics.
+     * @param invoiceId The invoice ID.
+     * @return paymentReference The payment reference commitment.
+     * @return bankTraceId The mock bank trace commitment.
+     * @return settlementReceiptHash The settlement receipt commitment.
+     * @return settledAt The on-chain settlement timestamp.
+     */
+    function getSettlementCommitments(uint256 invoiceId) external view returns (
+        bytes32 paymentReference,
+        bytes32 bankTraceId,
+        bytes32 settlementReceiptHash,
+        uint256 settledAt
+    ) {
+        EscrowRecord storage rec = escrows[invoiceId];
+        paymentReference = rec.paymentReference;
+        bankTraceId = rec.bankTraceId;
+        settlementReceiptHash = rec.settlementReceiptHash;
+        settledAt = rec.settledAt;
+    }
+
     /*************** Internal Functions ***************/
 
     function _verifyPaymentProof(
