@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { RiskAssessmentResult, RiskAssessmentInput } from "@/lib/risk-assessment";
+import { generateRiskAssessment, type RiskAssessmentResult, type RiskAssessmentInput } from "@/lib/risk-assessment";
 
 interface UseRiskAssessmentResult {
   assessment: RiskAssessmentResult | null;
@@ -11,7 +11,7 @@ interface UseRiskAssessmentResult {
 }
 
 /**
- * Hook to fetch deterministic risk assessment data from the server-side API route.
+ * Hook to compute deterministic risk assessment data after local authorized decryption.
  */
 export function useRiskAssessment(): UseRiskAssessmentResult {
   const [assessment, setAssessment] = useState<RiskAssessmentResult | null>(null);
@@ -23,17 +23,7 @@ export function useRiskAssessment(): UseRiskAssessmentResult {
     setError(null);
 
     try {
-      const response = await fetch("/api/risk-assessment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-      }
-
-      const data: RiskAssessmentResult = await response.json();
+      const data: RiskAssessmentResult = generateRiskAssessment(input);
       setAssessment(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";

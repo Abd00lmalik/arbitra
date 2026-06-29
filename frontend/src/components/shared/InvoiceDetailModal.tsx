@@ -2,7 +2,7 @@
  * @file InvoiceDetailModal.tsx
  * @description Shared details modal for invoices featuring smooth slide-up animation,
  *              sequential investor flow (Request Access → Decrypt → Analyze → Deploy Capital),
- *              real FHE decryption, Gemini AI risk analysis fed with real decrypted values,
+ *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
  *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
  */
 
@@ -94,18 +94,10 @@ export function InvoiceDetailModal({
   /* Fetch core data */
   const { data: invoice, refetch: refetchInvoice } = useInvoice(invoiceId);
 
-  const { data: purchasePricePlaintext } = useReadContract({
-    address: ARBITRA_REGISTRY_ADDRESS,
-    abi: ARBITRA_REGISTRY_ABI,
-    functionName: "getPurchasePricePlaintext",
-    args: invoiceId !== undefined ? [invoiceId] : undefined,
-    query: { enabled: invoiceId !== undefined },
-  });
-
-  const { data: settlementAudit, refetch: refetchSettlementAudit } = useReadContract({
+  const { data: settlementCommitments, refetch: refetchSettlementCommitments } = useReadContract({
     address: ESCROW_RECEIVER_ADDRESS,
     abi: ESCROW_RECEIVER_ABI,
-    functionName: "getSettlementAudit",
+    functionName: "getSettlementCommitments",
     args: invoiceId !== undefined ? [invoiceId] : undefined,
     query: { enabled: invoiceId !== undefined },
   });
@@ -170,9 +162,8 @@ export function InvoiceDetailModal({
       ? computeYield(decrypted.faceValue, decrypted.purchasePrice, daysLeft)
       : null;
 
-  /* Purchase price for USDC pre-flight (uses plaintext approximation before decryption) */
-  const estimatedPurchasePrice = decrypted?.purchasePrice ?? (purchasePricePlaintext as bigint ?? 0n);
-  const hasEnoughUSDC = usdcBalance >= estimatedPurchasePrice || estimatedPurchasePrice === 0n;
+  const estimatedPurchasePrice = decrypted?.purchasePrice ?? 0n;
+  const hasEnoughUSDC = estimatedPurchasePrice > 0n && usdcBalance >= estimatedPurchasePrice;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -257,7 +248,7 @@ export function InvoiceDetailModal({
       : undefined;
     const discountRateBps = decrypted?.discountRate ? Number(decrypted.discountRate) : undefined;
 
-    /* Do not pass hardcoded repayment ratio — let Gemini see "no history" for an honest output */
+    /* Do not pass hardcoded repayment ratio — let Deterministic see "no history" for an honest output */
     await fetchAssessment({
       invoiceId: Number(invoice.invoiceId),
       supplierAddress: invoice.supplier,
@@ -279,9 +270,11 @@ export function InvoiceDetailModal({
 
     try {
       if (!publicClient) throw new Error("Sepolia public client unavailable.");
+      if (estimatedPurchasePrice === 0n) {
+        throw new Error("Decrypt the confidential purchase price before deploying capital.");
+      }
 
-      /* Pre-flight: check USDC balance */
-      if (estimatedPurchasePrice > 0n && usdcBalance < estimatedPurchasePrice) {
+      if (usdcBalance < estimatedPurchasePrice) {
         throw new Error(
           `Insufficient USDC. You have $${fromMicro(usdcBalance)} but need $${fromMicro(estimatedPurchasePrice)}. Get test USDC at faucet.circle.com.`
         );
@@ -433,7 +426,7 @@ export function InvoiceDetailModal({
         await publicClient.waitForTransactionReceipt({ hash: txHash });
       }
 
-      const auditResult = await refetchSettlementAudit();
+      const commitmentResult = await refetchSettlementCommitments();
       await refetchInvoice();
       if (onActionSuccess) onActionSuccess();
 
@@ -441,7 +434,7 @@ export function InvoiceDetailModal({
         txHash,
         paymentReferencePlain: proof.paymentReferencePlain,
         bankTracePlain: proof.bankTracePlain,
-        settlementReceiptHash: auditResult.data?.[2] as `0x${string}` | undefined,
+        settlementReceiptHash: commitmentResult.data?.[2] as `0x${string}` | undefined,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Settlement simulation failed";
@@ -631,7 +624,7 @@ export function InvoiceDetailModal({
                     </div>
                   )}
 
-                  {/* STEP 2: Analyze with Gemini */}
+                  {/* STEP 2: Analyze risk */}
                   {investorStep === 2 && (
                     <div className="text-center space-y-3">
                       <div className="flex justify-center py-1">
@@ -639,7 +632,7 @@ export function InvoiceDetailModal({
                       </div>
                       <h4 className="text-sm font-bold text-white">AI Counterparty Risk Analysis</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        Run Gemini Flash AI on the real decrypted parameters to get a risk score, credit label, and investment recommendation before committing capital.
+                        Run the deterministic risk model on the real decrypted parameters to get a risk score, credit label, and investment recommendation before committing capital.
                       </p>
                       <NeonButton
                           variant="primary"
@@ -648,7 +641,7 @@ export function InvoiceDetailModal({
                           onClick={handleRiskAnalyze}
                           className="w-full bg-indigo-600 border-indigo-500"
                       >
-                        {isRiskLoading ? "Analyzing with Gemini Flash..." : "Run Gemini Risk Analysis"}
+                        {isRiskLoading ? "Calculating risk profile..." : "Run Risk Analysis"}
                       </NeonButton>
                       {riskError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
@@ -680,9 +673,13 @@ export function InvoiceDetailModal({
                           <span className="font-mono font-bold text-white">${fromMicro(decrypted.purchasePrice)} USDC</span>
                         </div>
                       )}
-                      {!hasEnoughUSDC && (
+                      {estimatedPurchasePrice === 0n ? (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
-                          ⚠️ Insufficient USDC. Get test tokens at{" "}
+                          Decrypt the confidential purchase price before deploying capital.
+                        </div>
+                      ) : !hasEnoughUSDC && (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          Insufficient USDC. Get test tokens at{" "}
                           <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer" className="underline">
                             faucet.circle.com
                           </a>
@@ -693,7 +690,7 @@ export function InvoiceDetailModal({
                         size="md"
                         loading={isFactoringPending || isApproving || localBusy}
                         onClick={handleFactorClick}
-                        disabled={!hasEnoughUSDC && estimatedPurchasePrice > 0n}
+                        disabled={!hasEnoughUSDC}
                         className="w-full bg-gradient-to-r from-neon-purple to-indigo-600 border-neon-purple/50"
                       >
                         {isApproving
@@ -836,13 +833,13 @@ export function InvoiceDetailModal({
                   <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
                     <span className="text-slate-500">Payment Reference</span>
                     <span className="font-mono text-slate-300 truncate">
-                      {settlementSuccess?.paymentReferencePlain || (settlementAudit?.[0] && settlementAudit[0] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementAudit[0]) : "-")}
+                      {settlementSuccess?.paymentReferencePlain || (settlementCommitments?.[0] && settlementCommitments[0] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementCommitments[0]) : "-")}
                     </span>
                   </div>
                   <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
                     <span className="text-slate-500">Mock Bank Trace</span>
                     <span className="font-mono text-slate-300 truncate">
-                      {settlementSuccess?.bankTracePlain || (settlementAudit?.[1] && settlementAudit[1] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementAudit[1]) : "-")}
+                      {settlementSuccess?.bankTracePlain || (settlementCommitments?.[1] && settlementCommitments[1] !== "0x0000000000000000000000000000000000000000000000000000000000000000" ? shortAddress(settlementCommitments[1]) : "-")}
                     </span>
                   </div>
                   <div className="flex justify-between gap-3 p-2.5 rounded-xl bg-white/2 border border-white/5">
@@ -856,8 +853,8 @@ export function InvoiceDetailModal({
                     <span className="font-mono text-slate-300 truncate">
                       {settlementSuccess?.settlementReceiptHash
                         ? shortAddress(settlementSuccess.settlementReceiptHash)
-                        : settlementAudit?.[2] && settlementAudit[2] !== "0x0000000000000000000000000000000000000000000000000000000000000000"
-                        ? shortAddress(settlementAudit[2])
+                        : settlementCommitments?.[2] && settlementCommitments[2] !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        ? shortAddress(settlementCommitments[2])
                         : "-"}
                     </span>
                   </div>
@@ -909,15 +906,15 @@ export function InvoiceDetailModal({
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[14px]">✨</span>
-                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-400">Gemini AI Risk Profile</h4>
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-400">Deterministic Risk Profile</h4>
                   </div>
-                  <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">FLASH-2.0</span>
+                  <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">LOCAL</span>
                 </div>
 
                 {!assessment ? (
                   <div className="text-center py-2.5">
                     <p className="text-xs text-slate-400 mb-3">
-                      Run AI counterparty risk analysis using real decrypted parameters.
+                      Run deterministic counterparty risk analysis using real decrypted parameters.
                     </p>
                     <NeonButton
                       variant="primary"

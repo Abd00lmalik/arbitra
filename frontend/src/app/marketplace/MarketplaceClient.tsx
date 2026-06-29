@@ -25,8 +25,7 @@ import {
   SBT_ABI,
   SBT_ADDRESS,
   INVESTOR_SBT_ADDRESS,
-  daysUntilDue,
-  fromMicro
+  daysUntilDue
 } from "@/lib/contracts";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -132,10 +131,6 @@ export default function MarketplaceClient() {
     return true;
   });
 
-  /*
-   * Calculations for the Top Stats Overview Bar
-   */
-  const totalValueShielded = invoices.reduce((acc, inv) => acc + inv.faceValuePlaintext, 0n);
   const awaitingFundingCount = invoices.filter(
     (i) => i.status === InvoiceStatus.Pending || i.status === InvoiceStatus.Attested
   ).length;
@@ -198,7 +193,7 @@ export default function MarketplaceClient() {
             gap: "16px"
           }}
         >
-          {/* Card 1: Total Value Shielded */}
+          {/* Card 1: Confidential Invoices */}
           <div
             style={{
               background: "linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%)",
@@ -220,11 +215,11 @@ export default function MarketplaceClient() {
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               </svg>
               <span style={{ fontSize: "11px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                Total Value Shielded
+                Confidential Invoices
               </span>
             </div>
             <span style={{ fontSize: "22px", fontWeight: 800, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
-              ${fromMicro(totalValueShielded)} <span style={{ fontSize: "11px", color: "#64748B", fontWeight: 500 }}>USDC</span>
+              {invoices.length} <span style={{ fontSize: "11px", color: "#64748B", fontWeight: 500 }}>sealed</span>
             </span>
           </div>
 

@@ -25,26 +25,12 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
   const isDisputed = invoice.status === InvoiceStatus.Disputed;
   const isSlashed = invoice.status === InvoiceStatus.Slashed;
 
-  /*
-   * Helper: Derive an honest size tier from plaintext face value.
-   * S = under $10k | M = $10k–$50k | L = $50k–$200k | XL = over $200k
-   * Colour is based on tier, not a fake risk score.
-   */
-  const getSizeTier = (faceValuePlaintext: bigint) => {
-    const usd = Number(faceValuePlaintext) / 1_000_000;
-    if (usd < 10_000) {
-      return { tier: "S", label: "Small Cap", color: "#00F0FF", shadow: "rgba(0, 240, 255, 0.15)" };
-    }
-    if (usd < 50_000) {
-      return { tier: "M", label: "Mid Cap", color: "#A87FFF", shadow: "rgba(168, 127, 255, 0.15)" };
-    }
-    if (usd < 200_000) {
-      return { tier: "L", label: "Large Cap", color: "#00FF88", shadow: "rgba(0, 255, 136, 0.15)" };
-    }
-    return { tier: "XL", label: "Inst. Cap", color: "#FFBA00", shadow: "rgba(255, 186, 0, 0.15)" };
-  };
+  const disclosureBand = isFactored
+    ? { tier: "FUNDED", label: "Funded", color: "#00FF88", shadow: "rgba(0, 255, 136, 0.15)" }
+    : invoice.status === InvoiceStatus.Attested
+    ? { tier: "READY", label: "Verified", color: "#00F0FF", shadow: "rgba(0, 240, 255, 0.15)" }
+    : { tier: "PENDING", label: "Pending", color: "#FFBA00", shadow: "rgba(255, 186, 0, 0.15)" };
 
-  const risk = getSizeTier(invoice.faceValuePlaintext);
 
   const getStatusBadge = () => {
     if (isRepaid) {
@@ -195,12 +181,12 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
         border: isNew
           ? "1px solid rgba(0, 240, 255, 0.45)"
           : isHovered
-          ? `1px solid ${risk.color}66`
+          ? `1px solid ${disclosureBand.color}66`
           : "1px solid rgba(255, 255, 255, 0.06)",
         boxShadow: isNew
           ? "0 0 25px rgba(0, 240, 255, 0.2)"
           : isHovered
-          ? `0 10px 30px ${risk.shadow}`
+          ? `0 10px 30px ${disclosureBand.shadow}`
           : "0 4px 20px rgba(0, 0, 0, 0.25)",
         transform: isHovered ? "translateY(-5px)" : "translateY(0)",
         transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -221,7 +207,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
           width: "100%",
           height: "3px",
           background: isHovered
-            ? `linear-gradient(90deg, ${risk.color}, #7B2FFF)`
+            ? `linear-gradient(90deg, ${disclosureBand.color}, #7B2FFF)`
             : "linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))",
           transition: "all 0.3s ease",
         }}
@@ -287,13 +273,13 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
           textAlign: "center"
         }}
       >
-        {/* Size Tier */}
+        {/* Disclosure Band */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Size Tier
+            Risk Band
           </span>
-          <span style={{ fontSize: "14px", fontWeight: 800, color: risk.color }}>
-            {risk.tier}
+          <span style={{ fontSize: "11px", fontWeight: 800, color: disclosureBand.color }}>
+            {disclosureBand.tier}
           </span>
         </div>
 
