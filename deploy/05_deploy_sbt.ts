@@ -22,14 +22,19 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   const signer = await ethers.provider.getSigner(deployer);
   try {
-    const registryDeployment = await deployments.get("ArbitraInvoiceRegistry");
-    const registry = await ethers.getContractAt("ArbitraInvoiceRegistry", registryDeployment.address, signer);
-    if ((await registry.sbtContract()) !== sbt.address) {
-      console.log("- Configuring SBTContract on InvoiceRegistry...");
-      await (await registry.setSBTContract(sbt.address)).wait();
+    await deployments.get("ArbitraInvestorSBT");
+    console.log("- Investor SBT exists, leaving InvoiceRegistry risk-access SBT unchanged.");
+  } catch {
+    try {
+      const registryDeployment = await deployments.get("ArbitraInvoiceRegistry");
+      const registry = await ethers.getContractAt("ArbitraInvoiceRegistry", registryDeployment.address, signer);
+      if ((await registry.sbtContract()) !== sbt.address) {
+        console.log("- Configuring temporary supplier SBT on InvoiceRegistry...");
+        await (await registry.setSBTContract(sbt.address)).wait();
+      }
+    } catch (e) {
+      console.log("- InvoiceRegistry not found, skipping SBTContract configuration.");
     }
-  } catch (e) {
-    console.log("- InvoiceRegistry not found, skipping SBTContract configuration.");
   }
 };
 

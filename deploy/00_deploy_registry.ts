@@ -8,7 +8,7 @@ import { DeployFunction }             from "hardhat-deploy/types";
 import * as dotenv from "dotenv";
 import * as path from "path";
 
-// Load environment variables from both root and frontend
+/* Load environment variables from both root and frontend. */
 dotenv.config({ path: path.join(__dirname, "../frontend/.env.local") });
 dotenv.config({ path: path.join(__dirname, "../frontend/.env") });
 dotenv.config({ path: path.join(__dirname, "../.env.local") });
@@ -33,6 +33,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deploy } = deployments;
   const { deployer } = await getNamedAccounts();
   const signer = await hEthers.provider.getSigner(deployer);
+  const forceFreshSepoliaStack = process.env.ARBITRA_FORCE_FRESH_STACK === "true";
 
   let cUSDCAddress: string;
   let usdcAddress: string;
@@ -87,7 +88,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   let escrowAddress: string;
 
   if (network.name === "sepolia") {
-    /* Reuse pre-deployed addresses to conserve Sepolia ETH due to high gas prices */
+    if (forceFreshSepoliaStack) {
+      console.log("\nARBITRA_FORCE_FRESH_STACK=true - deleting saved Sepolia deployment records for clean-state reset...");
+      await deployments.delete("ArbitraFingerprintRegistry");
+      await deployments.delete("ArbitraRiskCalculator");
+      await deployments.delete("ArbitraCollateralVault");
+      await deployments.delete("ArbitraEscrowReceiver");
+      await deployments.delete("ArbitraInvoiceRegistry");
+    }
+
     console.log(`\nDeploying FingerprintRegistry on Sepolia...`);
     const fpRegistryDeployment = await deploy("ArbitraFingerprintRegistry", {
       from: deployer,
@@ -157,7 +166,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   /* 5. Deploy main InvoiceRegistry */
   let platformVerifier = process.env.PLATFORM_VERIFIER_ADDRESS;
   const verifierPrivateKey = process.env.VERIFIER_PRIVATE_KEY;
-  if (verifierPrivateKey && verifierPrivateKey.startsWith("0x")) {
+  if (!platformVerifier && verifierPrivateKey && verifierPrivateKey.startsWith("0x")) {
     try {
       const verifierWallet = new hEthers.Wallet(verifierPrivateKey);
       platformVerifier = verifierWallet.address;
@@ -215,7 +224,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     await (await escrowReceiver.setRegistry(registryDeployment.address)).wait();
   }
 
-  // Robust target contracts wiring checks
+  /* Robust target contracts wiring checks. */
   const currentFpRegistry = await registry.fpRegistry();
   const currentRiskCalc = await registry.riskCalc();
   const currentVault = await registry.collateralVault();
@@ -240,7 +249,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   if (platformVerifier) {
     const currentVerifier = await registry.platformVerifier();
     if (currentVerifier.toLowerCase() !== platformVerifier.toLowerCase()) {
-      console.log(`- Updating platformVerifier from ${currentVerifier} → ${platformVerifier}...`);
+      console.log(`- Updating platformVerifier from ${currentVerifier} to ${platformVerifier}...`);
       await (await registry.setPlatformVerifier(platformVerifier)).wait();
       console.log("- platformVerifier updated successfully.");
     } else {
@@ -249,13 +258,18 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
 
   try {
-    const sbtDeployment = await deployments.get("ArbitraSBT");
+    let sbtDeployment;
+    try {
+      sbtDeployment = await deployments.get("ArbitraInvestorSBT");
+    } catch {
+      sbtDeployment = await deployments.get("ArbitraSBT");
+    }
     if ((await registry.sbtContract()) !== sbtDeployment.address) {
-      console.log("- Configuring SBTContract on InvoiceRegistry...");
+      console.log(`- Configuring investor risk-access SBT on InvoiceRegistry: ${sbtDeployment.address}...`);
       await (await registry.setSBTContract(sbtDeployment.address)).wait();
     }
   } catch (e) {
-    console.log("- ArbitraSBT deployment not found, skipping SBTContract configuration.");
+    console.log("- No Arbitra SBT deployment found, skipping SBTContract configuration.");
   }
 
   console.log("\n====================================================");

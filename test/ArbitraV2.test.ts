@@ -26,6 +26,9 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
     let riskCalcAddr: string;
     let collateralVaultAddr: string;
     let escrowReceiverAddr: string;
+    let supplierSbt: any;
+    let investorSbt: any;
+    let investorSbtAddr: string;
 
     let deployer: HardhatEthersSigner;
     let supplier: HardhatEthersSigner;
@@ -94,16 +97,20 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
         await (await collateralVault.connect(deployer).setRegistry(registryAddr)).wait();
         await (await escrowReceiver.connect(deployer).setRegistry(registryAddr)).wait();
 
-        /* Deploy ArbitraSBT and configure on registry */
+        /* Deploy supplier and investor SBTs and configure investor access on registry */
         const SBTFactory = await ethers.getContractFactory("ArbitraSBT", deployer);
-        const sbt = await SBTFactory.deploy(deployer.address);
-        await sbt.waitForDeployment();
-        const sbtAddr = await sbt.getAddress();
+        supplierSbt = await SBTFactory.deploy(deployer.address);
+        await supplierSbt.waitForDeployment();
 
-        await (await sbt.setKYBOracle(deployer.address)).wait();
-        await (await sbt.mintSBT(supplier.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
-        await (await sbt.mintSBT(investor.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
-        await (await registry.setSBTContract(sbtAddr)).wait();
+        investorSbt = await SBTFactory.deploy(deployer.address);
+        await investorSbt.waitForDeployment();
+        investorSbtAddr = await investorSbt.getAddress();
+
+        await (await supplierSbt.setKYBOracle(deployer.address)).wait();
+        await (await investorSbt.setKYBOracle(deployer.address)).wait();
+        await (await supplierSbt.mintSBT(supplier.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
+        await (await investorSbt.mintSBT(investor.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000", 30)).wait();
+        await (await registry.setSBTContract(investorSbtAddr)).wait();
 
         /* Mint assets to participants */
         await (await mockUSDC.mint(supplier.address, 10_000_000_000n)).wait(); /* 10k USDC */
@@ -373,6 +380,82 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             const dupHandleDup = await fpRegistry.getDuplicateCheckHandle(supplier.address);
             const isDup = await fhevm.debugger.decryptEbool(dupHandleDup);
             expect(isDup).to.equal(true);
+        });
+
+        it("should require investor SBT for risk assessment access", async function () {
+            const faceValue = 1_000_000_000n;
+            const dueDate = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
+            const fingerprint = 222333444n;
+            const baseRate = 300n;
+            const reputationMultiplier = 5n;
+            const nextInvoiceId = 1n;
+
+            expect(await supplierSbt.hasValidSBT(supplier.address)).to.equal(true);
+            expect(await investorSbt.hasValidSBT(supplier.address)).to.equal(false);
+            expect(await investorSbt.hasValidSBT(investor.address)).to.equal(true);
+            expect(await registry.sbtContract()).to.equal(investorSbtAddr);
+
+            const requiredCollateral = (faceValue * 500n) / 10000n;
+            await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, requiredCollateral)).wait();
+            await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
+
+            const input = fhevm.createEncryptedInput(registryAddr, supplier.address);
+            input.add64(faceValue);
+            input.add64(dueDate);
+            input.add64(fingerprint);
+            input.add64(baseRate);
+            input.add64(reputationMultiplier);
+            const enc = await input.encrypt();
+
+            await (await registry.connect(supplier).uploadInvoice(
+                enc.handles[0], enc.inputProof,
+                enc.handles[1], enc.inputProof,
+                enc.handles[2], enc.inputProof,
+                enc.handles[3], enc.inputProof,
+                enc.handles[4], enc.inputProof,
+                debtor.address,
+                true,
+                faceValue,
+                fingerprint,
+                1050n
+            )).wait();
+
+            const attestationCommitment = ethers.keccak256(
+                ethers.AbiCoder.defaultAbiCoder().encode(
+                    ["uint256", "uint256"],
+                    [faceValue, dueDate]
+                )
+            );
+
+            const domain = {
+                name: "Arbitra",
+                version: "2",
+                chainId: chainId,
+                verifyingContract: registryAddr
+            };
+
+            const types = {
+                InvoiceAttestation: [
+                    { name: "invoiceId",             type: "uint256" },
+                    { name: "attestationCommitment", type: "bytes32" },
+                    { name: "supplier",              type: "address" }
+                ]
+            };
+
+            const message = {
+                invoiceId: nextInvoiceId,
+                attestationCommitment: attestationCommitment,
+                supplier: supplier.address
+            };
+
+            const signature = await debtor.signTypedData(domain, types, message);
+            await (await registry.connect(debtor).confirmInvoice(nextInvoiceId, signature, attestationCommitment)).wait();
+
+            await expect(
+                registry.connect(supplier).requestRiskAssessmentAccess(nextInvoiceId)
+            ).to.be.revertedWith("Arbitra: must hold SBT");
+
+            await (await registry.connect(investor).requestRiskAssessmentAccess(nextInvoiceId)).wait();
         });
 
         it("should prevent double fingerprint registration if confirmAndRegister and uploadInvoice are both called", async function () {
