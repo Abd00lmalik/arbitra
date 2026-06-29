@@ -5,6 +5,13 @@
 
 const hre = require("hardhat");
 
+function parseGwei(value, fallback) {
+  if (!value) {
+    return fallback;
+  }
+  return hre.ethers.parseUnits(value, "gwei");
+}
+
 async function assertCleanVault(vault, registryAddress) {
   const linkedRegistry = await vault.arbitraRegistry();
   if (linkedRegistry.toLowerCase() !== registryAddress.toLowerCase()) {
@@ -25,7 +32,7 @@ async function main() {
 
   const registryAddress = process.env.NEXT_PUBLIC_REGISTRY_ADDRESS;
   const fpRegistryAddress = process.env.NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS;
-  const riskCalculatorAddress = process.env.NEXT_PUBLIC_RISK_CALCULATOR_ADDRESS;
+  const riskCalculatorAddress = process.env.NEXT_PUBLIC_RISK_CALCULATOR_ADDRESS || process.env.NEXT_PUBLIC_RISK_CALC_ADDRESS;
   const escrowReceiverAddress = process.env.NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS;
   const usdcAddress = process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
@@ -49,10 +56,20 @@ async function main() {
   const deployTx = await VaultFactory.getDeployTransaction(usdcAddress);
   const estimatedDeployGas = await ethers.provider.estimateGas({ ...deployTx, from: owner.address });
   const fee = await ethers.provider.getFeeData();
-  const conservativeMaxFee = fee.maxFeePerGas ?? fee.gasPrice ?? 3_000_000_000n;
+  const maxFeePerGas = parseGwei("ARBITRA_MAX_FEE_GWEI" in process.env ? process.env.ARBITRA_MAX_FEE_GWEI : "", fee.maxFeePerGas ?? fee.gasPrice ?? 3_000_000_000n);
+  const maxPriorityFeePerGas = parseGwei(
+    "ARBITRA_PRIORITY_FEE_GWEI" in process.env ? process.env.ARBITRA_PRIORITY_FEE_GWEI : "",
+    fee.maxPriorityFeePerGas ?? 1_000_000n,
+  );
+  const gasOptions = { maxFeePerGas, maxPriorityFeePerGas };
+  const conservativeMaxFee = maxFeePerGas;
   const estimatedDeployCost = estimatedDeployGas * conservativeMaxFee;
   const minimumBalance = estimatedDeployCost + 600_000n * conservativeMaxFee;
   console.log("estimatedDeployGas", estimatedDeployGas.toString());
+  console.log("feeCaps", {
+    maxFeePerGas: maxFeePerGas.toString(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
+  });
   console.log("estimatedMinimumBalance", ethers.formatEther(minimumBalance));
 
   if (ownerBalance < minimumBalance) {
@@ -61,12 +78,12 @@ async function main() {
     );
   }
 
-  const vault = await VaultFactory.deploy(usdcAddress);
+  const vault = await VaultFactory.deploy(usdcAddress, gasOptions);
   await vault.waitForDeployment();
   const newVaultAddress = await vault.getAddress();
   console.log("newVault", newVaultAddress);
 
-  const setVaultRegistryTx = await vault.setRegistry(registryAddress);
+  const setVaultRegistryTx = await vault.setRegistry(registryAddress, gasOptions);
   await setVaultRegistryTx.wait(1);
   console.log("setVaultRegistryTx", setVaultRegistryTx.hash);
 
@@ -75,6 +92,7 @@ async function main() {
     riskCalculatorAddress,
     newVaultAddress,
     escrowReceiverAddress,
+    gasOptions,
   );
   await setContractsTx.wait(1);
   console.log("setContractsTx", setContractsTx.hash);

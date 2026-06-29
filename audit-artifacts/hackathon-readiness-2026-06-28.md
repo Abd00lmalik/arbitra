@@ -9,13 +9,22 @@ The frontend and Vercel production bundle are now wired to the coherent Sepolia 
 - Registry: `0xDE46d22134f0a9595188aA96dFFAC82561172b9f`
 - Fingerprint registry: `0x4De4d767a628aa021f5E3bb6CC8B3Bf80880C4eC`
 - Risk calculator: `0x4A33a848de45d79f6A8082D1d2aE93b3c85a1F91`
-- Collateral vault: `0x5DbD519573770b7cE26D744C568e465566a86ddd`
+- Collateral vault: `0x5abc39D2a5D37CCB994B85298924a415415F2658`
 - Escrow receiver: `0x6B1Abb3e6d0918F9B86e975Ef0FE93a8eBd81FAA`
 - Platform verifier: `0x46F6935E41856D62d8f9ABd2b894ab27669a0dc9`
 
-After this fix, the final upload call no longer fails with `Arbitra: only registry`. A new deployment-state blocker was found: the active collateral vault contains stale invoice ID links for invoice IDs `1`, `2`, and `3`, while the active registry has `invoiceCount = 0`. The clean registry tries to link invoice `1`, and the vault now reverts with `Arbitra: invoice ID already staked`.
+After this fix, the final upload call no longer fails with `Arbitra: only registry`. A second deployment-state blocker was found: the previous active collateral vault contained stale invoice ID links for invoice IDs `1`, `2`, and `3`, while the active registry had `invoiceCount = 0`. The clean registry tried to link invoice `1`, and the stale vault reverted with `Arbitra: invoice ID already staked`.
 
-The secure remediation is to deploy a fresh collateral vault, set its registry to the active registry, update the active registry to point to the fresh vault, then update frontend and Vercel environment variables. This does not bypass access control or weaken `onlyRegistry`.
+The secure remediation was to deploy a fresh collateral vault, set its registry to the active registry, update the active registry to point to the fresh vault, then update frontend and Vercel environment variables. This did not bypass access control or weaken `onlyRegistry`.
+
+Fresh vault deployed:
+
+- Collateral vault: `0x5abc39D2a5D37CCB994B85298924a415415F2658`
+- `setRegistry` tx: `0x2110006ac67d1aaec57babf3854b42846b4a44019d71919c389fd53ee49dde60`
+- `registry.setContracts` tx: `0xc21a736a1fcedceeb53866cf9d30a40631830687fa44de2e02e57d234845f596`
+- Final upload tx: `0x0c2a6736b39981b51ee76e0c977472c31cb38d23bda417bf015b75f9dfef71af`
+- Final upload gas used: `1,429,213`
+- Final state: `invoiceCount = 1`, invoice `1` status `Pending`, supplier `0x73092e88D49946ac32b6Eb1a394f81bb553e411a`, face value `1000000`, collateral staked `true`, vault stake `50000`.
 
 Known existing vault candidates were checked and are not suitable:
 
@@ -28,14 +37,18 @@ Because the active registry starts at `invoiceCount = 0`, reusing either vault w
 
 ```text
 Frontend UploadInvoiceForm
-↓
+|
+v
 ArbitraInvoiceRegistry.uploadInvoice
-↓
+|
+v
 ArbitraCollateralVault.linkStakeToInvoice
-↓
-onlyRegistry passes after address fix
-↓
-stale vault state fails with Arbitra: invoice ID already staked
+|
+v
+onlyRegistry passes with fresh vault wiring
+|
+v
+Invoice 1 is stored and collateral is linked
 ```
 
 ## Upload Pipeline Timing
@@ -85,13 +98,13 @@ Severity: High. Confidence: 95.
 
 Recommendation: adjust claims immediately, then migrate pricing/settlement to FHE-bound values with a clear disclosure model.
 
-### P0 - Live deployment vault state is inconsistent with active registry
+### Resolved - Live deployment vault state was inconsistent with active registry
 
 Severity: High. Confidence: 95.
 
 The active registry reports `invoiceCount = 0`, but the active vault has `stakedCollateral[1] = 5000000`, `stakedCollateral[2] = 7563000`, and `stakedCollateral[3] = 8599500`. This blocks the first clean upload with `Arbitra: invoice ID already staked`.
 
-Recommendation: deploy and wire a fresh collateral vault. Do not temporarily set `arbitraRegistry` to an EOA to clear state.
+Resolution: deployed and wired fresh collateral vault `0x5abc39D2a5D37CCB994B85298924a415415F2658`. Do not temporarily set `arbitraRegistry` to an EOA to clear state.
 
 ### P1 - Plaintext and encrypted values are not cryptographically bound
 
@@ -123,22 +136,20 @@ Recommendation: include `bankTraceId` in `PAYMENT_RECEIVED_TYPEHASH`.
 | --- | ---: | --- |
 | Confidential Computing | 6 | Real FHE handles and ACLs exist, but important business values remain plaintext |
 | Zama Integration | 7 | Uses FHEVM primitives, external inputs, ACL grants, and encrypted comparisons |
-| Product Quality | 6 | Strong concept and UI, but deployed flow is still blocked by stale vault state |
+| Product Quality | 7 | Strong concept and UI; final upload works after fresh-vault remediation, but other journeys need browser QA |
 | User Experience | 6 | Good visual polish, but auth/gas/onboarding friction is high |
 | Technical Depth | 8 | Multi-contract lifecycle, FHE risk, duplicate checking, escrow, KYB |
 | Smart Contract Design | 6 | Good modularity, but duplicate enforcement and plaintext mirrors need redesign |
 | Security | 5 | Access control wiring fixed, but confidentiality and invariant gaps remain |
-| Demo Quality | 5 | Parser and wiring are improved, but final deployed upload needs vault remediation |
+| Demo Quality | 6 | Parser, registry wiring, and final upload are fixed; full auth/browser demo still needs hardening |
 | Innovation | 8 | Confidential invoice factoring is a strong Zama use case |
-| Production Readiness | 4 | Needs deployment remediation, clearer claims, and protocol hardening |
+| Production Readiness | 5 | Deployment remediation is complete, but claims, duplicate enforcement, and browser journey QA remain |
 
 ## Roadmap
 
 ### P0
 
-- Deploy and wire a fresh collateral vault for the active registry.
 - Update Vercel production environment and redeploy after vault remediation.
-- Complete supplier upload end to end on the deployed app.
 - Change public copy that overclaims "zero plaintext" until settlement confidentiality is redesigned.
 
 ### P1
@@ -167,4 +178,7 @@ Recommendation: include `bankTraceId` in `PAYMENT_RECEIVED_TYPEHASH`.
 - `npm run build` in `frontend`: passed.
 - `scratch/check_sepolia_wiring.js`: coherent registry/fingerprint/vault/escrow/verifier wiring passed.
 - Final upload tx `0x7a522f05ac9e5a8e5e524e99bc9640835114f41e19b3750c8668a76cf4ee2fd2`: no longer `onlyRegistry`; reverted with `Arbitra: invoice ID already staked` by `eth_call` replay.
-- Vault candidate scan: both known existing vaults are dirty at low invoice IDs, so `scripts/remediate_fresh_collateral_vault.js` is the recommended remediation path.
+- Vault candidate scan: both known existing vaults were dirty at low invoice IDs.
+- Fresh vault remediation: `scripts/remediate_fresh_collateral_vault.js` deployed and wired `0x5abc39D2a5D37CCB994B85298924a415415F2658`.
+- Final upload transaction `0x0c2a6736b39981b51ee76e0c977472c31cb38d23bda417bf015b75f9dfef71af`: mined with status `1` in block `11163742`, gas used `1,429,213`.
+- Post-upload chain state: `invoiceCount = 1`, invoice `1` status `0`, supplier `0x73092e88D49946ac32b6Eb1a394f81bb553e411a`, `collateralStaked = true`, vault `stakedCollateral[1] = 50000`.

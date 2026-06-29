@@ -6,6 +6,7 @@
 const hre = require("hardhat");
 
 const CANDIDATES = [
+  "0x5abc39D2a5D37CCB994B85298924a415415F2658",
   "0x5DbD519573770b7cE26D744C568e465566a86ddd",
   "0x1e8fdFAC6ecaac3fcf186B30A947000e4d604e88",
 ];

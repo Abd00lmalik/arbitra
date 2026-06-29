@@ -5,9 +5,18 @@
 
 const hre = require("hardhat");
 
+function parseGwei(value, fallback) {
+  if (!value) {
+    return fallback;
+  }
+  return hre.ethers.parseUnits(value, "gwei");
+}
+
 async function main() {
   const { fhevm, ethers } = hre;
+  console.log("initialize fhevm");
   await fhevm.initializeCLIApi();
+  console.log("fhevm ready");
   const [supplier] = await ethers.getSigners();
 
   const registryAddr = process.env.NEXT_PUBLIC_REGISTRY_ADDRESS;
@@ -44,10 +53,20 @@ async function main() {
   const uploadEnc = await uploadInput.encrypt();
 
   const fee = await ethers.provider.getFeeData();
+  const maxFeePerGas = parseGwei(
+    process.env.ARBITRA_MAX_FEE_GWEI,
+    fee.maxFeePerGas || ethers.parseUnits("8", "gwei"),
+  );
+  const maxPriorityFeePerGas = parseGwei(
+    process.env.ARBITRA_PRIORITY_FEE_GWEI,
+    fee.maxPriorityFeePerGas || ethers.parseUnits("0.1", "gwei"),
+  );
   console.log("feeData", {
     gasPrice: fee.gasPrice?.toString(),
     maxFeePerGas: fee.maxFeePerGas?.toString(),
     maxPriorityFeePerGas: fee.maxPriorityFeePerGas?.toString(),
+    cappedMaxFeePerGas: maxFeePerGas.toString(),
+    cappedMaxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
   });
 
   const uploadTx = await registry.uploadInvoice(
@@ -68,8 +87,8 @@ async function main() {
     800n,
     {
       gasLimit: 1_800_000n,
-      maxFeePerGas: 3_000_000_000n,
-      maxPriorityFeePerGas: 1_000_000_000n,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
     },
   );
   console.log("uploadTx", uploadTx.hash);
