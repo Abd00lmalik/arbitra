@@ -103,15 +103,15 @@ export function FeaturesSection() {
     },
     {
       illustration: <LockVaultIllustration />,
-      title: "Deterministic Risk Review",
-      description: "Structured invoice fields and privacy-preserving contract data feed a deterministic underwriting model. Investors get a stable recommendation without external inference APIs in the financial core.",
+      title: "Confidential Underwriting",
+      description: "Encrypted invoice value, encrypted due date, encrypted repayment history, encrypted defaults, and encrypted reputation feed an FHE risk score. Investors decrypt only the final result after ACL approval.",
       accentColor: "rgba(123, 47, 255, 0.25)",
       shadowColor: "rgba(123, 47, 255, 0.12)"
     },
     {
       illustration: <DataFlowIllustration />,
       title: "On-Chain Credit Scoring",
-      description: "The registry computes interest discounts using homomorphic arithmetic on the supplier's private repayment history. No oracles are required, preserving mathematical integrity.",
+      description: "The registry computes pricing and risk outputs with homomorphic arithmetic on private supplier and invoice signals. Raw credit history stays outside public view.",
       accentColor: "rgba(0, 255, 136, 0.25)",
       shadowColor: "rgba(0, 255, 136, 0.12)"
     }

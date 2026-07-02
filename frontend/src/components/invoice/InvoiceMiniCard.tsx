@@ -260,7 +260,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
         {getStatusBadge()}
       </div>
 
-      {/* Main Metrics Area: Risk, Yield, Maturity */}
+      {/* Main Metrics Area: Disclosure, Yield, Maturity */}
       <div
         style={{
           display: "grid",
@@ -273,17 +273,17 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
           textAlign: "center"
         }}
       >
-        {/* Disclosure Band */}
+        {/* Disclosure Status */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Risk Band
+            Access
           </span>
           <span style={{ fontSize: "11px", fontWeight: 800, color: disclosureBand.color }}>
             {disclosureBand.tier}
           </span>
         </div>
 
-        {/* Yield — encrypted until investor decrypts */}
+        {/* Yield stays encrypted until investor decrypts */}
         <div style={{ display: "flex", flexDirection: "column", gap: "3px", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }}>
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             Yield
@@ -399,7 +399,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
         <FHEBadge size="sm" animated={isHovered} label="" />
       </div>
 
-      {/* Action Button: View Details & Risk */}
+      {/* Action Button: View Details */}
       <div
         style={{
           display: "flex",
@@ -418,7 +418,7 @@ export function InvoiceMiniCard({ invoice, onClick, isNew = false, isSupplierVie
           marginTop: "2px"
         }}
       >
-        <span>View Details & Risk</span>
+        <span>View Details</span>
         <svg
           width="10"
           height="10"

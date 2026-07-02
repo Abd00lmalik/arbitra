@@ -17,6 +17,8 @@ interface DecryptedValues {
   dueDate?: bigint;
   purchasePrice?: bigint;
   discountRate?: bigint;
+  riskScore?: bigint;
+  riskBand?: bigint;
 }
 
 interface UseInvoiceDecryptResult {
@@ -29,6 +31,8 @@ interface UseInvoiceDecryptResult {
       dueDateHandle: `0x${string}`;
       purchasePriceHandle: `0x${string}`;
       discountRateHandle: `0x${string}`;
+      riskScoreHandle?: `0x${string}`;
+      riskBandHandle?: `0x${string}`;
     },
     signer: {
       signTypedData: (d: object, t: object, v: object) => Promise<string>;
@@ -78,6 +82,12 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
           { handle: handles.purchasePriceHandle, contractAddress },
           { handle: handles.discountRateHandle, contractAddress },
         ];
+        if (handles.riskScoreHandle) {
+          handlePairs.push({ handle: handles.riskScoreHandle, contractAddress });
+        }
+        if (handles.riskBandHandle) {
+          handlePairs.push({ handle: handles.riskBandHandle, contractAddress });
+        }
 
         const clearValues = await userDecryptHandles(instance, handlePairs, signer);
 
@@ -86,6 +96,8 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
           dueDate: clearValues[handles.dueDateHandle] as bigint | undefined,
           purchasePrice: clearValues[handles.purchasePriceHandle] as bigint | undefined,
           discountRate: clearValues[handles.discountRateHandle] as bigint | undefined,
+          riskScore: handles.riskScoreHandle ? clearValues[handles.riskScoreHandle] as bigint | undefined : undefined,
+          riskBand: handles.riskBandHandle ? clearValues[handles.riskBandHandle] as bigint | undefined : undefined,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Decryption failed";

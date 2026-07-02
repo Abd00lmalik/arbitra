@@ -1,38 +1,86 @@
 /**
  * @file PhoneMockup.tsx
- * @description Interactive iPhone 15 mockup with simulated dashboard mirroring the real Arbitra UI.
+ * @description App-faithful mobile preview showing selective disclosure across supplier and investor flows.
  */
 
 "use client";
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useIsMobile } from "@/hooks/useBreakpoint";
+import { Upload, Store, ShieldCheck, WalletCards, CheckCircle2 } from "lucide-react";
+
+interface ScreenState {
+  key: string;
+  label: string;
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  rows: Array<{ label: string; value: string; tone?: string }>;
+  cta: string;
+}
+
+const screens: ScreenState[] = [
+  {
+    key: "upload",
+    label: "Upload",
+    title: "Upload Invoice",
+    subtitle: "Parser creates encrypted protocol inputs.",
+    icon: <Upload size={14} />,
+    rows: [
+      { label: "PDF", value: "INV-2025-0301.pdf" },
+      { label: "Face value", value: "Encrypted handle", tone: "#00F0FF" },
+      { label: "Due date", value: "Encrypted handle", tone: "#00F0FF" },
+      { label: "Collateral", value: "Staked", tone: "#00FF88" }
+    ],
+    cta: "Submit encrypted invoice"
+  },
+  {
+    key: "market",
+    label: "Marketplace",
+    title: "Marketplace",
+    subtitle: "Pre-ACL cards show coordination data only.",
+    icon: <Store size={14} />,
+    rows: [
+      { label: "Supplier", value: "Verified", tone: "#00FF88" },
+      { label: "Industry", value: "Services" },
+      { label: "Maturity", value: "30 day bucket" },
+      { label: "Economics", value: "Request access", tone: "#00F0FF" }
+    ],
+    cta: "Request FHE access"
+  },
+  {
+    key: "review",
+    label: "Review",
+    title: "Investor Review",
+    subtitle: "Authorized wallet decrypts final outputs.",
+    icon: <ShieldCheck size={14} />,
+    rows: [
+      { label: "Face value", value: "Decrypted by ACL", tone: "#EEF2FF" },
+      { label: "Purchase price", value: "Decrypted by ACL", tone: "#EEF2FF" },
+      { label: "FHE risk score", value: "53 / 100", tone: "#FFBA00" },
+      { label: "Raw history", value: "Not disclosed", tone: "#00F0FF" }
+    ],
+    cta: "Deploy capital"
+  },
+  {
+    key: "settlement",
+    label: "Settlement",
+    title: "Settlement Adapter",
+    subtitle: "Clear amount exists only at the rail boundary.",
+    icon: <WalletCards size={14} />,
+    rows: [
+      { label: "Reference", value: "hash commitment" },
+      { label: "Bank trace", value: "hash commitment" },
+      { label: "Ledger", value: "Encrypted balance", tone: "#00F0FF" },
+      { label: "USDC", value: "Transfer executed", tone: "#00FF88" }
+    ],
+    cta: "Settlement recorded"
+  }
+];
 
 export function PhoneMockup() {
-  const isMobile = useIsMobile();
-  const [isDecrypted, setIsDecrypted] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-
-  /* Animation variants for floating elements */
-  const floatVariants = (yOffset: number, duration: number) => ({
-    animate: {
-      y: [0, yOffset, 0],
-      transition: {
-        duration,
-        repeat: Infinity,
-        ease: "easeInOut"
-      }
-    }
-  });
-
-  const handleToggle = () => {
-    setIsScanning(true);
-    setTimeout(() => {
-      setIsDecrypted((prev) => !prev);
-      setIsScanning(false);
-    }, 800);
-  };
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = screens[activeIndex];
 
   return (
     <section
@@ -40,42 +88,10 @@ export function PhoneMockup() {
         padding: "100px 24px",
         position: "relative",
         zIndex: 2,
-        background: "radial-gradient(ellipse at 50% 60%, rgba(123, 47, 255, 0.08) 0%, transparent 60%)",
         overflow: "hidden"
       }}
     >
-      {/* Background Floating Orbs around mockup */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          left: "20%",
-          top: "30%",
-          width: "350px",
-          height: "350px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(0, 240, 255, 0.04) 0%, transparent 70%)",
-          zIndex: 1,
-          pointerEvents: "none"
-        }}
-      />
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          right: "20%",
-          top: "20%",
-          width: "400px",
-          height: "400px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(123, 47, 255, 0.04) 0%, transparent 70%)",
-          zIndex: 1,
-          pointerEvents: "none"
-        }}
-      />
-
       <div style={{ maxWidth: "1100px", margin: "0 auto", textAlign: "center" }}>
-        {/* Section Headers */}
         <span
           style={{
             fontFamily: "Satoshi, sans-serif",
@@ -88,471 +104,300 @@ export function PhoneMockup() {
             marginBottom: "12px"
           }}
         >
-          Confidential Execution
+          Real Product Flow
         </span>
         <h2
           style={{
             fontFamily: "Satoshi, sans-serif",
             fontSize: "clamp(32px, 4vw, 48px)",
             fontWeight: 800,
-            letterSpacing: "-0.02em",
-            marginBottom: "16px"
+            marginBottom: "16px",
+            color: "#EEF2FF"
           }}
         >
-          <span style={{ color: "#EEF2FF" }}>See it in </span>
-          <span style={{ background: "linear-gradient(135deg, #00F0FF 0%, #7B2FFF 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-            Action
-          </span>
+          Mobile screens that mirror the app.
         </h2>
         <p
           style={{
             fontFamily: "Satoshi, sans-serif",
             fontSize: "17px",
             color: "#8B9CC8",
-            maxWidth: "600px",
-            margin: "0 auto 60px",
+            maxWidth: "650px",
+            margin: "0 auto 44px",
             lineHeight: 1.75
           }}
         >
-          Every invoice, repayment weight, and credit yield is stored as encrypted ciphertext. Investors only see what they are authorized to decrypt.
+          The preview follows the same supplier upload, marketplace, investor review, and settlement states used in the live interface.
         </p>
 
-        {/* Layout container */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            position: "relative",
-            minHeight: "720px",
-            zIndex: 2
-          }}
-        >
-          {/* Left Floating Cards (Desktop only) */}
-          {!isMobile && (
-            <>
-              {/* Floating Card 1 (Top-Left) */}
+        <div className="mobile-demo-wrap">
+          <div className="screen-tabs">
+            {screens.map((screen, idx) => (
+              <button
+                key={screen.key}
+                onClick={() => setActiveIndex(idx)}
+                className={idx === activeIndex ? "active" : ""}
+              >
+                {screen.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="phone-shell">
+            <div className="phone-island" />
+            <AnimatePresence mode="wait">
               <motion.div
-                variants={floatVariants(-15, 7)}
-                animate="animate"
-                style={{
-                  position: "absolute",
-                  left: "8%",
-                  top: "12%",
-                  width: "220px",
-                  background: "rgba(10, 16, 38, 0.85)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderRadius: "16px",
-                  padding: "16px",
-                  textAlign: "left",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)"
-                }}
+                key={active.key}
+                initial={{ opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -24 }}
+                transition={{ duration: 0.24 }}
+                className="phone-screen"
               >
-                <div style={{ fontSize: "10px", color: "#8B9CC8", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "8px" }}>
-                  Invoice Detail
-                </div>
-                <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginBottom: "4px" }}>
-                  Invoice #1
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", color: "#8B9CC8", marginBottom: "8px" }}>
-                  <span>Face Value:</span>
-                  <span style={{ fontFamily: "JetBrains Mono, monospace", color: "#00F0FF", fontWeight: 500 }}>
-                    {isDecrypted ? "$142,000 USDC" : "0x7f3a...b81e"}
-                  </span>
-                </div>
-                <div style={{ display: "inline-flex", padding: "4px 8px", borderRadius: "100px", background: "rgba(0, 255, 136, 0.1)", border: "1px solid rgba(0,255,136,0.2)", fontSize: "10px", color: "#00FF88", fontWeight: 600 }}>
-                  Factored
-                </div>
-              </motion.div>
-
-              {/* Floating Card 2 (Bottom-Left) */}
-              <motion.div
-                variants={floatVariants(12, 9)}
-                animate="animate"
-                style={{
-                  position: "absolute",
-                  left: "5%",
-                  bottom: "15%",
-                  width: "240px",
-                  background: "rgba(10, 16, 38, 0.85)",
-                  border: "1px solid rgba(0, 240, 255, 0.25)",
-                  borderRadius: "16px",
-                  padding: "16px",
-                  textAlign: "left",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  boxShadow: "0 0 20px rgba(0,240,255,0.08)"
-                }}
-              >
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" strokeWidth="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: "#EEF2FF" }}>
-                    FHE Protected
-                  </span>
-                </div>
-                <p style={{ fontSize: "11px", color: "#8B9CC8", marginTop: "8px", lineHeight: "1.4" }}>
-                  Homomorphic states prevent public nodes from parsing details of factoring bids.
-                </p>
-              </motion.div>
-            </>
-          )}
-
-          {/* Center iPhone 15 Pro CSS Frame */}
-          <div
-            style={{
-              width: "320px",
-              height: "640px",
-              borderRadius: "44px",
-              background: "#020714",
-              border: "12px solid #1E2330",
-              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.8), 0 0 40px rgba(0, 240, 255, 0.15)",
-              position: "relative",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column"
-            }}
-          >
-            {/* Dynamic Island Cutout */}
-            <div
-              style={{
-                width: "90px",
-                height: "22px",
-                borderRadius: "100px",
-                background: "#000000",
-                position: "absolute",
-                top: "8px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 30
-              }}
-            />
-
-            {/* Screen Content Wrapper */}
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                background: "#060B18",
-                padding: "36px 14px 14px",
-                overflow: "hidden",
-                position: "relative"
-              }}
-            >
-              {/* Scanning laser line overlay */}
-              <AnimatePresence>
-                {isScanning && (
-                  <motion.div
-                    initial={{ top: "0%", opacity: 0 }}
-                    animate={{ top: ["0%", "95%", "0%"], opacity: [0, 1, 1, 0] }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.8, ease: "easeInOut" }}
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      height: "4px",
-                      background: "linear-gradient(90deg, transparent, #00F0FF, transparent)",
-                      boxShadow: "0 0 12px #00F0FF, 0 0 4px #00F0FF",
-                      zIndex: 10,
-                      pointerEvents: "none"
-                    }}
-                  />
-                )}
-              </AnimatePresence>
-
-              {/* Mini-Dashboard Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                <div>
-                  <h3 style={{ fontSize: "14px", fontWeight: 800, color: "#EEF2FF", fontFamily: "Satoshi, sans-serif" }}>
-                    Dashboard
-                  </h3>
-                </div>
-                {/* Active Wallet Connected Display */}
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(0, 240, 255, 0.06)", border: "1px solid rgba(0, 240, 255, 0.15)", borderRadius: "8px", padding: "4px 8px", fontSize: "9px", color: "#00F0FF", fontWeight: 600 }}>
-                  <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
-                  0x7b2f...e00f (Verified)
-                </div>
-              </div>
-
-              {/* FHE Status badge */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "6px 10px",
-                  background: "rgba(0, 240, 255, 0.04)",
-                  border: "1px solid rgba(0, 240, 255, 0.15)",
-                  borderRadius: "10px",
-                  fontSize: "9px",
-                  color: "#00FF88",
-                  marginBottom: "12px",
-                  justifyContent: "center",
-                  fontWeight: 600
-                }}
-              >
-                <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} />
-                <span>FHE Shield Active • Zama v0.11 • Sepolia</span>
-              </div>
-
-              {/* Static screen area */}
-              <div style={{ flex: 1, overflowY: "auto", marginBottom: "12px", paddingRight: "2px" }} className="hide-scrollbar">
-                {/* Dynamic Stats Cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Uploaded</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>3</div>
+                <div className="phone-top">
+                  <div className="phone-logo">
+                    {active.icon}
                   </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Investments</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>2</div>
-                  </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Awaiting</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>1</div>
-                  </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left" }}>
-                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Yield Rate</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginTop: "2px" }}>14.2% APY</div>
-                  </div>
-                  <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.04)", borderRadius: "10px", padding: "8px", textAlign: "left", gridColumn: "span 2" }}>
-                    <div style={{ fontSize: "8px", color: "#8B9CC8" }}>Confidential Activity</div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#00F0FF", marginTop: "2px", fontFamily: "JetBrains Mono, monospace" }}>
-                      {isDecrypted ? "$625,000.00 USDC" : "0x7f3a...b81e 🔒"}
-                    </div>
+                  <div>
+                    <h3>{active.title}</h3>
+                    <p>{active.subtitle}</p>
                   </div>
                 </div>
 
-                {/* CSS Donut Chart */}
-                <div
-                  style={{
-                    background: "rgba(10, 16, 38, 0.6)",
-                    border: "1px solid rgba(255, 255, 255, 0.05)",
-                    borderRadius: "12px",
-                    padding: "10px",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px"
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "48px",
-                      height: "48px",
-                      borderRadius: "50%",
-                      background: "conic-gradient(#00F0FF 0% 60%, #7B2FFF 60% 85%, #00FF88 85% 100%)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0
-                    }}
-                  >
-                    <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#060B18" }} />
-                  </div>
-                  <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontSize: "9px", fontWeight: 700, color: "#EEF2FF" }}>Portfolio Distribution</div>
-                    <div style={{ display: "flex", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "7px", color: "#00F0FF", display: "flex", alignItems: "center", gap: "2px" }}>
-                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00F0FF" }} /> Factored
-                      </span>
-                      <span style={{ fontSize: "7px", color: "#7B2FFF", display: "flex", alignItems: "center", gap: "2px" }}>
-                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#7B2FFF" }} /> Available
-                      </span>
-                      <span style={{ fontSize: "7px", color: "#00FF88", display: "flex", alignItems: "center", gap: "2px" }}>
-                        <span style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#00FF88" }} /> Repaid
-                      </span>
-                    </div>
-                  </div>
+                <div className="fhe-chip">
+                  <span />
+                  Zama FHEVM active
                 </div>
 
-                {/* Recent Invoices list */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                  <span style={{ fontSize: "9px", fontWeight: 700, color: "#EEF2FF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Recent Invoices
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {[
-                    {
-                      id: "Invoice #1",
-                      status: "Factored",
-                      color: "#7B2FFF",
-                      clear: "$142,000 USDC",
-                      cipher: "0x7f3a...b81e"
-                    },
-                    {
-                      id: "Invoice #2",
-                      status: "Pending Attestation",
-                      color: "#FFC400",
-                      clear: "$89,500 USDC",
-                      cipher: "0x0f8c...4b12"
-                    },
-                    {
-                      id: "Invoice #3",
-                      status: "Repaid",
-                      color: "#00FF88",
-                      clear: "$210,000 USDC",
-                      cipher: "0x8e5f...c9d4"
-                    }
-                  ].map((inv) => (
-                    <div
-                      key={inv.id}
-                      style={{
-                        background: "rgba(255, 255, 255, 0.02)",
-                        border: "1px solid rgba(255, 255, 255, 0.04)",
-                        borderRadius: "10px",
-                        padding: "8px 10px",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center"
-                      }}
-                    >
-                      <div style={{ textAlign: "left" }}>
-                        <div style={{ fontSize: "10px", fontWeight: 700, color: "#EEF2FF" }}>{inv.id}</div>
-                        <span style={{ fontSize: "7px", color: inv.color, textTransform: "uppercase", fontWeight: 600 }}>
-                          {inv.status}
-                        </span>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "10px", fontWeight: 700, color: "#00F0FF", fontFamily: "JetBrains Mono, monospace" }}>
-                          {isDecrypted ? inv.clear : inv.cipher}
-                        </div>
-                        <div style={{ fontSize: "7px", color: "#8B9CC8" }}>
-                          USDC
-                        </div>
-                      </div>
+                <div className="invoice-panel">
+                  <div className="invoice-head">
+                    <span>Invoice #5</span>
+                    <strong>{active.key === "market" ? "Public Preview" : "Authorized Flow"}</strong>
+                  </div>
+                  {active.rows.map((row) => (
+                    <div className="invoice-row" key={row.label}>
+                      <span>{row.label}</span>
+                      <strong style={{ color: row.tone || "#EEF2FF" }}>{row.value}</strong>
                     </div>
                   ))}
                 </div>
-              </div>
 
-              {/* Decryption View Toggle */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "auto" }}>
-                <button
-                  onClick={handleToggle}
-                  disabled={isScanning}
-                  style={{
-                    background: isDecrypted ? "rgba(123, 47, 255, 0.12)" : "rgba(0, 240, 255, 0.12)",
-                    border: isDecrypted ? "1px solid rgba(123, 47, 255, 0.3)" : "1px solid rgba(0, 240, 255, 0.3)",
-                    borderRadius: "10px",
-                    padding: "8px",
-                    color: isDecrypted ? "#A87FFF" : "#00F0FF",
-                    fontFamily: "Satoshi, sans-serif",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    cursor: isScanning ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "6px",
-                    boxShadow: isDecrypted ? "0 0 10px rgba(123,47,255,0.15)" : "0 0 10px rgba(0,240,255,0.15)",
-                    transition: "all 0.2s"
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    {isDecrypted ? (
-                      <>
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                      </>
-                    ) : (
-                      <>
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </>
-                    )}
-                  </svg>
-                  {isScanning ? "Processing FHE..." : isDecrypted ? "Encrypt View (FHE)" : "Decrypt View (Key)"}
-                </button>
-              </div>
-            </div>
+                <div className="underwriting-card">
+                  <div>
+                    <span>Confidential underwriting</span>
+                    <strong>{active.key === "review" ? "Final result decrypted" : "Raw inputs hidden"}</strong>
+                  </div>
+                  {active.key === "review" ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}
+                </div>
+
+                <button className="phone-cta">{active.cta}</button>
+              </motion.div>
+            </AnimatePresence>
           </div>
-
-          {/* Right Floating Cards (Desktop only) */}
-          {!isMobile && (
-            <>
-              {/* Floating Card 3 (Top-Right) */}
-              <motion.div
-                variants={floatVariants(15, 8)}
-                animate="animate"
-                style={{
-                  position: "absolute",
-                  right: "8%",
-                  top: "15%",
-                  width: "220px",
-                  background: "rgba(10, 16, 38, 0.85)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderRadius: "16px",
-                  padding: "16px",
-                  textAlign: "left",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "10px", color: "#8B9CC8", textTransform: "uppercase", fontWeight: 600 }}>
-                    Risk Review
-                  </span>
-                  <span style={{ fontSize: "10px", color: "#00FF88", fontWeight: 700 }}>LOW RISK</span>
-                </div>
-                <div style={{ fontSize: "14px", fontWeight: 700, color: "#EEF2FF", marginBottom: "6px" }}>
-                  Score: 12 / 100
-                </div>
-                <div style={{ display: "inline-flex", padding: "4px 8px", borderRadius: "100px", background: "rgba(0, 240, 255, 0.1)", border: "1px solid rgba(0,240,255,0.2)", fontSize: "10px", color: "#00F0FF", fontWeight: 600 }}>
-                  Recommendation: FACTOR
-                </div>
-              </motion.div>
-
-              {/* Floating Card 4 (Bottom-Right) */}
-              <motion.div
-                variants={floatVariants(-12, 10)}
-                animate="animate"
-                style={{
-                  position: "absolute",
-                  right: "6%",
-                  bottom: "18%",
-                  width: "230px",
-                  background: "rgba(10, 16, 38, 0.85)",
-                  border: "1px solid rgba(0, 255, 136, 0.25)",
-                  borderRadius: "16px",
-                  padding: "16px",
-                  textAlign: "left",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  boxShadow: "0 0 20px rgba(0,255,136,0.08)"
-                }}
-              >
-                <div style={{ display: "flex", gap: "8px", alignItems: "center", color: "#00FF88", fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  USDC Transferred
-                </div>
-                <div style={{ fontSize: "16px", fontWeight: 700, color: "#EEF2FF", fontFamily: "JetBrains Mono, monospace" }}>
-                  - $1,250.00
-                </div>
-                <div style={{ fontSize: "10px", color: "#8B9CC8", marginTop: "4px" }}>
-                  Settlement verified on chain
-                </div>
-              </motion.div>
-            </>
-          )}
         </div>
       </div>
+
       <style>{`
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
+        .mobile-demo-wrap {
+          display: grid;
+          grid-template-columns: 220px 340px;
+          justify-content: center;
+          align-items: center;
+          gap: 34px;
         }
-        .hide-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        .screen-tabs {
+          display: grid;
+          gap: 10px;
+        }
+        .screen-tabs button {
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(10, 16, 38, 0.62);
+          color: #8B9CC8;
+          border-radius: 12px;
+          padding: 12px 14px;
+          text-align: left;
+          font-family: Satoshi, sans-serif;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+        .screen-tabs button.active {
+          color: #00F0FF;
+          border-color: rgba(0, 240, 255, 0.38);
+          background: rgba(0, 240, 255, 0.08);
+        }
+        .phone-shell {
+          width: 320px;
+          height: 640px;
+          border-radius: 42px;
+          background: #020714;
+          border: 10px solid #1E2330;
+          box-shadow: 0 25px 55px rgba(0, 0, 0, 0.5), 0 0 42px rgba(0, 240, 255, 0.14);
+          position: relative;
+          overflow: hidden;
+        }
+        .phone-island {
+          position: absolute;
+          top: 10px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 88px;
+          height: 22px;
+          border-radius: 999px;
+          background: #000;
+          z-index: 5;
+        }
+        .phone-screen {
+          height: 100%;
+          padding: 44px 16px 16px;
+          background: linear-gradient(180deg, #060B18, #020714);
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          text-align: left;
+        }
+        .phone-top {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          padding-top: 8px;
+        }
+        .phone-logo {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(0, 240, 255, 0.1);
+          color: #00F0FF;
+          border: 1px solid rgba(0, 240, 255, 0.22);
+        }
+        .phone-top h3 {
+          color: #EEF2FF;
+          font-family: Satoshi, sans-serif;
+          font-size: 16px;
+          font-weight: 900;
+          margin: 0 0 2px;
+        }
+        .phone-top p {
+          color: #8B9CC8;
+          font-family: Satoshi, sans-serif;
+          font-size: 10px;
+          margin: 0;
+        }
+        .fhe-chip {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          border-radius: 10px;
+          border: 1px solid rgba(0, 240, 255, 0.16);
+          background: rgba(0, 240, 255, 0.06);
+          color: #00F0FF;
+          font-family: JetBrains Mono, monospace;
+          font-size: 9px;
+          font-weight: 800;
+          padding: 8px;
+        }
+        .fhe-chip span {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: #00FF88;
+        }
+        .invoice-panel {
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.025);
+          padding: 12px;
+          display: grid;
+          gap: 10px;
+        }
+        .invoice-head,
+        .invoice-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .invoice-head span {
+          color: #EEF2FF;
+          font-family: Satoshi, sans-serif;
+          font-size: 12px;
+          font-weight: 900;
+        }
+        .invoice-head strong {
+          color: #00F0FF;
+          font-family: JetBrains Mono, monospace;
+          font-size: 8px;
+          text-transform: uppercase;
+        }
+        .invoice-row {
+          border-top: 1px solid rgba(255, 255, 255, 0.05);
+          padding-top: 9px;
+        }
+        .invoice-row span {
+          color: #8B9CC8;
+          font-family: Satoshi, sans-serif;
+          font-size: 10px;
+        }
+        .invoice-row strong {
+          font-family: JetBrains Mono, monospace;
+          font-size: 10px;
+          text-align: right;
+        }
+        .underwriting-card {
+          margin-top: auto;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-radius: 14px;
+          border: 1px solid rgba(123, 47, 255, 0.22);
+          background: rgba(123, 47, 255, 0.08);
+          padding: 12px;
+          color: #A87FFF;
+        }
+        .underwriting-card span {
+          display: block;
+          color: #8B9CC8;
+          font-size: 9px;
+          font-family: Satoshi, sans-serif;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .underwriting-card strong {
+          display: block;
+          color: #EEF2FF;
+          font-size: 12px;
+          margin-top: 3px;
+          font-family: Satoshi, sans-serif;
+        }
+        .phone-cta {
+          border: 1px solid rgba(0, 240, 255, 0.28);
+          border-radius: 12px;
+          color: #020714;
+          background: linear-gradient(135deg, #00F0FF, #00FF88);
+          font-family: Satoshi, sans-serif;
+          font-size: 12px;
+          font-weight: 900;
+          padding: 11px;
+        }
+        @media (max-width: 760px) {
+          .mobile-demo-wrap {
+            grid-template-columns: 1fr;
+            gap: 22px;
+          }
+          .screen-tabs {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            max-width: 340px;
+            margin: 0 auto;
+          }
+          .phone-shell {
+            margin: 0 auto;
+            width: min(320px, calc(100vw - 48px));
+          }
         }
       `}</style>
     </section>

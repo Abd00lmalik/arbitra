@@ -1,6 +1,6 @@
 /**
  * @file ArbitraRiskCalculator.sol
- * @description Computes encrypted invoice discount rates and purchase prices using FHE arithmetic.
+ * @description Computes encrypted invoice pricing and underwriting values using FHE arithmetic.
  */
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
@@ -63,5 +63,52 @@ contract ArbitraRiskCalculator is ZamaEthereumConfig {
         ePurchasePrice = ePrice;
         FHE.allowThis(ePurchasePrice);
         FHE.allow(ePurchasePrice, msg.sender);
+    }
+
+    /**
+     * @notice Calculate encrypted underwriting score and risk band for an invoice.
+     * @dev Higher scores mean higher risk. Inputs stay encrypted and the
+     *      returned handles are granted only to the caller registry.
+     * @param eRepaymentRatioBps Encrypted repayment ratio in basis points.
+     * @param eHistoricalDefaultCount Encrypted count of confirmed supplier defaults.
+     * @param eFaceValue Encrypted invoice face value in USDC micro-units.
+     * @param eTenorDays Encrypted invoice tenor in days.
+     * @param eReputationMultiplier Encrypted supplier reputation multiplier.
+     * @return eRiskScore Encrypted final risk score from 0 to 100.
+     * @return eRiskBand Encrypted final risk band: 0 low, 1 medium, 2 high.
+     */
+    function calculateConfidentialRiskScore(
+        euint64 eRepaymentRatioBps,
+        euint64 eHistoricalDefaultCount,
+        euint64 eFaceValue,
+        euint64 eTenorDays,
+        euint64 eReputationMultiplier
+    ) external returns (euint64 eRiskScore, euint64 eRiskBand) {
+        euint64 maxRatio = FHE.asEuint64(10000);
+        euint64 boundedRatio = FHE.select(FHE.gt(eRepaymentRatioBps, maxRatio), maxRatio, eRepaymentRatioBps);
+        euint64 repaymentRisk = FHE.div(FHE.sub(maxRatio, boundedRatio), 200);
+
+        euint64 defaultRiskRaw = FHE.mul(eHistoricalDefaultCount, FHE.asEuint64(15));
+        euint64 defaultRisk = FHE.select(FHE.gt(defaultRiskRaw, FHE.asEuint64(30)), FHE.asEuint64(30), defaultRiskRaw);
+
+        euint64 sizeRiskMid = FHE.select(FHE.gt(eFaceValue, FHE.asEuint64(50_000_000_000)), FHE.asEuint64(15), FHE.asEuint64(5));
+        euint64 sizeRisk = FHE.select(FHE.gt(eFaceValue, FHE.asEuint64(200_000_000_000)), FHE.asEuint64(25), sizeRiskMid);
+
+        euint64 tenorRiskMid = FHE.select(FHE.gt(eTenorDays, FHE.asEuint64(45)), FHE.asEuint64(10), FHE.asEuint64(5));
+        euint64 tenorRisk = FHE.select(FHE.gt(eTenorDays, FHE.asEuint64(75)), FHE.asEuint64(15), tenorRiskMid);
+
+        euint64 reputationRiskRaw = FHE.mul(eReputationMultiplier, FHE.asEuint64(3));
+        euint64 reputationRisk = FHE.select(FHE.gt(reputationRiskRaw, FHE.asEuint64(20)), FHE.asEuint64(20), reputationRiskRaw);
+
+        euint64 rawRisk = FHE.add(FHE.add(FHE.add(repaymentRisk, defaultRisk), FHE.add(sizeRisk, tenorRisk)), reputationRisk);
+        eRiskScore = FHE.select(FHE.gt(rawRisk, FHE.asEuint64(100)), FHE.asEuint64(100), rawRisk);
+
+        euint64 lowOrMedium = FHE.select(FHE.gt(eRiskScore, FHE.asEuint64(33)), FHE.asEuint64(1), FHE.asEuint64(0));
+        eRiskBand = FHE.select(FHE.gt(eRiskScore, FHE.asEuint64(66)), FHE.asEuint64(2), lowOrMedium);
+
+        FHE.allowThis(eRiskScore);
+        FHE.allowThis(eRiskBand);
+        FHE.allow(eRiskScore, msg.sender);
+        FHE.allow(eRiskBand, msg.sender);
     }
 }

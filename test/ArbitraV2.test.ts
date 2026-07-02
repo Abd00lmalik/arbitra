@@ -209,7 +209,21 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(invAfterAttest.status).to.equal(1n); /* Attested */
 
             /* Step 4: Permanent assessment access */
+            const underwritingHandles = await registry.getUnderwritingHandles(nextInvoiceId);
+            const riskScore = await fhevm.debugger.decryptEuint(FhevmType.euint64, underwritingHandles.riskScoreHandle);
+            const riskBand = await fhevm.debugger.decryptEuint(FhevmType.euint64, underwritingHandles.riskBandHandle);
+            expect(riskScore > 0n).to.equal(true);
+            expect(riskScore <= 100n).to.equal(true);
+            expect(riskBand <= 2n).to.equal(true);
+
+            const preAccessAcl = await registry.isUnderwritingAllowed(nextInvoiceId, investor.address);
+            expect(preAccessAcl.scoreAllowed).to.equal(false);
+            expect(preAccessAcl.bandAllowed).to.equal(false);
+
             await (await registry.connect(investor).requestRiskAssessmentAccess(nextInvoiceId)).wait();
+            const postAccessAcl = await registry.isUnderwritingAllowed(nextInvoiceId, investor.address);
+            expect(postAccessAcl.scoreAllowed).to.equal(true);
+            expect(postAccessAcl.bandAllowed).to.equal(true);
 
             /* Step 5: Factoring purchase */
             await expect(
@@ -580,6 +594,10 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(finalInvestorUSDC - initialInvestorUSDC).to.equal(expectedSlashAmount);
             expect(await collateralVault.isSlashed(nextInvoiceId)).to.equal(true);
             expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(6n); // SLASHED
+
+            const defaultCountHandle = await registry.getSupplierDefaultCountHandle(supplier.address);
+            const defaultCount = await fhevm.debugger.decryptEuint(FhevmType.euint64, defaultCountHandle);
+            expect(defaultCount).to.equal(1n);
         });
 
         it("should allow platform-signed email attestation commitment", async function () {

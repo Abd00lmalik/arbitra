@@ -24,6 +24,13 @@ interface IArbitraSBT {
 interface IArbitraRiskCalculator {
     function calculateConfidentialDiscount(euint64 eBaseRate, euint64 eReputationMultiplier, euint64 eExpectedDelayDays) external returns (euint64);
     function calculatePurchasePrice(euint64 eFaceValue, euint64 eDiscountBps, uint64 timeToMaturityDays) external returns (euint64);
+    function calculateConfidentialRiskScore(
+        euint64 eRepaymentRatioBps,
+        euint64 eHistoricalDefaultCount,
+        euint64 eFaceValue,
+        euint64 eTenorDays,
+        euint64 eReputationMultiplier
+    ) external returns (euint64 eRiskScore, euint64 eRiskBand);
 }
 
 interface IArbitraCollateralVault {
@@ -75,6 +82,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         euint64  dueDate;
         euint64  purchasePrice;
         euint64  discountRateBps;
+        euint64  riskScore;
+        euint64  riskBand;
         euint64  fingerprintHash;
         uint256 faceValuePlaintext;  /* Face value in USDC micro-units (6 dec).
                                 Used for standard ERC-20 USDC payment flows.
@@ -99,6 +108,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         euint64 totalInvoices;
         euint64 repaidInvoices;
         euint64 repaymentRatioBps;
+        euint64 defaultedInvoices;
         bool    initialized;
     }
 
@@ -284,7 +294,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
             eExpectedDelayDays = FHE.asEuint64(10);
         }
 
-        /* Calculate Time to Maturity in days (plaintext) */
+        /* Calculate Time to Maturity in days (plaintext execution boundary) */
         uint64 ttmDays = 30;
 
         /* Grant riskCalc transient access to the inputs for discount calculation */
@@ -301,6 +311,31 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
         euint64 purchasePrice = IArbitraRiskCalculator(riskCalc).calculatePurchasePrice(faceValue, discountRateBps, ttmDays);
 
+        euint64 repaymentRatioForRisk;
+        euint64 defaultCountForRisk;
+        if (stats.initialized) {
+            repaymentRatioForRisk = stats.repaymentRatioBps;
+            defaultCountForRisk = stats.defaultedInvoices;
+        } else {
+            repaymentRatioForRisk = FHE.asEuint64(6500);
+            defaultCountForRisk = FHE.asEuint64(0);
+        }
+
+        euint64 tenorDaysForRisk = FHE.asEuint64(ttmDays);
+        FHE.allowTransient(repaymentRatioForRisk, riskCalc);
+        FHE.allowTransient(defaultCountForRisk, riskCalc);
+        FHE.allowTransient(faceValue, riskCalc);
+        FHE.allowTransient(tenorDaysForRisk, riskCalc);
+        FHE.allowTransient(reputationMultiplier, riskCalc);
+
+        (euint64 riskScore, euint64 riskBand) = IArbitraRiskCalculator(riskCalc).calculateConfidentialRiskScore(
+            repaymentRatioForRisk,
+            defaultCountForRisk,
+            faceValue,
+            tenorDaysForRisk,
+            reputationMultiplier
+        );
+
         /* Persist invoice details */
         Invoice storage inv = invoices[invoiceId];
         inv.faceValue = faceValue;
@@ -309,6 +344,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         inv.dueDate = dueDate;
         inv.purchasePrice = purchasePrice;
         inv.discountRateBps = discountRateBps;
+        inv.riskScore = riskScore;
+        inv.riskBand = riskBand;
         inv.fingerprintHash = fingerprintHash;
         inv.supplier = msg.sender;
         inv.debtor = debtor;
@@ -324,12 +361,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         FHE.allowThis(dueDate);
         FHE.allowThis(purchasePrice);
         FHE.allowThis(discountRateBps);
+        FHE.allowThis(riskScore);
+        FHE.allowThis(riskBand);
         FHE.allowThis(fingerprintHash);
 
         FHE.allow(faceValue, msg.sender);
         FHE.allow(dueDate, msg.sender);
         FHE.allow(purchasePrice, msg.sender);
         FHE.allow(discountRateBps, msg.sender);
+        FHE.allow(riskScore, msg.sender);
+        FHE.allow(riskBand, msg.sender);
 
         if (debtor != address(0)) {
             FHE.allow(faceValue, debtor);
@@ -441,6 +482,8 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         FHE.allow(inv.dueDate, msg.sender);
         FHE.allow(inv.purchasePrice, msg.sender);
         FHE.allow(inv.discountRateBps, msg.sender);
+        FHE.allow(inv.riskScore, msg.sender);
+        FHE.allow(inv.riskBand, msg.sender);
     }
 
     /**
@@ -535,6 +578,7 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
         if (fraudConfirmed) {
             inv.status = InvoiceStatus.Slashed;
+            _recordDefault(inv.supplier);
             IArbitraCollateralVault(collateralVault).slashCollateral(invoiceId, inv.investor);
             IArbitraEscrowReceiver(escrowReceiver).resolveDispute(invoiceId, true);
         } else {
@@ -564,12 +608,54 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
+     * @notice Retrieve final encrypted underwriting handles for an invoice.
+     * @param invoiceId Invoice whose underwriting result should be read.
+     * @return riskScoreHandle Encrypted final risk score handle.
+     * @return riskBandHandle Encrypted final risk band handle.
+     */
+    function getUnderwritingHandles(uint256 invoiceId) external view returns (
+        bytes32 riskScoreHandle,
+        bytes32 riskBandHandle
+    ) {
+        Invoice storage inv = invoices[invoiceId];
+        riskScoreHandle = euint64.unwrap(inv.riskScore);
+        riskBandHandle = euint64.unwrap(inv.riskBand);
+    }
+
+    /**
+     * @notice Check whether an address can decrypt the final underwriting result.
+     * @param invoiceId Invoice whose ACL status should be checked.
+     * @param account Address to check.
+     * @return scoreAllowed True when account can decrypt the risk score.
+     * @return bandAllowed True when account can decrypt the risk band.
+     */
+    function isUnderwritingAllowed(uint256 invoiceId, address account) external view returns (
+        bool scoreAllowed,
+        bool bandAllowed
+    ) {
+        Invoice storage inv = invoices[invoiceId];
+        scoreAllowed = FHE.isAllowed(inv.riskScore, account);
+        bandAllowed = FHE.isAllowed(inv.riskBand, account);
+    }
+
+    /**
      * @notice Retrieve the repayment ratio handle for a supplier.
      */
     function getSupplierRatioHandle(address supplier) external view returns (bytes32 ratioHandle) {
         SupplierStats storage stats = supplierStats[supplier];
         if (!stats.initialized) return bytes32(0);
         ratioHandle = euint64.unwrap(stats.repaymentRatioBps);
+    }
+
+    /**
+     * @notice Retrieve the encrypted default count handle for a supplier.
+     * @param supplier Supplier whose confirmed default count should be read.
+     * @return defaultCountHandle Encrypted confirmed default count handle.
+     */
+    function getSupplierDefaultCountHandle(address supplier) external view returns (bytes32 defaultCountHandle) {
+        SupplierStats storage stats = supplierStats[supplier];
+        if (!stats.initialized) return bytes32(0);
+        defaultCountHandle = euint64.unwrap(stats.defaultedInvoices);
     }
 
     /**
@@ -673,15 +759,18 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
             stats.totalInvoices = FHE.asEuint64(1);
             stats.repaidInvoices = FHE.asEuint64(0);
             stats.repaymentRatioBps = FHE.asEuint64(0);
+            stats.defaultedInvoices = FHE.asEuint64(0);
             stats.initialized = true;
 
             FHE.allowThis(stats.totalInvoices);
             FHE.allowThis(stats.repaidInvoices);
             FHE.allowThis(stats.repaymentRatioBps);
+            FHE.allowThis(stats.defaultedInvoices);
 
             FHE.allow(stats.totalInvoices, supplier);
             FHE.allow(stats.repaidInvoices, supplier);
             FHE.allow(stats.repaymentRatioBps, supplier);
+            FHE.allow(stats.defaultedInvoices, supplier);
         } else {
             euint64 newTotal = FHE.add(stats.totalInvoices, FHE.asEuint64(1));
             FHE.allowThis(newTotal);
@@ -702,6 +791,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
         stats.repaidInvoices = newRepaid;
 
         _recomputeRatio(supplier);
+    }
+
+    function _recordDefault(address supplier) internal {
+        SupplierStats storage stats = supplierStats[supplier];
+        require(stats.initialized, "Arbitra: no stats");
+
+        euint64 newDefaultCount = FHE.add(stats.defaultedInvoices, FHE.asEuint64(1));
+        FHE.allowThis(newDefaultCount);
+        FHE.allow(newDefaultCount, supplier);
+        stats.defaultedInvoices = newDefaultCount;
     }
 
     function _recomputeRatio(address supplier) internal {

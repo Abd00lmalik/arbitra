@@ -1,7 +1,7 @@
 /*
  * @file InvoiceDetailModal.tsx
  * @description Shared details modal for invoices featuring smooth slide-up animation,
- *              sequential investor flow (Request Access → Decrypt → Analyze → Deploy Capital),
+ *              sequential investor flow (Request Access, Decrypt, Review, Deploy Capital),
  *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
  *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
  */
@@ -22,7 +22,6 @@ import {
   useUSDCBalance,
 } from "@/hooks/useArbitraRegistry";
 import { useInvoiceDecrypt } from "@/hooks/useInvoiceDecrypt";
-import { useRiskAssessment } from "@/hooks/useRiskAssessment";
 import { useZama } from "@/providers/ZamaProvider";
 import { NeonButton } from "../ui/NeonButton";
 import { FHEBadge } from "../ui/FHEBadge";
@@ -105,9 +104,6 @@ export function InvoiceDetailModal({
   /* Decryption hook */
   const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
 
-  /* AI risk assessment hook */
-  const { assessment, isLoading: isRiskLoading, error: riskError, fetchAssessment } = useRiskAssessment();
-
   /* Action hooks */
   const { factorInvoice, isPending: isFactoringPending } = useFactorInvoice();
   const { grantAccess, isPending: isGrantPending } = useGrantRiskAccess();
@@ -164,6 +160,22 @@ export function InvoiceDetailModal({
 
   const estimatedPurchasePrice = decrypted?.purchasePrice ?? 0n;
   const hasEnoughUSDC = estimatedPurchasePrice > 0n && usdcBalance >= estimatedPurchasePrice;
+  const underwritingScore = decrypted?.riskScore !== undefined ? Number(decrypted.riskScore) : null;
+  const underwritingBand = decrypted?.riskBand !== undefined ? Number(decrypted.riskBand) : null;
+  const underwritingLabel =
+    underwritingBand === 0
+      ? "Low"
+      : underwritingBand === 1
+      ? "Medium"
+      : underwritingBand === 2
+      ? "High"
+      : null;
+  const underwritingClass =
+    underwritingBand === 0
+      ? "bg-neon-green/10 text-neon-green border border-neon-green/20"
+      : underwritingBand === 1
+      ? "bg-yellow-400/10 text-yellow-400 border border-yellow-400/20"
+      : "bg-neon-pink/10 text-neon-pink border border-neon-pink/20";
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -195,12 +207,14 @@ export function InvoiceDetailModal({
         dueDateHandle: invoice.dueDate,
         purchasePriceHandle: invoice.purchasePrice,
         discountRateHandle: invoice.discountRateBps,
+        riskScoreHandle: invoice.riskScore,
+        riskBandHandle: invoice.riskBand,
       },
       signer
     );
   };
 
-  /* Grant FHE access for prospective investor — permanent FHE.allow on-chain */
+  /* Grant FHE access for prospective investor - permanent FHE.allow on-chain */
   const handleGrantAccess = async () => {
     setLocalBusy(true);
     setGrantError(null);
@@ -210,7 +224,7 @@ export function InvoiceDetailModal({
       let txHash: `0x${string}`;
 
       if (isEmbedded) {
-        /* Web3Auth embedded wallet — must use ethers.js, not wagmi writeContractAsync */
+        /* Web3Auth embedded wallet - must use ethers.js, not wagmi writeContractAsync */
         const { ethers } = await import("ethers");
         const signer = await getEmbeddedSigner();
         const contract = new ethers.Contract(
@@ -222,7 +236,7 @@ export function InvoiceDetailModal({
         const receipt = await tx.wait();
         txHash = receipt.hash as `0x${string}`;
       } else {
-        /* External wallet (MetaMask / WalletConnect) — wagmi works fine */
+        /* External wallet (MetaMask / WalletConnect) - wagmi works fine */
         txHash = await grantAccess(invoice.invoiceId);
         await publicClient.waitForTransactionReceipt({ hash: txHash });
       }
@@ -240,29 +254,7 @@ export function InvoiceDetailModal({
     }
   };
 
-  /* AI risk assessment — triggered after decryption with real values */
-  const handleRiskAnalyze = async () => {
-    const dueDays = decrypted?.dueDate ? daysUntilDue(decrypted.dueDate) : daysLeft;
-    const faceValueStr = decrypted?.faceValue
-      ? `$${(Number(decrypted.faceValue) / 1_000_000).toFixed(2)}`
-      : undefined;
-    const discountRateBps = decrypted?.discountRate ? Number(decrypted.discountRate) : undefined;
-
-    /* Do not pass hardcoded repayment ratio — let Deterministic see "no history" for an honest output */
-    await fetchAssessment({
-      invoiceId: Number(invoice.invoiceId),
-      supplierAddress: invoice.supplier,
-      buyerAddress: invoice.debtor,
-      uploadTimestamp: Number(invoice.uploadTimestamp),
-      isFactored: isFactored,
-      isRepaid: isRepaid,
-      faceValueHint: faceValueStr,
-      dueDaysHint: dueDays,
-      discountRateBpsHint: discountRateBps,
-    });
-  };
-
-  /* Step 5: Deploy USDC Escrow Capital — full USDC approval + factor sequence */
+  /* Step 5: Deploy USDC Escrow Capital - full USDC approval + factor sequence */
   const handleFactorClick = async () => {
     setLocalBusy(true);
     setFactorError(null);
@@ -284,7 +276,7 @@ export function InvoiceDetailModal({
         /*
          * Web3Auth embedded wallet path.
          * wagmi's writeContractAsync does NOT dispatch through the Web3Auth EIP-1193
-         * provider — transactions must go through ethers.js instead.
+         * provider - transactions must go through ethers.js instead.
          */
         const { ethers } = await import("ethers");
         const signer = await getEmbeddedSigner();
@@ -302,7 +294,7 @@ export function InvoiceDetailModal({
           await refetchApproval();
         }
 
-        /* Step 2: Factor the invoice — USDC moves investor → supplier on-chain */
+        /* Step 2: Factor the invoice - USDC moves investor to supplier on-chain */
         const registryContract = new ethers.Contract(
           ARBITRA_REGISTRY_ADDRESS,
           ARBITRA_REGISTRY_ABI,
@@ -329,7 +321,7 @@ export function InvoiceDetailModal({
           await refetchApproval();
         }
 
-        /* Step 2: Factor invoice — USDC transfers to supplier */
+        /* Step 2: Factor invoice - USDC transfers to supplier */
         const factorTxHash = await factorInvoice(invoice.invoiceId);
         await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
       }
@@ -447,8 +439,8 @@ export function InvoiceDetailModal({
     }
   };
 
-  /* Determine investor step: 0=grant, 1=decrypt, 2=analyze, 3=deploy */
-  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : !assessment ? 2 : 3;
+  /* Determine investor step: 0=grant, 1=decrypt, 2=review, 3=deploy */
+  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : underwritingScore === null || underwritingLabel === null ? 2 : 3;
   const isProspectiveInvestor = !isSupplier && !isDebtor && !isFactored;
   const isActiveInvestor = !isSupplier && !isDebtor && isFactored && isInvestor;
 
@@ -536,7 +528,7 @@ export function InvoiceDetailModal({
               <div className="rounded-2xl border border-neon-purple/20 bg-gradient-to-br from-neon-purple/5 to-transparent overflow-hidden">
                 {/* Step Progress Bar */}
                 <div className="flex border-b border-white/5">
-                  {["Request Access", "Decrypt", "Analyze Risk", "Deploy Capital"].map((label, idx) => (
+                  {["Request Access", "Decrypt", "Review Result", "Deploy Capital"].map((label, idx) => (
                     <div
                       key={idx}
                       className={`flex-1 py-2 text-center text-[9px] font-bold uppercase tracking-widest transition-all ${
@@ -547,7 +539,7 @@ export function InvoiceDetailModal({
                           : "text-slate-600"
                       }`}
                     >
-                      {idx < investorStep ? "✓ " : idx === investorStep ? "→ " : ""}{label}
+                      {idx < investorStep ? "✓ " : idx === investorStep ? "> " : ""}{label}
                     </div>
                   ))}
                 </div>
@@ -561,7 +553,7 @@ export function InvoiceDetailModal({
                       </div>
                       <h4 className="text-sm font-bold text-white">Request FHE Decrypt Access</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        Submit an on-chain transaction to grant your wallet permanent permission to decrypt this invoice's encrypted financial parameters (face value, yield, due date).
+                        Submit an on-chain transaction to grant your wallet permanent permission to decrypt this invoice&apos;s encrypted financial parameters (face value, yield, due date).
                       </p>
                       {hasInvestorSBT ? (
                         <NeonButton
@@ -576,7 +568,7 @@ export function InvoiceDetailModal({
                       ) : (
                         <div className="space-y-2">
                           <p className="text-xs text-yellow-400">
-                            ⚠️ You must complete Investor onboarding before requesting FHE access.
+                            Warning You must complete Investor onboarding before requesting FHE access.
                           </p>
                           <a href="/register?role=investor&upgrade=true">
                             <NeonButton variant="primary" size="sm" className="w-full bg-neon-purple border-neon-purple/50">
@@ -587,7 +579,7 @@ export function InvoiceDetailModal({
                       )}
                       {grantError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
-                          ⚠️ {grantError}
+                          Warning {grantError}
                         </div>
                       )}
                     </div>
@@ -601,7 +593,7 @@ export function InvoiceDetailModal({
                       </div>
                       <h4 className="text-sm font-bold text-white">Decrypt Invoice Parameters</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        Your wallet now has on-chain decrypt permission. Sign an EIP-712 message to privately reveal the real face value, purchase price, yield, and maturity date — only visible to you.
+                        Your wallet now has on-chain decrypt permission. Sign an EIP-712 message to privately reveal the real face value, purchase price, yield, and maturity date - only visible to you.
                       </p>
                       {zamaReady ? (
                         <NeonButton
@@ -614,40 +606,26 @@ export function InvoiceDetailModal({
                           {isDecrypting ? "Decrypting via Zama Relayer..." : "Decrypt Financial Details"}
                         </NeonButton>
                       ) : (
-                        <p className="text-xs text-yellow-400">Zama SDK initializing — please wait...</p>
+                        <p className="text-xs text-yellow-400">Zama SDK initializing - please wait...</p>
                       )}
                       {decryptError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
-                          ⚠️ {decryptError}
+                          Warning {decryptError}
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* STEP 2: Analyze risk */}
+                  {/* STEP 2: Review confidential underwriting result */}
                   {investorStep === 2 && (
                     <div className="text-center space-y-3">
                       <div className="flex justify-center py-1">
                         <Sparkles className="w-8 h-8 text-indigo-400 animate-pulse" />
                       </div>
-                      <h4 className="text-sm font-bold text-white">AI Counterparty Risk Analysis</h4>
+                      <h4 className="text-sm font-bold text-white">Confidential Underwriting Pending</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        Run the deterministic risk model on the real decrypted parameters to get a risk score, credit label, and investment recommendation before committing capital.
+                        The protocol did not return a decryptable final underwriting result for this invoice. Request access again or refresh after the registry upgrade is indexed.
                       </p>
-                      <NeonButton
-                          variant="primary"
-                          size="sm"
-                          loading={isRiskLoading}
-                          onClick={handleRiskAnalyze}
-                          className="w-full bg-indigo-600 border-indigo-500"
-                      >
-                        {isRiskLoading ? "Calculating risk profile..." : "Run Risk Analysis"}
-                      </NeonButton>
-                      {riskError && (
-                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs text-left">
-                          ⚠️ {riskError}
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -664,7 +642,7 @@ export function InvoiceDetailModal({
                       <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
                         <span className="text-slate-400">Your USDC Balance</span>
                         <span className={`font-mono font-bold ${hasEnoughUSDC ? "text-neon-green" : "text-neon-pink"}`}>
-                          ${fromMicro(usdcBalance)} USDC {!hasEnoughUSDC && "⚠️"}
+                          ${fromMicro(usdcBalance)} USDC {!hasEnoughUSDC && "Warning"}
                         </span>
                       </div>
                       {decrypted?.purchasePrice && (
@@ -703,7 +681,7 @@ export function InvoiceDetailModal({
                       </NeonButton>
                       {factorError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
-                          ⚠️ {factorError}
+                          Warning {factorError}
                         </div>
                       )}
                     </div>
@@ -745,7 +723,7 @@ export function InvoiceDetailModal({
                 {
                   label: "Purchase Price",
                   clear: decrypted?.purchasePrice !== undefined ? formatUSDC(decrypted.purchasePrice) : undefined,
-                  icon: "🏷️",
+                  icon: "🏷",
                 },
                 {
                   label: "Due Date",
@@ -865,9 +843,9 @@ export function InvoiceDetailModal({
             {/* FHE Disclaimer (shown before decrypt) */}
             {!decrypted && (
               <div className="p-3 rounded-2xl bg-white/2 border border-white/5 text-[11px] text-slate-500 leading-normal flex items-start gap-2">
-                <span style={{ fontSize: "14px", marginTop: "-2px" }}>⚠️</span>
+                <span style={{ fontSize: "14px", marginTop: "-2px" }}>Warning</span>
                 <div>
-                  <span className="font-bold text-slate-400">FHE Protected:</span> Face value, purchase price, discount rate and due date are homomorphically encrypted on-chain. Only authorized wallets can decrypt. Yields shown on preview cards are placeholders — real yield is computed after decryption.
+                  <span className="font-bold text-slate-400">FHE Protected:</span> Face value, purchase price, discount rate and due date are homomorphically encrypted on-chain. Only authorized wallets can decrypt. Yields shown on preview cards are placeholders - real yield is computed after decryption.
                 </div>
               </div>
             )}
@@ -900,82 +878,50 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* ─── AI RISK ASSESSMENT (shown to non-suppliers after decryption in non-sequential views) ─── */}
+            {/* Confidential underwriting result shown after authorized decryption */}
             {!isSupplier && decrypted && (
               <div className="p-4.5 rounded-2xl bg-gradient-to-br from-indigo-950/40 to-navy-950/40 border border-indigo-500/20">
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[14px]">✨</span>
-                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-400">Deterministic Risk Profile</h4>
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-400">Confidential Underwriting Result</h4>
                   </div>
-                  <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">LOCAL</span>
+                  <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">FHE</span>
                 </div>
 
-                {!assessment ? (
-                  <div className="text-center py-2.5">
-                    <p className="text-xs text-slate-400 mb-3">
-                      Run deterministic counterparty risk analysis using real decrypted parameters.
-                    </p>
-                    <NeonButton
-                      variant="primary"
-                      size="sm"
-                      loading={isRiskLoading}
-                      onClick={handleRiskAnalyze}
-                      className="bg-indigo-600 border-indigo-500 text-xs px-4"
-                    >
-                      Analyze Risk
-                    </NeonButton>
-                  </div>
-                ) : (
+                {underwritingScore !== null && underwritingLabel ? (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Credit Score Risk Label:</span>
-                      <span
-                        className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-                          assessment.riskLabel === "Low"
-                            ? "bg-neon-green/10 text-neon-green border border-neon-green/20"
-                            : assessment.riskLabel === "Medium"
-                            ? "bg-yellow-400/10 text-yellow-400 border border-yellow-400/20"
-                            : "bg-neon-pink/10 text-neon-pink border border-neon-pink/20"
-                        }`}
-                      >
-                        {assessment.riskLabel} Risk ({assessment.riskScore}/100)
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-slate-400">Final encrypted risk output:</span>
+                      <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded ${underwritingClass}`}>
+                        {underwritingLabel} Risk ({underwritingScore}/100)
                       </span>
                     </div>
-
-                    <p className="text-xs text-slate-300 leading-relaxed font-medium">{assessment.summary}</p>
-
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] text-indigo-300 uppercase tracking-widest font-bold">Key Risk Signals:</span>
-                      <ul className="space-y-1">
-                        {assessment.factors.map((factor, i) => (
-                          <li key={i} className="text-xs text-slate-400 flex items-start gap-1.5">
-                            <span className="text-indigo-400 mt-0.5">▪</span>
-                            <span>{factor}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
+                    <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                      This score is computed on-chain from encrypted repayment history, encrypted default count, encrypted invoice value, encrypted tenor, and encrypted supplier reputation. Raw underwriting inputs are not decrypted for investor review.
+                    </p>
                     <div className="p-3.5 rounded-xl bg-white/2 border border-white/5 mt-1.5">
-                      <span className="text-[10px] text-slate-400 font-bold block mb-1 uppercase">Recommendation:</span>
-                      <p className="text-xs text-indigo-200 leading-normal italic">{assessment.recommendation}</p>
+                      <span className="text-[10px] text-slate-400 font-bold block mb-1 uppercase">Selective Disclosure</span>
+                      <p className="text-xs text-indigo-200 leading-normal italic">
+                        Your wallet received ACL access to final invoice terms and the final underwriting output only.
+                      </p>
                     </div>
                   </div>
-                )}
-                {riskError && !isProspectiveInvestor && (
-                  <div className="mt-3 p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
-                    {riskError}
+                ) : (
+                  <div className="text-center py-2.5">
+                    <p className="text-xs text-slate-400">
+                      No final underwriting output was returned for this invoice. Existing invoices may need migration to the upgraded registry.
+                    </p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* ─── ON-CHAIN TRUST & CRYPTOGRAPHIC SECURITY ATTESTATIONS ─── */}
+            {/* On-chain trust and cryptographic security attestations */}
             <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/20 to-teal-950/20 border border-emerald-500/10 space-y-3">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[14px]">🔒</span>
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   <h4 className="text-xs font-extrabold uppercase tracking-wider text-emerald-400">On-Chain Cryptographic & Safety Profile</h4>
                 </div>
                 <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">Secured</span>
@@ -984,7 +930,7 @@ export function InvoiceDetailModal({
               <div className="space-y-2.5 text-xs">
                 {/* 1. Debtor Attestation */}
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 text-emerald-400">🛡️</span>
+                  <span className="mt-0.5 text-emerald-400">🛡</span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between font-bold text-slate-200">
                       <span>Debtor Attestation (Plaid Link)</span>
@@ -1075,7 +1021,7 @@ export function InvoiceDetailModal({
             </div>
           </div>
 
-          {/* Footer Action Buttons — only for non-sequential (supplier/active investor) */}
+          {/* Footer Action Buttons - only for non-sequential (supplier/active investor) */}
           {!isProspectiveInvestor && !factorSuccess && (
             <div className="mt-6 pt-4 border-t border-white/5 flex gap-3">
               <NeonButton

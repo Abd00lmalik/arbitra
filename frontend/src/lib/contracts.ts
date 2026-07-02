@@ -168,8 +168,11 @@ export interface InvoiceOnChain {
   dueDate: `0x${string}`;
   purchasePrice: `0x${string}`;
   discountRateBps: `0x${string}`;
+  riskScore: `0x${string}`;
+  riskBand: `0x${string}`;
   fingerprintHash: `0x${string}`;
   faceValuePlaintext: bigint;
+  discountRatePlaintext: bigint;
   supplier: `0x${string}`;
   investor: `0x${string}`;
   debtor: `0x${string}`;
@@ -191,6 +194,8 @@ export interface InvoiceDecoded extends InvoiceOnChain {
   dueDateClear?: bigint;
   purchasePriceClear?: bigint;
   discountRateClear?: bigint;
+  riskScoreClear?: bigint;
+  riskBandClear?: bigint;
   fingerprintClear?: bigint;
 }
 
@@ -199,6 +204,8 @@ export interface InvoiceHandles {
   dueDateHandle: `0x${string}`;
   purchasePriceHandle: `0x${string}`;
   discountRateHandle: `0x${string}`;
+  riskScoreHandle?: `0x${string}`;
+  riskBandHandle?: `0x${string}`;
 }
 
 function toBigIntValue(value: unknown): bigint {
@@ -208,8 +215,8 @@ function toBigIntValue(value: unknown): bigint {
 }
 
 export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): InvoiceOnChain {
-  const status = Number(raw[12]) as InvoiceStatus;
-  const debtor = raw[9] as `0x${string}`;
+  const status = Number(raw[14]) as InvoiceStatus;
+  const debtor = raw[11] as `0x${string}`;
 
   return {
     invoiceId,
@@ -217,22 +224,25 @@ export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): I
     dueDate: raw[1] as `0x${string}`,
     purchasePrice: raw[2] as `0x${string}`,
     discountRateBps: raw[3] as `0x${string}`,
-    fingerprintHash: raw[4] as `0x${string}`,
-    faceValuePlaintext: toBigIntValue(raw[5]),
-    supplier: raw[7] as `0x${string}`,
-    investor: raw[8] as `0x${string}`,
+    riskScore: raw[4] as `0x${string}`,
+    riskBand: raw[5] as `0x${string}`,
+    fingerprintHash: raw[6] as `0x${string}`,
+    faceValuePlaintext: toBigIntValue(raw[7]),
+    discountRatePlaintext: toBigIntValue(raw[8]),
+    supplier: raw[9] as `0x${string}`,
+    investor: raw[10] as `0x${string}`,
     debtor,
     buyer: debtor,
-    uploadTimestamp: toBigIntValue(raw[10]),
-    maturityTimestamp: toBigIntValue(raw[11]),
+    uploadTimestamp: toBigIntValue(raw[12]),
+    maturityTimestamp: toBigIntValue(raw[13]),
     status,
     isFactored: status >= InvoiceStatus.Factored,
     isRepaid: status === InvoiceStatus.Settled,
-    geminiUnderwritingEnabled: Boolean(raw[13]),
-    debtorAttestationHash: raw[14] as `0x${string}`,
-    collateralStaked: Boolean(raw[15]),
-    debtorEmailHash: raw[16] as `0x${string}`,
-    isEmailVerified: Boolean(raw[17]),
+    geminiUnderwritingEnabled: Boolean(raw[15]),
+    debtorAttestationHash: raw[16] as `0x${string}`,
+    collateralStaked: Boolean(raw[17]),
+    debtorEmailHash: raw[18] as `0x${string}`,
+    isEmailVerified: Boolean(raw[19]),
   };
 }
 
@@ -349,6 +359,8 @@ export const REGISTRY_ABI = [
       { name: "dueDate",            type: "bytes32" },
       { name: "purchasePrice",      type: "bytes32" },
       { name: "discountRateBps",    type: "bytes32" },
+      { name: "riskScore",          type: "bytes32" },
+      { name: "riskBand",           type: "bytes32" },
       { name: "fingerprintHash",    type: "bytes32" },
       { name: "faceValuePlaintext", type: "uint256" }, /* NEW */
       { name: "discountRatePlaintext", type: "uint256" },
@@ -395,6 +407,33 @@ export const REGISTRY_ABI = [
     ],
   },
   {
+    type: "function", name: "getUnderwritingHandles",
+    stateMutability: "view",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [
+      { name: "riskScoreHandle", type: "bytes32" },
+      { name: "riskBandHandle", type: "bytes32" },
+    ],
+  },
+  {
+    type: "function", name: "isUnderwritingAllowed",
+    stateMutability: "view",
+    inputs: [
+      { name: "invoiceId", type: "uint256" },
+      { name: "account", type: "address" },
+    ],
+    outputs: [
+      { name: "scoreAllowed", type: "bool" },
+      { name: "bandAllowed", type: "bool" },
+    ],
+  },
+  {
+    type: "function", name: "getSupplierDefaultCountHandle",
+    stateMutability: "view",
+    inputs: [{ name: "supplier", type: "address" }],
+    outputs: [{ name: "defaultCountHandle", type: "bytes32" }],
+  },
+  {
     type: "function", name: "getFaceValuePlaintext",
     stateMutability: "view",
     inputs: [{ name: "invoiceId", type: "uint256" }],
@@ -432,6 +471,7 @@ export const REGISTRY_ABI = [
       { name: "totalInvoices", type: "bytes32" },
       { name: "repaidInvoices", type: "bytes32" },
       { name: "repaymentRatioBps", type: "bytes32" },
+      { name: "defaultedInvoices", type: "bytes32" },
       { name: "initialized", type: "bool" },
     ],
   },
