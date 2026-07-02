@@ -47,6 +47,9 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const hasHandle = (handle: `0x${string}` | undefined): handle is `0x${string}` =>
+    Boolean(handle) && handle !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+
   const decrypt = useCallback(
     async (
       handles: {
@@ -82,10 +85,10 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
           { handle: handles.purchasePriceHandle, contractAddress },
           { handle: handles.discountRateHandle, contractAddress },
         ];
-        if (handles.riskScoreHandle) {
+        if (hasHandle(handles.riskScoreHandle)) {
           handlePairs.push({ handle: handles.riskScoreHandle, contractAddress });
         }
-        if (handles.riskBandHandle) {
+        if (hasHandle(handles.riskBandHandle)) {
           handlePairs.push({ handle: handles.riskBandHandle, contractAddress });
         }
 
@@ -96,8 +99,8 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
           dueDate: clearValues[handles.dueDateHandle] as bigint | undefined,
           purchasePrice: clearValues[handles.purchasePriceHandle] as bigint | undefined,
           discountRate: clearValues[handles.discountRateHandle] as bigint | undefined,
-          riskScore: handles.riskScoreHandle ? clearValues[handles.riskScoreHandle] as bigint | undefined : undefined,
-          riskBand: handles.riskBandHandle ? clearValues[handles.riskBandHandle] as bigint | undefined : undefined,
+          riskScore: hasHandle(handles.riskScoreHandle) ? clearValues[handles.riskScoreHandle] as bigint | undefined : undefined,
+          riskBand: hasHandle(handles.riskBandHandle) ? clearValues[handles.riskBandHandle] as bigint | undefined : undefined,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Decryption failed";

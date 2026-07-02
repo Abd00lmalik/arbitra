@@ -168,8 +168,8 @@ export interface InvoiceOnChain {
   dueDate: `0x${string}`;
   purchasePrice: `0x${string}`;
   discountRateBps: `0x${string}`;
-  riskScore: `0x${string}`;
-  riskBand: `0x${string}`;
+  riskScore?: `0x${string}`;
+  riskBand?: `0x${string}`;
   fingerprintHash: `0x${string}`;
   faceValuePlaintext: bigint;
   discountRatePlaintext: bigint;
@@ -208,6 +208,76 @@ export interface InvoiceHandles {
   riskBandHandle?: `0x${string}`;
 }
 
+export const LEGACY_INVOICE_VIEW_ABI = [
+  {
+    type: "function", name: "invoices",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "faceValue",          type: "bytes32" },
+      { name: "dueDate",            type: "bytes32" },
+      { name: "purchasePrice",      type: "bytes32" },
+      { name: "discountRateBps",    type: "bytes32" },
+      { name: "fingerprintHash",    type: "bytes32" },
+      { name: "faceValuePlaintext", type: "uint256" },
+      { name: "discountRatePlaintext", type: "uint256" },
+      { name: "supplier",           type: "address" },
+      { name: "investor",           type: "address" },
+      { name: "debtor",             type: "address" },
+      { name: "uploadTimestamp",    type: "uint256" },
+      { name: "maturityTimestamp",  type: "uint256" },
+      { name: "status",             type: "uint8"   },
+      { name: "geminiUnderwritingEnabled", type: "bool" },
+      { name: "debtorAttestationHash",     type: "bytes32" },
+      { name: "collateralStaked",   type: "bool"    },
+      { name: "debtorEmailHash",    type: "bytes32" },
+      { name: "isEmailVerified",    type: "bool"    },
+    ],
+  },
+] as const;
+
+export const EXTENDED_INVOICE_VIEW_ABI = [
+  {
+    type: "function", name: "invoices",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "faceValue",          type: "bytes32" },
+      { name: "dueDate",            type: "bytes32" },
+      { name: "purchasePrice",      type: "bytes32" },
+      { name: "discountRateBps",    type: "bytes32" },
+      { name: "riskScore",          type: "bytes32" },
+      { name: "riskBand",           type: "bytes32" },
+      { name: "fingerprintHash",    type: "bytes32" },
+      { name: "faceValuePlaintext", type: "uint256" },
+      { name: "discountRatePlaintext", type: "uint256" },
+      { name: "supplier",           type: "address" },
+      { name: "investor",           type: "address" },
+      { name: "debtor",             type: "address" },
+      { name: "uploadTimestamp",    type: "uint256" },
+      { name: "maturityTimestamp",  type: "uint256" },
+      { name: "status",             type: "uint8"   },
+      { name: "geminiUnderwritingEnabled", type: "bool" },
+      { name: "debtorAttestationHash",     type: "bytes32" },
+      { name: "collateralStaked",   type: "bool"    },
+      { name: "debtorEmailHash",    type: "bytes32" },
+      { name: "isEmailVerified",    type: "bool"    },
+    ],
+  },
+] as const;
+
+export const UNDERWRITING_HANDLES_ABI = [
+  {
+    type: "function", name: "getUnderwritingHandles",
+    stateMutability: "view",
+    inputs: [{ name: "invoiceId", type: "uint256" }],
+    outputs: [
+      { name: "riskScoreHandle", type: "bytes32" },
+      { name: "riskBandHandle", type: "bytes32" },
+    ],
+  },
+] as const;
+
 function toBigIntValue(value: unknown): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "number" || typeof value === "string") return BigInt(value);
@@ -215,8 +285,25 @@ function toBigIntValue(value: unknown): bigint {
 }
 
 export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): InvoiceOnChain {
-  const status = Number(raw[14]) as InvoiceStatus;
-  const debtor = raw[11] as `0x${string}`;
+  const isExtendedTuple = raw.length >= 20;
+  const statusIndex = isExtendedTuple ? 14 : 12;
+  const debtorIndex = isExtendedTuple ? 11 : 9;
+  const supplierIndex = isExtendedTuple ? 9 : 7;
+  const investorIndex = isExtendedTuple ? 10 : 8;
+  const uploadTimestampIndex = isExtendedTuple ? 12 : 10;
+  const maturityTimestampIndex = isExtendedTuple ? 13 : 11;
+  const geminiIndex = isExtendedTuple ? 15 : 13;
+  const attestationIndex = isExtendedTuple ? 16 : 14;
+  const collateralIndex = isExtendedTuple ? 17 : 15;
+  const debtorEmailIndex = isExtendedTuple ? 18 : 16;
+  const emailVerifiedIndex = isExtendedTuple ? 19 : 17;
+  const faceValuePlaintextIndex = isExtendedTuple ? 7 : 5;
+  const discountRatePlaintextIndex = isExtendedTuple ? 8 : 6;
+  const fingerprintIndex = isExtendedTuple ? 6 : 4;
+  const riskScore = isExtendedTuple ? (raw[4] as `0x${string}`) : undefined;
+  const riskBand = isExtendedTuple ? (raw[5] as `0x${string}`) : undefined;
+  const status = Number(raw[statusIndex]) as InvoiceStatus;
+  const debtor = raw[debtorIndex] as `0x${string}`;
 
   return {
     invoiceId,
@@ -224,25 +311,25 @@ export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): I
     dueDate: raw[1] as `0x${string}`,
     purchasePrice: raw[2] as `0x${string}`,
     discountRateBps: raw[3] as `0x${string}`,
-    riskScore: raw[4] as `0x${string}`,
-    riskBand: raw[5] as `0x${string}`,
-    fingerprintHash: raw[6] as `0x${string}`,
-    faceValuePlaintext: toBigIntValue(raw[7]),
-    discountRatePlaintext: toBigIntValue(raw[8]),
-    supplier: raw[9] as `0x${string}`,
-    investor: raw[10] as `0x${string}`,
+    riskScore,
+    riskBand,
+    fingerprintHash: raw[fingerprintIndex] as `0x${string}`,
+    faceValuePlaintext: toBigIntValue(raw[faceValuePlaintextIndex]),
+    discountRatePlaintext: toBigIntValue(raw[discountRatePlaintextIndex]),
+    supplier: raw[supplierIndex] as `0x${string}`,
+    investor: raw[investorIndex] as `0x${string}`,
     debtor,
     buyer: debtor,
-    uploadTimestamp: toBigIntValue(raw[12]),
-    maturityTimestamp: toBigIntValue(raw[13]),
+    uploadTimestamp: toBigIntValue(raw[uploadTimestampIndex]),
+    maturityTimestamp: toBigIntValue(raw[maturityTimestampIndex]),
     status,
     isFactored: status >= InvoiceStatus.Factored,
     isRepaid: status === InvoiceStatus.Settled,
-    geminiUnderwritingEnabled: Boolean(raw[15]),
-    debtorAttestationHash: raw[16] as `0x${string}`,
-    collateralStaked: Boolean(raw[17]),
-    debtorEmailHash: raw[18] as `0x${string}`,
-    isEmailVerified: Boolean(raw[19]),
+    geminiUnderwritingEnabled: Boolean(raw[geminiIndex]),
+    debtorAttestationHash: raw[attestationIndex] as `0x${string}`,
+    collateralStaked: Boolean(raw[collateralIndex]),
+    debtorEmailHash: raw[debtorEmailIndex] as `0x${string}`,
+    isEmailVerified: Boolean(raw[emailVerifiedIndex]),
   };
 }
 
@@ -359,10 +446,8 @@ export const REGISTRY_ABI = [
       { name: "dueDate",            type: "bytes32" },
       { name: "purchasePrice",      type: "bytes32" },
       { name: "discountRateBps",    type: "bytes32" },
-      { name: "riskScore",          type: "bytes32" },
-      { name: "riskBand",           type: "bytes32" },
       { name: "fingerprintHash",    type: "bytes32" },
-      { name: "faceValuePlaintext", type: "uint256" }, /* NEW */
+      { name: "faceValuePlaintext", type: "uint256" },
       { name: "discountRatePlaintext", type: "uint256" },
       { name: "supplier",           type: "address" },
       { name: "investor",           type: "address" },

@@ -19,6 +19,7 @@ import {
   parseInvoiceTuple,
   type InvoiceOnChain,
   type InvoiceHandles,
+  LEGACY_INVOICE_VIEW_ABI,
 } from "@/lib/contracts";
 
 const FHE_FACTOR_GAS_LIMIT  = 1_000_000n;
@@ -46,7 +47,7 @@ export function useAllInvoiceIds() {
 export function useInvoice(invoiceId: bigint | number | undefined) {
   const result = useReadContract({
     address: ARBITRA_REGISTRY_ADDRESS,
-    abi: ARBITRA_REGISTRY_ABI,
+    abi: LEGACY_INVOICE_VIEW_ABI,
     functionName: "invoices",
     args: invoiceId !== undefined ? [BigInt(invoiceId)] : undefined,
     query: { enabled: invoiceId !== undefined },
@@ -414,7 +415,7 @@ export function useRealInvoiceList() {
 
   const contracts = ids.map((id) => ({
     address: ARBITRA_REGISTRY_ADDRESS,
-    abi: ARBITRA_REGISTRY_ABI,
+    abi: LEGACY_INVOICE_VIEW_ABI,
     functionName: "invoices",
     args: [id],
   }));

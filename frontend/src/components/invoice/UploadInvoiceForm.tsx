@@ -9,7 +9,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { useAccount, useBalance, usePublicClient, useReadContracts, useWaitForTransactionReceipt } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatEther, parseEther, parseGwei } from "viem";
+import { decodeEventLog, formatEther, parseEther, parseGwei } from "viem";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "../ui/GlassCard";
 import { NeonButton } from "../ui/NeonButton";
@@ -76,6 +76,25 @@ const UPLOAD_GAS_CAP              = 1_800_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
+}
+
+function getUploadedInvoiceIdFromReceipt(receipt: { logs: readonly { topics: readonly `0x${string}`[]; data: `0x${string}` }[] }) {
+  for (const log of receipt.logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: ARBITRA_REGISTRY_ABI,
+        data: log.data,
+        topics: [...log.topics],
+      });
+      if (decoded.eventName === "InvoiceUploaded") {
+        return decoded.args.invoiceId as bigint;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap?: bigint) {
@@ -802,7 +821,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         supplierInvoicesData.forEach((res) => {
           if (res.status === "success" && res.result) {
             const rawInvoice = res.result as readonly any[];
-            const status = Number(rawInvoice[11]);
+            const status = Number(rawInvoice[12]);
             if (status === 3) { /* Settled */
               repaid += 1n;
             }
@@ -899,13 +918,14 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         }
         throw new Error("Upload invoice transaction reverted on-chain.");
       }
+      const actualInvoiceId = getUploadedInvoiceIdFromReceipt(uploadReceipt) ?? nextInvoiceId;
       localStorage.removeItem(`arbitra_stake_${invoice.fingerprint.toString()}`);
       setLocalStakeTxHash(null);
       setTxHash(hash);
-      setUploadedInvoiceId(nextInvoiceId);
+      setUploadedInvoiceId(actualInvoiceId);
       setWizardStep(5);
       if (onSuccess) {
-        onSuccess(nextInvoiceId);
+        onSuccess(actualInvoiceId);
       }
       /* Auto-send verification email — do NOT auto-redirect; let the supplier
          see the verification link and email status first */
@@ -916,7 +936,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            invoiceId: Number(nextInvoiceId),
+            invoiceId: Number(actualInvoiceId),
             debtorEmail,
             supplierName: activeWallet
               ? `Supplier ${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}`
