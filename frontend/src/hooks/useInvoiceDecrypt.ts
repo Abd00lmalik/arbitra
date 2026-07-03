@@ -57,6 +57,8 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
         dueDateHandle: `0x${string}`;
         purchasePriceHandle: `0x${string}`;
         discountRateHandle: `0x${string}`;
+        riskScoreHandle?: `0x${string}`;
+        riskBandHandle?: `0x${string}`;
       },
       signer: {
         signTypedData: (d: object, t: object, v: object) => Promise<string>;

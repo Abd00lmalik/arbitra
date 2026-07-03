@@ -70,7 +70,7 @@ const FALLBACK_SEPOLIA_GAS_PRICE  = parseGwei("2");
  * FHE ops need ~1-3M gas; at 35 Gwei that is ~0.07 ETH minimum.              */
 const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
 const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
-/* Hard gas caps — prevents Wagmi/viem's inflated simulation estimates           */
+/* Hard gas caps - prevents Wagmi/viem's inflated simulation estimates           */
 const FRAUD_CHECK_GAS_CAP         = 2_500_000n;
 const UPLOAD_GAS_CAP              = 1_800_000n;
 
@@ -81,10 +81,12 @@ function formatEthAmount(value: bigint) {
 function getUploadedInvoiceIdFromReceipt(receipt: { logs: readonly { topics: readonly `0x${string}`[]; data: `0x${string}` }[] }) {
   for (const log of receipt.logs) {
     try {
+      if (log.topics.length === 0) continue;
+      const topics = log.topics as [`0x${string}`, ...`0x${string}`[]];
       const decoded = decodeEventLog({
         abi: ARBITRA_REGISTRY_ABI,
         data: log.data,
-        topics: [...log.topics],
+        topics,
       });
       if (decoded.eventName === "InvoiceUploaded") {
         return decoded.args.invoiceId as bigint;
@@ -453,11 +455,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       );
     }
 
-    /* Skip simulateContract — its gas/maxFeePerGas estimates are inflated for FHE calls
+    /* Skip simulateContract - its gas/maxFeePerGas estimates are inflated for FHE calls
      * and produce impossible tx costs (e.g. 74 ETH). Write directly with a capped gas.  */
-    setFraudCheckStep(`Gas: ${gasPriceGwei} Gwei · Est. cost: ~${formatEthAmount(estimatedCost)} ETH — awaiting wallet approval...`);
+    setFraudCheckStep(`Gas: ${gasPriceGwei} Gwei · Est. cost: ~${formatEthAmount(estimatedCost)} ETH - awaiting wallet approval...`);
     setFraudCheckAwaitingWallet(true);
-    setFraudCheckStep("Check your wallet — approve the fraud check transaction.");
+    setFraudCheckStep("Check your wallet - approve the fraud check transaction.");
 
     let duplicateTxHash: `0x${string}`;
     if (isEmbedded) {
@@ -558,7 +560,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     setFraudCheckStep(null);
     setFraudCheckAwaitingWallet(false);
 
-    /* Validate email first — it's always required */
+    /* Validate email first - it is always required */
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(debtorEmail)) {
       setErrorMsg("Please enter a valid debtor email address.");
@@ -665,7 +667,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }) as `0x${string}`;
 
       if (currentStake > 0n && currentSupplier.toLowerCase() === activeWallet.toLowerCase()) {
-        setStakeStep("Collateral already staked — continuing...");
+        setStakeStep("Collateral already staked - continuing...");
         setIsStaking(false);
         setWizardStep(4);
         void runProgressiveEncryption();
@@ -673,9 +675,9 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
 
       /* Use walletClient directly with explicit account so Web3Auth embedded wallet
-       * is correctly identified as the signer — wagmi writeContractAsync does not
+       * is correctly identified as the signer - wagmi writeContractAsync does not
        * pass account for embedded wallet connectors, causing silent failures.     */
-      setStakeStep(`Locking $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC collateral — confirm in wallet...`);
+      setStakeStep(`Locking $${(Number(requiredCollateral) / 1e6).toFixed(2)} USDC collateral - confirm in wallet...`);
       let stakeTxHash: `0x${string}`;
       try {
         if (isEmbedded) {
@@ -702,7 +704,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
          * Treat as success: wait for the pending tx to confirm instead.        */
         const msg = (sendErr?.message ?? "").toLowerCase();
         if (msg.includes("already known") || msg.includes("replacement transaction") || msg.includes("nonce too low")) {
-          setStakeStep("Transaction already submitted — waiting for confirmation...");
+          setStakeStep("Transaction already submitted - waiting for confirmation...");
           /* Re-read from chain; if staked by now just proceed */
           const recheckStake = await publicClient.readContract({
             address: COLLATERAL_VAULT_ADDRESS,
@@ -927,7 +929,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       if (onSuccess) {
         onSuccess(actualInvoiceId);
       }
-      /* Auto-send verification email — do NOT auto-redirect; let the supplier
+      /* Auto-send verification email - do NOT auto-redirect; let the supplier
          see the verification link and email status first */
       void router; /* keep import; navigation is now manual via the portfolio button */
       setSendingEmail(true);
@@ -1207,7 +1209,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                 </span>
               </div>
               <p className="text-[10px] leading-relaxed text-slate-500">
-                The wallet estimates gas for the fraud check transaction before approval. Typical fraud check cost is ~0.002–0.005 ETH.
+                The wallet estimates gas for the fraud check transaction before approval. Typical fraud check cost is ~0.002-0.005 ETH.
               </p>
             </div>
 
@@ -1409,7 +1411,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   disabled={!canAffordUpload}
                   className="flex-[2] neon-btn-primary py-2.5 rounded-xl text-xs"
                 >
-                  Already Staked — Continue
+                  Already Staked - Continue
                 </button>
               ) : (
                 <button
@@ -1420,7 +1422,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   {isStaking ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-3 h-3 rounded-full border border-white/30 border-t-white animate-spin" />
-                      {stakeStep ? stakeStep.split("—")[0].trim() : "Processing..."}
+                      {stakeStep ? stakeStep.split("-")[0].trim() : "Processing..."}
                     </span>
                   ) : "Lock Stake & Proceed"}
                 </button>
@@ -1578,7 +1580,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
                   )}
                 </div>
 
-                {/* Verification link — always visible, prominent copy button */}
+                {/* Verification link - always visible, prominent copy button */}
                 {(() => {
                   const link = verifyUrl ??
                     `${typeof window !== "undefined" ? window.location.origin : "https://arbitra-dapp.vercel.app"}/verify/${(uploadedInvoiceId ?? nextInvoiceId).toString()}`;

@@ -342,6 +342,13 @@ export function parseInvoiceHandles(raw: readonly unknown[]): InvoiceHandles {
   };
 }
 
+export function parseUnderwritingHandles(raw: readonly unknown[]): Pick<InvoiceHandles, "riskScoreHandle" | "riskBandHandle"> {
+  return {
+    riskScoreHandle: raw[0] as `0x${string}`,
+    riskBandHandle: raw[1] as `0x${string}`,
+  };
+}
+
 /* Registry ABI (v2.2 includes faceValuePlaintext) */
 export const REGISTRY_ABI = [
   {

@@ -12,6 +12,7 @@ import React, { useState } from "react";
 import { Key, Unlock, Sparkles, Zap, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
 import { usePublicClient, useReadContract } from "wagmi";
 import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
+import { generateRiskAssessment } from "@/lib/risk-assessment";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useInvoice,
@@ -162,6 +163,20 @@ export function InvoiceDetailModal({
   const hasEnoughUSDC = estimatedPurchasePrice > 0n && usdcBalance >= estimatedPurchasePrice;
   const underwritingScore = decrypted?.riskScore !== undefined ? Number(decrypted.riskScore) : null;
   const underwritingBand = decrypted?.riskBand !== undefined ? Number(decrypted.riskBand) : null;
+  const legacyUnderwriting =
+    decrypted && underwritingScore === null
+      ? generateRiskAssessment({
+          invoiceId: Number(invoice.invoiceId),
+          supplierAddress: invoice.supplier,
+          buyerAddress: invoice.debtor,
+          uploadTimestamp: Number(invoice.uploadTimestamp),
+          isFactored,
+          isRepaid,
+          faceValueHint: decrypted.faceValue?.toString(),
+          dueDaysHint: daysLeft,
+          discountRateBpsHint: decrypted.discountRate !== undefined ? Number(decrypted.discountRate) : undefined,
+        })
+      : null;
   const underwritingLabel =
     underwritingBand === 0
       ? "Low"
@@ -169,13 +184,18 @@ export function InvoiceDetailModal({
       ? "Medium"
       : underwritingBand === 2
       ? "High"
-      : null;
-  const underwritingClass =
-    underwritingBand === 0
+      : legacyUnderwriting?.riskLabel ?? null;
+  const displayedUnderwritingScore =
+    underwritingScore ?? legacyUnderwriting?.riskScore ?? null;
+  const displayedUnderwritingLabel = underwritingLabel;
+  const displayedUnderwritingClass =
+    displayedUnderwritingLabel === "Low"
       ? "bg-neon-green/10 text-neon-green border border-neon-green/20"
-      : underwritingBand === 1
+      : displayedUnderwritingLabel === "Medium"
       ? "bg-yellow-400/10 text-yellow-400 border border-yellow-400/20"
-      : "bg-neon-pink/10 text-neon-pink border border-neon-pink/20";
+      : displayedUnderwritingLabel === "High"
+      ? "bg-neon-pink/10 text-neon-pink border border-neon-pink/20"
+      : null;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -190,11 +210,13 @@ export function InvoiceDetailModal({
           delete cleanTypes.EIP712Domain;
           return embSigner.signTypedData(domain, cleanTypes, value);
         } else {
-          return walletClient!.signTypedData({
-            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
-            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
+          const externalWalletClient = walletClient;
+          if (!externalWalletClient) throw new Error("Connect a wallet to decrypt this invoice.");
+          return externalWalletClient.signTypedData({
+            domain: domain as any,
+            types: types as any,
             primaryType: Object.keys(types as Record<string, unknown>)[0],
-            message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
+            message: value as any,
             account: currentUserAddress as `0x${string}`,
           });
         }
@@ -414,7 +436,7 @@ export function InvoiceDetailModal({
             proof.bankTraceId,
             proof.signature,
           ],
-        });
+        } as any);
         await publicClient.waitForTransactionReceipt({ hash: txHash });
       }
 
@@ -440,7 +462,7 @@ export function InvoiceDetailModal({
   };
 
   /* Determine investor step: 0=grant, 1=decrypt, 2=review, 3=deploy */
-  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : underwritingScore === null || underwritingLabel === null ? 2 : 3;
+  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : displayedUnderwritingScore === null || displayedUnderwritingLabel === null ? 2 : 3;
   const isProspectiveInvestor = !isSupplier && !isDebtor && !isFactored;
   const isActiveInvestor = !isSupplier && !isDebtor && isFactored && isInvestor;
 
@@ -889,21 +911,40 @@ export function InvoiceDetailModal({
                   <span className="text-[9px] font-mono tracking-widest text-slate-500 uppercase">FHE</span>
                 </div>
 
-                {underwritingScore !== null && underwritingLabel ? (
+                {displayedUnderwritingScore !== null && displayedUnderwritingLabel ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-slate-400">Final encrypted risk output:</span>
-                      <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded ${underwritingClass}`}>
-                        {underwritingLabel} Risk ({underwritingScore}/100)
+                      <span className="text-xs text-slate-400">
+                        {underwritingScore !== null ? "Final encrypted risk output:" : "Legacy deterministic risk output:"}
+                      </span>
+                      <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded ${displayedUnderwritingClass}`}>
+                        {displayedUnderwritingLabel} Risk ({displayedUnderwritingScore}/100)
                       </span>
                     </div>
-                    <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                      This score is computed on-chain from encrypted repayment history, encrypted default count, encrypted invoice value, encrypted tenor, and encrypted supplier reputation. Raw underwriting inputs are not decrypted for investor review.
-                    </p>
+                    {underwritingScore !== null ? (
+                      <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                        This score is computed on-chain from encrypted repayment history, encrypted default count, encrypted invoice value, encrypted tenor, and encrypted supplier reputation. Raw underwriting inputs are not decrypted for investor review.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                        This invoice was created on a registry version that does not expose final underwriting handles. The app computed this deterministic review from the locally decrypted invoice terms so the capital review can continue.
+                      </p>
+                    )}
+                    {legacyUnderwriting && (
+                      <div className="space-y-1">
+                        {legacyUnderwriting.factors.slice(0, 2).map((factor) => (
+                          <p key={factor} className="text-[11px] text-slate-400 leading-normal">
+                            {factor}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     <div className="p-3.5 rounded-xl bg-white/2 border border-white/5 mt-1.5">
                       <span className="text-[10px] text-slate-400 font-bold block mb-1 uppercase">Selective Disclosure</span>
                       <p className="text-xs text-indigo-200 leading-normal italic">
-                        Your wallet received ACL access to final invoice terms and the final underwriting output only.
+                        {underwritingScore !== null
+                          ? "Your wallet received ACL access to final invoice terms and the final underwriting output only."
+                          : "Your wallet received ACL access to the invoice terms; upgraded registry invoices also expose encrypted underwriting output handles."}
                       </p>
                     </div>
                   </div>

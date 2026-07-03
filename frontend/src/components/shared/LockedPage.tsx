@@ -13,7 +13,7 @@ export function LockedPage({
 }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] py-16 px-6 text-center">
-      <GlassCard className="p-8 text-center max-w-md mx-auto space-y-6 relative overflow-hidden" glow="orange">
+      <GlassCard className="p-8 text-center max-w-md mx-auto space-y-6 relative overflow-hidden" glow="none">
         <div
           style={{
             position: "absolute",

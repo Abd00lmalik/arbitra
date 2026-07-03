@@ -89,11 +89,13 @@ export function InvoiceCard({
           delete cleanTypes.EIP712Domain;
           return embSigner.signTypedData(domain, cleanTypes, value);
         } else {
-          return walletClient!.signTypedData({
-            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
-            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
+          const externalWalletClient = walletClient;
+          if (!externalWalletClient) throw new Error("Connect a wallet to decrypt this invoice.");
+          return externalWalletClient.signTypedData({
+            domain: domain as any,
+            types: types as any,
             primaryType: Object.keys(types as Record<string, unknown>)[0],
-            message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
+            message: value as any,
             account: signerAddress as `0x${string}`,
           });
         }
