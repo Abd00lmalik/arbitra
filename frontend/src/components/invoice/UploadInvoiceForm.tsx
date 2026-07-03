@@ -66,16 +66,17 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
 const FALLBACK_SEPOLIA_GAS_PRICE  = parseGwei("2");
-/* Realistic minimum for a single FHE transaction at typical Sepolia gas prices.
- * FHE ops need ~1-3M gas; at 35 Gwei that is ~0.07 ETH minimum.              */
-const MIN_FRAUD_CHECK_GAS_BUFFER  = parseEther("0.05");
-const MIN_ETH_FOR_UPLOAD          = parseEther("0.02");
 /* Hard gas caps - prevents Wagmi/viem's inflated simulation estimates           */
 const FRAUD_CHECK_GAS_CAP         = 2_500_000n;
-const UPLOAD_GAS_CAP              = 1_800_000n;
+const UPLOAD_GAS_CAP              = 14_000_000n;
+const GAS_HEADROOM_BPS            = 12_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
+}
+
+function gasCostWithHeadroom(gasLimit: bigint, gasPrice: bigint) {
+  return (gasLimit * gasPrice * GAS_HEADROOM_BPS) / 10_000n;
 }
 
 function getUploadedInvoiceIdFromReceipt(receipt: { logs: readonly { topics: readonly `0x${string}`[]; data: `0x${string}` }[] }) {
@@ -246,7 +247,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
   });
-  const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= MIN_ETH_FOR_UPLOAD : false;
+  const requiredUploadGasWei = gasCostWithHeadroom(UPLOAD_GAS_CAP, fraudCheckDisplayGasPrice);
+  const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= requiredUploadGasWei : false;
 
   useEffect(() => {
     if (invoice.fingerprint) {
@@ -443,8 +445,8 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     const walletBalance = await publicClient.getBalance({ address: activeWallet });
     const gasPrice = await publicClient.getGasPrice().catch(() => FALLBACK_SEPOLIA_GAS_PRICE);
     const gasPriceGwei = (Number(gasPrice) / 1e9).toFixed(3);
-    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;    /* Need 20% headroom above the estimated cost so a gas-price spike mid-tx doesn't fail */
-    const requiredBalance = (estimatedCost * 12n) / 10n;
+    const estimatedCost = FRAUD_CHECK_GAS_CAP * gasPrice;
+    const requiredBalance = gasCostWithHeadroom(FRAUD_CHECK_GAS_CAP, gasPrice);
     if (walletBalance < requiredBalance) {
       const shortfall = requiredBalance - walletBalance;
       throw new Error(
@@ -773,9 +775,11 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
     try {
       const walletBalance = await publicClient.getBalance({ address: activeWallet });
-      if (walletBalance < MIN_ETH_FOR_UPLOAD) {
+      const uploadGasPrice = await publicClient.getGasPrice().catch(() => fraudCheckDisplayGasPrice);
+      const requiredUploadBalance = gasCostWithHeadroom(UPLOAD_GAS_CAP, uploadGasPrice);
+      if (walletBalance < requiredUploadBalance) {
         throw new Error(
-          `You need at least ${formatEthAmount(MIN_ETH_FOR_UPLOAD)} Sepolia ETH for gas to upload an invoice.`
+          `You need approximately ${formatEthAmount(requiredUploadBalance)} Sepolia ETH for upload gas at the current gas price.`
         );
       }
 
@@ -1365,7 +1369,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
 
             {!canAffordUpload && (
               <div className="p-3 rounded-xl bg-amber-400/5 border border-amber-400/10 text-xs text-amber-300">
-                You need at least 0.02 Sepolia ETH for gas to upload an invoice.
+                You need approximately {formatEthAmount(requiredUploadGasWei)} Sepolia ETH for gas to upload an invoice.
                 <a
                   href="https://www.alchemy.com/faucets/ethereum-sepolia"
                   target="_blank"
