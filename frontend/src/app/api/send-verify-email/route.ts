@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     dueDate?:     string;
     invoiceNumber?: string;
     pdfBase64?:   string;
+    registryAddress?: `0x${string}`;
   };
 
   /* Validate inputs */
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
-    const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate, invoiceNumber);
+    const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate, invoiceNumber, body.registryAddress);
     const verifyUrl = `${appUrl}/verify/${invoiceId}?token=${token}`;
 
     console.log(`[send-verify-email] INV-${invoiceId} | to=${debtorEmail.replace(/(.{2}).*(@.*)/, "$1***$2")} | resendKey=${resendKey ? "SET" : "MISSING"}`);

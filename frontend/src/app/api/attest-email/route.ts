@@ -49,6 +49,13 @@ const EMAIL_ATTESTATION_DOMAIN = {
   verifyingContract: ARBITRA_REGISTRY_ADDRESS,
 } as const;
 
+const LEGACY_REGISTRY_CANDIDATES: readonly `0x${string}`[] = [
+  ARBITRA_REGISTRY_ADDRESS,
+  "0xDE46d22134f0a9595188aA96dFFAC82561172b9f",
+  "0x5a84fa82958D375ffD0d8DA8e8E205173De326e4",
+  "0x709A65C50a592079df4Ac376a8E31eF35D5D9a39",
+] as const;
+
 const EMAIL_ATTESTATION_TYPES = {
   EmailAttestation: [
     { name: "invoiceId", type: "uint256" },
@@ -85,6 +92,37 @@ function getRpcUrl(): string {
 
 function sameAddress(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
+}
+
+async function resolveRegistryAddress(
+  publicClient: ReturnType<typeof createPublicClient>,
+  invoiceId: bigint,
+  hintedRegistry?: `0x${string}`,
+): Promise<`0x${string}` | null> {
+  const candidates = [
+    hintedRegistry,
+    ...LEGACY_REGISTRY_CANDIDATES,
+  ].filter((value, index, list): value is `0x${string}` => Boolean(value) && list.indexOf(value) === index);
+
+  for (const registryAddress of candidates) {
+    try {
+      const invoice = await publicClient.readContract({
+        address: registryAddress,
+        abi: REGISTRY_ABI,
+        functionName: "invoices",
+        args: [invoiceId],
+      }) as readonly unknown[];
+
+      const supplier = invoice[7] as `0x${string}` | undefined;
+      if (supplier && !sameAddress(supplier, "0x0000000000000000000000000000000000000000")) {
+        return registryAddress;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -129,8 +167,22 @@ export async function POST(req: NextRequest) {
       transport: http(rpcUrl),
     });
 
+    const resolvedRegistryAddress = await resolveRegistryAddress(
+      publicClient,
+      BigInt(invoiceId),
+      result.registryAddress,
+    );
+
+    if (!resolvedRegistryAddress) {
+      return jsonError("Invoice registry mismatch", 409, {
+        detail: "Could not resolve a live registry that contains this invoice ID.",
+        invoiceId,
+        hintedRegistry: result.registryAddress ?? null,
+      });
+    }
+
     const platformVerifier = await publicClient.readContract({
-      address: ARBITRA_REGISTRY_ADDRESS,
+      address: resolvedRegistryAddress,
       abi: REGISTRY_ABI,
       functionName: "platformVerifier",
     }) as `0x${string}`;
@@ -144,14 +196,17 @@ export async function POST(req: NextRequest) {
 
       return jsonError("Platform verifier misconfigured", 500, {
         detail: "VERIFIER_PRIVATE_KEY does not match the on-chain registry platformVerifier.",
-        registry: ARBITRA_REGISTRY_ADDRESS,
+        registry: resolvedRegistryAddress,
         expectedPlatformVerifier: platformVerifier,
         actualSigner: account.address,
       });
     }
 
     const signature = await client.signTypedData({
-      domain: EMAIL_ATTESTATION_DOMAIN,
+      domain: {
+        ...EMAIL_ATTESTATION_DOMAIN,
+        verifyingContract: resolvedRegistryAddress,
+      },
       types: EMAIL_ATTESTATION_TYPES,
       primaryType: "EmailAttestation",
       message: {
@@ -163,7 +218,7 @@ export async function POST(req: NextRequest) {
     });
 
     const txHash = await client.writeContract({
-      address: ARBITRA_REGISTRY_ADDRESS,
+      address: resolvedRegistryAddress,
       abi: REGISTRY_ABI,
       functionName: "confirmInvoiceEmailVerified",
       args: [
@@ -184,6 +239,7 @@ export async function POST(req: NextRequest) {
       verifiedAt: now,
       expiresAt,
       verifierAddress: account.address,
+      registryAddress: resolvedRegistryAddress,
       txHash,
     });
   } catch (err: unknown) {

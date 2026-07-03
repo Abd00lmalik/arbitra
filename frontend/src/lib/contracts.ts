@@ -20,7 +20,7 @@ const envAddress = (
 ): `0x${string}` => {
   if (!USE_ENV_CONTRACT_ADDRESSES) return fallback;
 
-  const value = process.env[key];
+  const value = process.env[key]?.trim();
   if (!value || !/^0x[0-9a-fA-F]{40}$/.test(value)) return fallback;
   return value as `0x${string}`;
 };

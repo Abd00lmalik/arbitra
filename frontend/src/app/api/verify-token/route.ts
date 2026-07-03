@@ -35,6 +35,6 @@ export async function POST(req: NextRequest) {
     faceValue:   result.faceValue,
     dueDate:     result.dueDate,
     invoiceNumber: result.invoiceNumber,
+    registryAddress: result.registryAddress,
   });
 }
-

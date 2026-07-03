@@ -945,6 +945,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
             dueDate: invoice.dueDate.toString(),
             invoiceNumber: invoice.invoiceNumber,
             pdfBase64: pdfBase64,
+            registryAddress: ARBITRA_REGISTRY_ADDRESS,
           }),
         });
         const emailData = await emailRes.json();

@@ -14,6 +14,7 @@ type VerifyTokenPayload = {
   faceValue?: string;
   dueDate?: string;
   invoiceNumber?: string;
+  registryAddress?: string;
 };
 
 function getTokenSecret() {
@@ -33,7 +34,8 @@ export async function createVerifyToken(
   debtorEmail: string,
   faceValue?: string,
   dueDate?: string,
-  invoiceNumber?: string
+  invoiceNumber?: string,
+  registryAddress?: string,
 ): Promise<string> {
   return new SignJWT({
     invoiceId,
@@ -41,6 +43,7 @@ export async function createVerifyToken(
     faceValue,
     dueDate,
     invoiceNumber,
+    registryAddress,
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
@@ -51,7 +54,7 @@ export async function createVerifyToken(
 export async function validateVerifyToken(
   invoiceId: number,
   rawToken: string
-): Promise<{ valid: true; debtorEmail: string; emailHash: string; faceValue?: string; dueDate?: string; invoiceNumber?: string } | { valid: false }> {
+): Promise<{ valid: true; debtorEmail: string; emailHash: string; faceValue?: string; dueDate?: string; invoiceNumber?: string; registryAddress?: `0x${string}` } | { valid: false }> {
   if (!rawToken) {
     return { valid: false };
   }
@@ -70,6 +73,10 @@ export async function validateVerifyToken(
     const faceValue = typeof payload.faceValue === "string" ? payload.faceValue : undefined;
     const dueDate = typeof payload.dueDate === "string" ? payload.dueDate : undefined;
     const invoiceNumber = typeof payload.invoiceNumber === "string" ? payload.invoiceNumber : undefined;
+    const registryAddress =
+      typeof payload.registryAddress === "string" && /^0x[0-9a-fA-F]{40}$/.test(payload.registryAddress)
+        ? (payload.registryAddress as `0x${string}`)
+        : undefined;
     const emailHash = createHash("sha256").update(debtorEmail.toLowerCase().trim()).digest("hex");
 
     return {
@@ -79,6 +86,7 @@ export async function validateVerifyToken(
       faceValue,
       dueDate,
       invoiceNumber,
+      registryAddress,
     };
   } catch {
     return { valid: false };
