@@ -52,7 +52,7 @@ export function InvoiceCard({
   const { data: handles } = useInvoiceHandles(invoice.invoiceId);
 
   /* Decryption hook */
-  const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
+  const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt(invoice.invoiceId.toString());
 
   /* Operator approval hooks */
   const { data: isApprovedRefetch, refetch: refetchApproval } = useIsInvestorApproved(
@@ -108,8 +108,11 @@ export function InvoiceCard({
         dueDateHandle: handles.dueDateHandle as `0x${string}`,
         purchasePriceHandle: handles.purchasePriceHandle as `0x${string}`,
         discountRateHandle: handles.discountRateHandle as `0x${string}`,
+        riskScoreHandle: handles.riskScoreHandle,
+        riskBandHandle: handles.riskBandHandle,
       },
-      signer
+      signer,
+      invoice.invoiceId.toString()
     );
   };
 

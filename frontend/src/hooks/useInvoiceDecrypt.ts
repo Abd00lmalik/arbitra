@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useZama } from "@/providers/ZamaProvider";
 import { ARBITRA_REGISTRY_ADDRESS } from "@/lib/contracts";
 import { userDecryptHandles } from "@/lib/zama";
@@ -25,6 +25,7 @@ interface UseInvoiceDecryptResult {
   decrypted: DecryptedValues | null;
   isDecrypting: boolean;
   error: string | null;
+  resetDecrypt: () => void;
   decrypt: (
     handles: {
       faceValueHandle: `0x${string}`;
@@ -37,18 +38,59 @@ interface UseInvoiceDecryptResult {
     signer: {
       signTypedData: (d: object, t: object, v: object) => Promise<string>;
       getAddress: () => Promise<string>;
-    }
+    },
+    contextKey?: string
   ) => Promise<void>;
 }
 
-export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
+interface DecryptedState {
+  contextKey: string;
+  values: DecryptedValues;
+}
+
+export function useInvoiceDecrypt(activeContextKey?: string): UseInvoiceDecryptResult {
   const { instance } = useZama();
-  const [decrypted, setDecrypted] = useState<DecryptedValues | null>(null);
+  const [decryptedState, setDecryptedState] = useState<DecryptedState | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
 
   const hasHandle = (handle: `0x${string}` | undefined): handle is `0x${string}` =>
     Boolean(handle) && handle !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+  const buildContextKey = (handles: {
+    faceValueHandle: `0x${string}`;
+    dueDateHandle: `0x${string}`;
+    purchasePriceHandle: `0x${string}`;
+    discountRateHandle: `0x${string}`;
+    riskScoreHandle?: `0x${string}`;
+    riskBandHandle?: `0x${string}`;
+  }) =>
+    [
+      handles.faceValueHandle,
+      handles.dueDateHandle,
+      handles.purchasePriceHandle,
+      handles.discountRateHandle,
+      handles.riskScoreHandle ?? "",
+      handles.riskBandHandle ?? "",
+    ].join(":");
+
+  const resetDecrypt = useCallback(() => {
+    requestSeqRef.current += 1;
+    setDecryptedState(null);
+    setIsDecrypting(false);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    resetDecrypt();
+  }, [activeContextKey, resetDecrypt]);
+
+  const decrypted = useMemo(() => {
+    if (!decryptedState) return null;
+    if (!activeContextKey) return decryptedState.values;
+    return decryptedState.contextKey === activeContextKey ? decryptedState.values : null;
+  }, [activeContextKey, decryptedState]);
 
   const decrypt = useCallback(
     async (
@@ -63,8 +105,13 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
       signer: {
         signTypedData: (d: object, t: object, v: object) => Promise<string>;
         getAddress: () => Promise<string>;
-      }
+      },
+      contextKey?: string
     ) => {
+      const requestSeq = requestSeqRef.current + 1;
+      requestSeqRef.current = requestSeq;
+      const requestContextKey = contextKey ?? activeContextKey ?? buildContextKey(handles);
+
       if (!instance) {
         setError("FHEVM SDK not initialized. Connect your wallet.");
         return;
@@ -95,16 +142,21 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
         }
 
         const clearValues = await userDecryptHandles(instance, handlePairs, signer);
+        if (requestSeq !== requestSeqRef.current) return;
 
-        setDecrypted({
-          faceValue: clearValues[handles.faceValueHandle] as bigint | undefined,
-          dueDate: clearValues[handles.dueDateHandle] as bigint | undefined,
-          purchasePrice: clearValues[handles.purchasePriceHandle] as bigint | undefined,
-          discountRate: clearValues[handles.discountRateHandle] as bigint | undefined,
-          riskScore: hasHandle(handles.riskScoreHandle) ? clearValues[handles.riskScoreHandle] as bigint | undefined : undefined,
-          riskBand: hasHandle(handles.riskBandHandle) ? clearValues[handles.riskBandHandle] as bigint | undefined : undefined,
+        setDecryptedState({
+          contextKey: requestContextKey,
+          values: {
+            faceValue: clearValues[handles.faceValueHandle] as bigint | undefined,
+            dueDate: clearValues[handles.dueDateHandle] as bigint | undefined,
+            purchasePrice: clearValues[handles.purchasePriceHandle] as bigint | undefined,
+            discountRate: clearValues[handles.discountRateHandle] as bigint | undefined,
+            riskScore: hasHandle(handles.riskScoreHandle) ? clearValues[handles.riskScoreHandle] as bigint | undefined : undefined,
+            riskBand: hasHandle(handles.riskBandHandle) ? clearValues[handles.riskBandHandle] as bigint | undefined : undefined,
+          },
         });
       } catch (err) {
+        if (requestSeq !== requestSeqRef.current) return;
         const msg = err instanceof Error ? err.message : "Decryption failed";
         console.error("[useInvoiceDecrypt] Error:", msg);
         /* Surface actionable error: SenderNotAllowed means the user lacks ACL */
@@ -116,11 +168,13 @@ export function useInvoiceDecrypt(): UseInvoiceDecryptResult {
           setError(`Decryption failed: ${msg}`);
         }
       } finally {
-        setIsDecrypting(false);
+        if (requestSeq === requestSeqRef.current) {
+          setIsDecrypting(false);
+        }
       }
     },
-    [instance]
+    [activeContextKey, instance]
   );
 
-  return { decrypted, isDecrypting, error, decrypt };
+  return { decrypted, isDecrypting, error, resetDecrypt, decrypt };
 }

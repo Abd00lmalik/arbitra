@@ -506,6 +506,7 @@ export default function MarketplaceClient() {
 
       {/* Slide-Up details Modal */}
       <InvoiceDetailModal
+        key={selectedInvoiceId?.toString() ?? "closed"}
         invoiceId={selectedInvoiceId}
         isOpen={selectedInvoiceId !== undefined}
         onClose={() => setSelectedInvoiceId(undefined)}

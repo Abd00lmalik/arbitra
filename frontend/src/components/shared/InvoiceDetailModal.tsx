@@ -8,7 +8,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Key, Unlock, Sparkles, Zap, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
 import { usePublicClient, useReadContract } from "wagmi";
 import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
@@ -93,6 +93,7 @@ export function InvoiceDetailModal({
 
   /* Fetch core data */
   const { data: invoice, refetch: refetchInvoice } = useInvoice(invoiceId);
+  const decryptContextKey = invoiceId !== undefined ? invoiceId.toString() : undefined;
 
   const { data: settlementCommitments, refetch: refetchSettlementCommitments } = useReadContract({
     address: ESCROW_RECEIVER_ADDRESS,
@@ -103,7 +104,7 @@ export function InvoiceDetailModal({
   });
 
   /* Decryption hook */
-  const { decrypted, isDecrypting, error: decryptError, decrypt } = useInvoiceDecrypt();
+  const { decrypted, isDecrypting, error: decryptError, decrypt, resetDecrypt } = useInvoiceDecrypt(decryptContextKey);
 
   /* Action hooks */
   const { factorInvoice, isPending: isFactoringPending } = useFactorInvoice();
@@ -139,6 +140,18 @@ export function InvoiceDetailModal({
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [settlementSuccess, setSettlementSuccess] = useState<SettlementSuccessState | null>(null);
 
+  useEffect(() => {
+    setLocalBusy(false);
+    setHasGrantedAccess(false);
+    setGrantError(null);
+    setFactorError(null);
+    setFactorSuccess(null);
+    setSettlementBusy(false);
+    setSettlementError(null);
+    setSettlementSuccess(null);
+    resetDecrypt();
+  }, [invoiceId, isOpen, resetDecrypt]);
+
   if (!isOpen || invoiceId === undefined || !invoice) return null;
 
   const isFactored = invoice.status >= InvoiceStatus.Factored;
@@ -151,6 +164,9 @@ export function InvoiceDetailModal({
 
   /* Decryption is allowed if: supplier, factored investor, or has been granted risk access this session */
   const canDecrypt = isSupplier || isInvestor || hasGrantedAccess;
+  const hasHandle = (handle: `0x${string}` | undefined) =>
+    Boolean(handle) && handle !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const hasUnderwritingHandles = hasHandle(invoice.riskScore) && hasHandle(invoice.riskBand);
 
   /* Real yield calculation after decryption */
   const daysLeft = daysUntilDue(invoice.maturityTimestamp);
@@ -163,6 +179,7 @@ export function InvoiceDetailModal({
   const hasEnoughUSDC = estimatedPurchasePrice > 0n && usdcBalance >= estimatedPurchasePrice;
   const underwritingScore = decrypted?.riskScore !== undefined ? Number(decrypted.riskScore) : null;
   const underwritingBand = decrypted?.riskBand !== undefined ? Number(decrypted.riskBand) : null;
+  const hasFinalUnderwriting = underwritingScore !== null && underwritingBand !== null;
   const legacyUnderwriting =
     decrypted && underwritingScore === null
       ? generateRiskAssessment({
@@ -184,10 +201,10 @@ export function InvoiceDetailModal({
       ? "Medium"
       : underwritingBand === 2
       ? "High"
-      : legacyUnderwriting?.riskLabel ?? null;
+      : null;
   const displayedUnderwritingScore =
     underwritingScore ?? legacyUnderwriting?.riskScore ?? null;
-  const displayedUnderwritingLabel = underwritingLabel;
+  const displayedUnderwritingLabel = underwritingLabel ?? legacyUnderwriting?.riskLabel ?? null;
   const displayedUnderwritingClass =
     displayedUnderwritingLabel === "Low"
       ? "bg-neon-green/10 text-neon-green border border-neon-green/20"
@@ -196,6 +213,7 @@ export function InvoiceDetailModal({
       : displayedUnderwritingLabel === "High"
       ? "bg-neon-pink/10 text-neon-pink border border-neon-pink/20"
       : null;
+  const canDeployCapital = estimatedPurchasePrice > 0n && hasEnoughUSDC && hasFinalUnderwriting;
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -286,6 +304,9 @@ export function InvoiceDetailModal({
       if (!publicClient) throw new Error("Sepolia public client unavailable.");
       if (estimatedPurchasePrice === 0n) {
         throw new Error("Decrypt the confidential purchase price before deploying capital.");
+      }
+      if (!hasFinalUnderwriting) {
+        throw new Error("Encrypted underwriting is unavailable for this invoice. Capital deployment is blocked until final FHE risk output is returned.");
       }
 
       if (usdcBalance < estimatedPurchasePrice) {
@@ -462,7 +483,7 @@ export function InvoiceDetailModal({
   };
 
   /* Determine investor step: 0=grant, 1=decrypt, 2=review, 3=deploy */
-  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : displayedUnderwritingScore === null || displayedUnderwritingLabel === null ? 2 : 3;
+  const investorStep = !canDecrypt ? 0 : !decrypted ? 1 : !hasFinalUnderwriting ? 2 : 3;
   const isProspectiveInvestor = !isSupplier && !isDebtor && !isFactored;
   const isActiveInvestor = !isSupplier && !isDebtor && isFactored && isInvestor;
 
@@ -646,8 +667,15 @@ export function InvoiceDetailModal({
                       </div>
                       <h4 className="text-sm font-bold text-white">Confidential Underwriting Pending</h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        The protocol did not return a decryptable final underwriting result for this invoice. Request access again or refresh after the registry upgrade is indexed.
+                        {hasUnderwritingHandles
+                          ? "The registry returned underwriting handles, but they did not decrypt for this wallet yet. Request access again or refresh after the ACL transaction is indexed."
+                          : "This invoice was created on a registry version that does not expose final encrypted underwriting handles. Capital deployment is blocked until the invoice is uploaded on the upgraded registry."}
                       </p>
+                      {legacyUnderwriting && (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-300 text-xs text-left">
+                          Local deterministic review: {legacyUnderwriting.riskLabel} risk ({legacyUnderwriting.riskScore}/100). This is informational only and cannot unlock deployment.
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -677,6 +705,10 @@ export function InvoiceDetailModal({
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
                           Decrypt the confidential purchase price before deploying capital.
                         </div>
+                      ) : !hasFinalUnderwriting ? (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          Final encrypted underwriting is required before capital can be deployed.
+                        </div>
                       ) : !hasEnoughUSDC && (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
                           Insufficient USDC. Get test tokens at{" "}
@@ -690,7 +722,7 @@ export function InvoiceDetailModal({
                         size="md"
                         loading={isFactoringPending || isApproving || localBusy}
                         onClick={handleFactorClick}
-                        disabled={!hasEnoughUSDC}
+                        disabled={!canDeployCapital}
                         className="w-full bg-gradient-to-r from-neon-purple to-indigo-600 border-neon-purple/50"
                       >
                         {isApproving
@@ -927,7 +959,7 @@ export function InvoiceDetailModal({
                       </p>
                     ) : (
                       <p className="text-xs text-slate-300 leading-relaxed font-medium">
-                        This invoice was created on a registry version that does not expose final underwriting handles. The app computed this deterministic review from the locally decrypted invoice terms so the capital review can continue.
+                        This invoice was created on a registry version that does not expose final underwriting handles. The deterministic review below is informational only and cannot unlock capital deployment.
                       </p>
                     )}
                     {legacyUnderwriting && (
@@ -944,7 +976,7 @@ export function InvoiceDetailModal({
                       <p className="text-xs text-indigo-200 leading-normal italic">
                         {underwritingScore !== null
                           ? "Your wallet received ACL access to final invoice terms and the final underwriting output only."
-                          : "Your wallet received ACL access to the invoice terms; upgraded registry invoices also expose encrypted underwriting output handles."}
+                          : "Your wallet received ACL access to the invoice terms only; upgraded registry invoices are required for encrypted underwriting output handles."}
                       </p>
                     </div>
                   </div>
