@@ -6,7 +6,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ARBITRA_REGISTRY_ADDRESS, REGISTRY_ABI } from "@/lib/contracts";
+import {
+  ARBITRA_REGISTRY_ADDRESS,
+  EXTENDED_INVOICE_VIEW_ABI,
+  LEGACY_INVOICE_VIEW_ABI,
+  REGISTRY_ABI,
+  parseInvoiceTuple,
+  type InvoiceOnChain,
+} from "@/lib/contracts";
 import { computeEmailHash, consumeVerifyToken, validateVerifyToken } from "@/lib/tokenStore";
 
 export const runtime = "nodejs";
@@ -94,6 +101,49 @@ function sameAddress(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
 }
 
+function isMissingInvoice(invoice: InvoiceOnChain | null) {
+  if (!invoice) return true;
+
+  return (
+    invoice.faceValuePlaintext === 0n &&
+    invoice.discountRatePlaintext === 0n &&
+    invoice.uploadTimestamp === 0n &&
+    invoice.maturityTimestamp === 0n &&
+    sameAddress(invoice.supplier, "0x0000000000000000000000000000000000000000") &&
+    sameAddress(invoice.debtor, "0x0000000000000000000000000000000000000000")
+  );
+}
+
+async function readInvoiceFromRegistry(
+  publicClient: ReturnType<typeof createPublicClient>,
+  registryAddress: `0x${string}`,
+  invoiceId: bigint,
+): Promise<InvoiceOnChain | null> {
+  const attempts = [
+    { abi: EXTENDED_INVOICE_VIEW_ABI, source: "extended" as const },
+    { abi: LEGACY_INVOICE_VIEW_ABI, source: "legacy" as const },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const raw = await publicClient.readContract({
+        address: registryAddress,
+        abi: attempt.abi,
+        functionName: "invoices",
+        args: [invoiceId],
+      });
+      const parsed = parseInvoiceTuple(invoiceId, raw as readonly unknown[], attempt.source);
+      if (!isMissingInvoice(parsed)) {
+        return parsed;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 async function resolveRegistryAddress(
   publicClient: ReturnType<typeof createPublicClient>,
   invoiceId: bigint,
@@ -106,15 +156,8 @@ async function resolveRegistryAddress(
 
   for (const registryAddress of candidates) {
     try {
-      const invoice = await publicClient.readContract({
-        address: registryAddress,
-        abi: REGISTRY_ABI,
-        functionName: "invoices",
-        args: [invoiceId],
-      }) as readonly unknown[];
-
-      const supplier = invoice[7] as `0x${string}` | undefined;
-      if (supplier && !sameAddress(supplier, "0x0000000000000000000000000000000000000000")) {
+      const invoice = await readInvoiceFromRegistry(publicClient, registryAddress, invoiceId);
+      if (!isMissingInvoice(invoice)) {
         return registryAddress;
       }
     } catch {

@@ -101,7 +101,19 @@ async function connectWeb3AuthWagmi() {
     throw new Error("Web3Auth wallet connector is not configured.");
   }
 
-  await connect(wagmiConfig, { connector: web3authConnector });
+  try {
+    await connect(wagmiConfig, { connector: web3authConnector });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("wallet_requestPermissions") ||
+      message.includes("does not exist/is not available")
+    ) {
+      console.warn("[Web3Auth] Skipping wagmi bridge for provider without wallet_requestPermissions support.");
+      return;
+    }
+    throw error;
+  }
 }
 
 export function Web3AuthProvider({ children }: { children: ReactNode }) {

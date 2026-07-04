@@ -38,7 +38,8 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
   const { connect } = useConnect();
   const { data: walletClient } = useWalletClient();
   const { instance, isReady: zamaReady } = useZama();
-  const { confirmInvoice, isPending: confirmPending, txHash: web3TxHash } = useConfirmInvoice();
+  const [resolvedRegistryAddress, setResolvedRegistryAddress] = useState<`0x${string}`>(ARBITRA_REGISTRY_ADDRESS);
+  const { confirmInvoice, isPending: confirmPending, txHash: web3TxHash } = useConfirmInvoice(resolvedRegistryAddress);
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const router = useRouter();
@@ -50,7 +51,10 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     query: { enabled: !!address },
   });
 
-  const { data: invoice, isLoading: invoiceLoading, refetch: refetchInvoice } = useInvoice(invoiceId);
+  const { data: invoice, isLoading: invoiceLoading, refetch: refetchInvoice } = useInvoice(
+    invoiceId,
+    resolvedRegistryAddress,
+  );
 
   const [verifyMode, setVerifyMode] = useState<"web2" | "web3" | null>(null);
   const [tokenValidating, setTokenValidating] = useState<boolean>(false);
@@ -151,6 +155,9 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
                 invoiceNumber: data.invoiceNumber,
               });
             }
+            if (data.registryAddress && /^0x[0-9a-fA-F]{40}$/.test(data.registryAddress)) {
+              setResolvedRegistryAddress(data.registryAddress as `0x${string}`);
+            }
             setVerifyMode("web2");
           } else {
             setTokenError(data.error || "Verification token is invalid or expired.");
@@ -177,8 +184,8 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
 
     try {
       const handlesToDecrypt = [
-        { handle: invoice.faceValue, contractAddress: ARBITRA_REGISTRY_ADDRESS },
-        { handle: invoice.dueDate, contractAddress: ARBITRA_REGISTRY_ADDRESS },
+        { handle: invoice.faceValue, contractAddress: resolvedRegistryAddress },
+        { handle: invoice.dueDate, contractAddress: resolvedRegistryAddress },
       ];
 
       /* Mock signer object matching userDecryptHandles requirements */
@@ -239,7 +246,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
           name: "Arbitra",
           version: "2",
           chainId: chainId,
-          verifyingContract: ARBITRA_REGISTRY_ADDRESS,
+          verifyingContract: resolvedRegistryAddress,
         },
         types: {
           InvoiceAttestation: [
@@ -454,7 +461,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
           <div className="mt-4 p-4 rounded-xl bg-neon-purple/5 border border-neon-purple/10 text-left text-xs space-y-2">
             <span className="font-semibold text-neon-purple block">⚖️ Legal SPV & Receivables Transfer</span>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              This invoice has been legally assigned to the Arbitra Factoring SPV registry. The payment obligation is now owed directly to the collateral vault at address <strong className="font-mono text-white">{truncateAddress(ARBITRA_REGISTRY_ADDRESS)}</strong>.
+              This invoice has been legally assigned to the Arbitra Factoring SPV registry. The payment obligation is now owed directly to the collateral vault at address <strong className="font-mono text-white">{truncateAddress(resolvedRegistryAddress)}</strong>.
             </p>
           </div>
 
@@ -598,7 +605,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
               <span className="text-white/10">|</span>
               <span className="text-[10px] text-slate-500">
                 SPV Registry:{" "}
-                <span className="font-mono text-slate-400">{truncateAddress(ARBITRA_REGISTRY_ADDRESS)}</span>
+                <span className="font-mono text-slate-400">{truncateAddress(resolvedRegistryAddress)}</span>
               </span>
             </div>
           </div>

@@ -11,6 +11,7 @@ export interface SendVerifyEmailParams {
   supplierName?: string; /* optional — displayed as "from" context */
   expiresHours?: number; /* default 72 */
   invoiceNumber?: string; /* optional override, defaults to "INV-{invoiceId}" */
+  appUrl?: string; /* optional override, defaults to NEXT_PUBLIC_APP_URL */
 }
 
 export async function sendVerifyEmail(
@@ -22,10 +23,12 @@ export async function sendVerifyEmail(
     supplierName = "a supplier",
     expiresHours = 72,
     invoiceNumber,
+    appUrl,
   } = params;
 
   const invRef = invoiceNumber ?? `INV-${invoiceId}`;
-  const link = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app"}/verify/${invoiceId}?token=${token}`;
+  const baseUrl = (appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app").replace(/\/$/, "");
+  const link = `${baseUrl}/verify/${invoiceId}?token=${token}`;
 
   const html = buildEmailHtml({ link, supplierName, expiresHours, invoiceId, invoiceNumber: invRef });
   const text = buildEmailText({ link, supplierName, expiresHours, invoiceNumber: invRef });

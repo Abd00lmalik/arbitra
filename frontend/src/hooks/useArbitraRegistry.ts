@@ -20,6 +20,8 @@ import {
   parseUnderwritingHandles,
   type InvoiceOnChain,
   type InvoiceHandles,
+  type InvoiceTupleSource,
+  EXTENDED_INVOICE_VIEW_ABI,
   LEGACY_INVOICE_VIEW_ABI,
 } from "@/lib/contracts";
 
@@ -28,6 +30,88 @@ const FHE_FACTOR_GAS_LIMIT  = 1_000_000n;
  * Gas estimation overflows Sepolia's block cap (16,777,216). Cap explicitly at 14M. */
 const FHE_UPLOAD_GAS_LIMIT  = 14_000_000n;
 const STAKE_GAS_LIMIT        = 500_000n;
+
+function resolveRegistryAddress(address?: `0x${string}`) {
+  return address ?? ARBITRA_REGISTRY_ADDRESS;
+}
+
+function isMissingInvoice(parsed: InvoiceOnChain | undefined) {
+  if (!parsed) return true;
+
+  return (
+    parsed.faceValuePlaintext === 0n &&
+    parsed.discountRatePlaintext === 0n &&
+    parsed.uploadTimestamp === 0n &&
+    parsed.maturityTimestamp === 0n &&
+    parsed.supplier.toLowerCase() === "0x0000000000000000000000000000000000000000" &&
+    parsed.debtor.toLowerCase() === "0x0000000000000000000000000000000000000000"
+  );
+}
+
+function isAddressLike(value: unknown): value is `0x${string}` {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
+function isStructurallyValidInvoice(parsed: InvoiceOnChain | undefined) {
+  if (!parsed) return false;
+
+  return (
+    isAddressLike(parsed.supplier) &&
+    isAddressLike(parsed.investor) &&
+    isAddressLike(parsed.debtor) &&
+    typeof parsed.uploadTimestamp === "bigint" &&
+    typeof parsed.maturityTimestamp === "bigint" &&
+    Number.isInteger(parsed.status) &&
+    parsed.status >= InvoiceStatus.Pending &&
+    parsed.status <= InvoiceStatus.Slashed
+  );
+}
+
+type InvoiceCandidate = {
+  invoice: InvoiceOnChain;
+  source: InvoiceTupleSource;
+};
+
+function toInvoiceCandidate(
+  invoiceId: bigint | number | undefined,
+  raw: readonly unknown[] | undefined,
+  source: InvoiceTupleSource,
+): InvoiceCandidate | null {
+  if (invoiceId === undefined) return null;
+
+  if (!Array.isArray(raw)) return null;
+
+  try {
+    const invoice = parseInvoiceTuple(BigInt(invoiceId), raw, source);
+    return isMissingInvoice(invoice) || !isStructurallyValidInvoice(invoice) ? null : { invoice, source };
+  } catch {
+    return null;
+  }
+}
+
+function chooseInvoiceTuple(
+  invoiceId: bigint | number | undefined,
+  extendedRaw: readonly unknown[] | undefined,
+  legacyRaw: readonly unknown[] | undefined,
+) {
+  if (invoiceId === undefined) return undefined;
+
+  const candidates = [
+    toInvoiceCandidate(invoiceId, extendedRaw, "extended"),
+    toInvoiceCandidate(invoiceId, legacyRaw, "legacy"),
+  ]
+    .filter((candidate): candidate is InvoiceCandidate => Boolean(candidate))
+    .sort((left, right) => {
+      if (left.invoice.uploadTimestamp === right.invoice.uploadTimestamp) {
+        if (left.source === right.source) return 0;
+        return left.source === "extended" ? -1 : 1;
+      }
+
+      return left.invoice.uploadTimestamp > right.invoice.uploadTimestamp ? -1 : 1;
+    });
+
+  return candidates[0];
+}
 /*
  * Hook: read all invoice IDs from the registry.
  */
@@ -45,9 +129,21 @@ export function useAllInvoiceIds() {
 /*
  * Hook: read a single invoice's data.
  */
-export function useInvoice(invoiceId: bigint | number | undefined) {
-  const invoiceResult = useReadContract({
-    address: ARBITRA_REGISTRY_ADDRESS,
+export function useInvoice(
+  invoiceId: bigint | number | undefined,
+  registryAddress?: `0x${string}`,
+) {
+  const targetRegistryAddress = resolveRegistryAddress(registryAddress);
+  const extendedInvoiceResult = useReadContract({
+    address: targetRegistryAddress,
+    abi: EXTENDED_INVOICE_VIEW_ABI,
+    functionName: "invoices",
+    args: invoiceId !== undefined ? [BigInt(invoiceId)] : undefined,
+    query: { enabled: invoiceId !== undefined },
+  });
+
+  const legacyInvoiceResult = useReadContract({
+    address: targetRegistryAddress,
     abi: LEGACY_INVOICE_VIEW_ABI,
     functionName: "invoices",
     args: invoiceId !== undefined ? [BigInt(invoiceId)] : undefined,
@@ -55,7 +151,7 @@ export function useInvoice(invoiceId: bigint | number | undefined) {
   });
 
   const underwritingResult = useReadContract({
-    address: ARBITRA_REGISTRY_ADDRESS,
+    address: targetRegistryAddress,
     abi: ARBITRA_REGISTRY_ABI,
     functionName: "getUnderwritingHandles",
     args: invoiceId !== undefined ? [BigInt(invoiceId)] : undefined,
@@ -65,31 +161,38 @@ export function useInvoice(invoiceId: bigint | number | undefined) {
     },
   });
 
-  const parsed =
-    invoiceId !== undefined && invoiceResult.data
-      ? parseInvoiceTuple(BigInt(invoiceId), invoiceResult.data as readonly unknown[])
-      : undefined;
+  const activeInvoice = chooseInvoiceTuple(
+    invoiceId,
+    extendedInvoiceResult.data as readonly unknown[] | undefined,
+    legacyInvoiceResult.data as readonly unknown[] | undefined,
+  );
   const underwritingHandles = underwritingResult.data
     ? parseUnderwritingHandles(underwritingResult.data as readonly unknown[])
     : undefined;
+  const activeInvoiceResult =
+    activeInvoice?.source === "extended" ? extendedInvoiceResult : legacyInvoiceResult;
+  const invoiceReadPending =
+    !activeInvoice && (extendedInvoiceResult.isLoading || legacyInvoiceResult.isLoading);
 
   return {
-    ...invoiceResult,
+    ...activeInvoiceResult,
+    error: activeInvoice ? undefined : (extendedInvoiceResult.error ?? legacyInvoiceResult.error),
     data:
-      parsed && underwritingHandles
+      activeInvoice && underwritingHandles
         ? {
-            ...parsed,
+            ...activeInvoice.invoice,
             riskScore: underwritingHandles.riskScoreHandle,
             riskBand: underwritingHandles.riskBandHandle,
           }
-        : parsed,
-    isLoading: invoiceResult.isLoading || underwritingResult.isLoading,
+        : activeInvoice?.invoice,
+    isLoading: invoiceReadPending || underwritingResult.isLoading,
     refetch: async () => {
-      const [invoiceRefetch] = await Promise.all([
-        invoiceResult.refetch(),
+      const [extendedRefetch, legacyRefetch] = await Promise.all([
+        extendedInvoiceResult.refetch(),
+        legacyInvoiceResult.refetch(),
         underwritingResult.refetch(),
       ]);
-      return invoiceRefetch;
+      return activeInvoice?.source === "extended" ? extendedRefetch : legacyRefetch;
     },
   };
 }
@@ -288,19 +391,20 @@ export function useUploadInvoice() {
 /*
  * Hook: debtor attestation confirmation.
  */
-export function useConfirmInvoice() {
+export function useConfirmInvoice(registryAddress?: `0x${string}`) {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
+  const targetRegistryAddress = resolveRegistryAddress(registryAddress);
 
   const confirmInvoice = useCallback(
     async (invoiceId: bigint, signature: `0x${string}`, commitment: `0x${string}`) => {
       return writeContractAsync({
-        address: ARBITRA_REGISTRY_ADDRESS,
+        address: targetRegistryAddress,
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "confirmInvoice",
         args: [invoiceId, signature, commitment],
       });
     },
-    [writeContractAsync]
+    [targetRegistryAddress, writeContractAsync]
   );
 
   return { confirmInvoice, isPending, error, txHash: data };
@@ -497,7 +601,14 @@ export function useRealInvoiceList() {
   const { data: idData, isLoading: isLoadingIds } = useAllInvoiceIds();
   const ids = (idData as bigint[]) || [];
 
-  const invoiceContracts = ids.map((id) => ({
+  const extendedInvoiceContracts = ids.map((id) => ({
+    address: ARBITRA_REGISTRY_ADDRESS,
+    abi: EXTENDED_INVOICE_VIEW_ABI,
+    functionName: "invoices",
+    args: [id],
+  }));
+
+  const legacyInvoiceContracts = ids.map((id) => ({
     address: ARBITRA_REGISTRY_ADDRESS,
     abi: LEGACY_INVOICE_VIEW_ABI,
     functionName: "invoices",
@@ -511,8 +622,24 @@ export function useRealInvoiceList() {
     args: [id],
   }));
 
-  const { data: results, isLoading: isLoadingInvoices, refetch } = useReadContracts({
-    contracts: invoiceContracts,
+  const {
+    data: extendedResults,
+    isLoading: isLoadingExtendedInvoices,
+    refetch: refetchExtendedInvoices,
+  } = useReadContracts({
+    contracts: extendedInvoiceContracts,
+    query: {
+      enabled: ids.length > 0,
+      refetchInterval: 15_000,
+    },
+  });
+
+  const {
+    data: legacyResults,
+    isLoading: isLoadingLegacyInvoices,
+    refetch: refetchLegacyInvoices,
+  } = useReadContracts({
+    contracts: legacyInvoiceContracts,
     query: {
       enabled: ids.length > 0,
       refetchInterval: 15_000,
@@ -533,20 +660,29 @@ export function useRealInvoiceList() {
   });
 
   const invoices: InvoiceOnChain[] = [];
-  if (results && ids.length > 0) {
-    results.forEach((res, index) => {
-      if (res.status === "success" && res.result) {
-        const parsed = parseInvoiceTuple(ids[index], res.result as readonly unknown[]);
+  if (ids.length > 0) {
+    ids.forEach((id, index) => {
+      const activeInvoice = chooseInvoiceTuple(
+        id,
+        extendedResults?.[index]?.status === "success"
+          ? (extendedResults[index].result as readonly unknown[])
+          : undefined,
+        legacyResults?.[index]?.status === "success"
+          ? (legacyResults[index].result as readonly unknown[])
+          : undefined,
+      );
+
+      if (activeInvoice) {
         const underwriting = underwritingResults?.[index];
         if (underwriting?.status === "success" && underwriting.result) {
           const handles = parseUnderwritingHandles(underwriting.result as readonly unknown[]);
           invoices.push({
-            ...parsed,
+            ...activeInvoice.invoice,
             riskScore: handles.riskScoreHandle,
             riskBand: handles.riskBandHandle,
           });
         } else {
-          invoices.push(parsed);
+          invoices.push(activeInvoice.invoice);
         }
       }
     });
@@ -554,10 +690,15 @@ export function useRealInvoiceList() {
 
   return {
     data: invoices,
-    isLoading: isLoadingIds || isLoadingInvoices || isLoadingUnderwriting,
+    isLoading:
+      isLoadingIds ||
+      isLoadingExtendedInvoices ||
+      isLoadingLegacyInvoices ||
+      isLoadingUnderwriting,
     refetch: async () => {
       const [invoiceRefetch] = await Promise.all([
-        refetch(),
+        refetchExtendedInvoices(),
+        refetchLegacyInvoices(),
         refetchUnderwriting(),
       ]);
       return invoiceRefetch;

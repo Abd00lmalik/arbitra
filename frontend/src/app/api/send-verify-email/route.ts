@@ -5,6 +5,21 @@ import { storeInvoicePdf }           from "@/lib/pdfStore";
 
 export const runtime = "nodejs";
 
+function getRequestAppUrl(req: NextRequest) {
+  const origin = req.headers.get("origin")?.trim();
+  if (origin) {
+    return origin.replace(/\/$/, "");
+  }
+
+  const forwardedProto = req.headers.get("x-forwarded-proto")?.trim() || "https";
+  const forwardedHost = req.headers.get("x-forwarded-host")?.trim() || req.headers.get("host")?.trim();
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, "");
+  }
+
+  return (process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app").replace(/\/$/, "");
+}
+
 export async function POST(req: NextRequest) {
   const resendKey = process.env.RESEND_API_KEY?.trim() || undefined;
 
@@ -36,7 +51,7 @@ export async function POST(req: NextRequest) {
       await storeInvoicePdf(invoiceId, pdfBase64);
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://arbitra-dapp.vercel.app";
+    const appUrl = getRequestAppUrl(req);
     const token = await createVerifyToken(invoiceId, debtorEmail, faceValue, dueDate, invoiceNumber, body.registryAddress);
     const verifyUrl = `${appUrl}/verify/${invoiceId}?token=${token}`;
 
@@ -53,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const { id } = await sendVerifyEmail(
-        { to: debtorEmail, invoiceId, token, supplierName, invoiceNumber: `INV-${invoiceId}` },
+        { to: debtorEmail, invoiceId, token, supplierName, invoiceNumber: `INV-${invoiceId}`, appUrl },
         resendKey
       );
 

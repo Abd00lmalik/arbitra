@@ -104,16 +104,26 @@ export const fromMicro = (b: bigint): string =>
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
 
-export const truncAddr = (a?: string): string =>
-  a && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : (a ?? "");
+function normalizeAddressLike(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export const truncAddr = (a?: unknown): string => {
+  const value = normalizeAddressLike(a);
+  return value && value.length > 10 ? `${value.slice(0, 6)}...${value.slice(-4)}` : (value ?? "");
+};
 
 /* Compatibility helper aliases */
 export const toMicroUnits = toMicro;
 export const fromMicroUnits = fromMicro;
-export const truncateAddress = (a: string): string =>
-  a && a.length > 10 ? `${a.slice(0, 6)}...${a.slice(-4)}` : (a ?? "");
-export const shortAddress = (a: string): string =>
-  !a || a === "0x0000000000000000000000000000000000000000" ? "-" : `${a.slice(0, 6)}...${a.slice(-4)}`;
+export const truncateAddress = (a: unknown): string => {
+  const value = normalizeAddressLike(a);
+  return value && value.length > 10 ? `${value.slice(0, 6)}...${value.slice(-4)}` : (value ?? "");
+};
+export const shortAddress = (a: unknown): string => {
+  const value = normalizeAddressLike(a);
+  return !value || value === "0x0000000000000000000000000000000000000000" ? "-" : `${value.slice(0, 6)}...${value.slice(-4)}`;
+};
 
 export const formatUSDC = (microUnits: bigint | undefined): string => {
   if (microUnits === undefined) return "-";
@@ -208,6 +218,8 @@ export interface InvoiceHandles {
   riskBandHandle?: `0x${string}`;
 }
 
+export type InvoiceTupleSource = "legacy" | "extended";
+
 export const LEGACY_INVOICE_VIEW_ABI = [
   {
     type: "function", name: "invoices",
@@ -284,8 +296,13 @@ function toBigIntValue(value: unknown): bigint {
   return 0n;
 }
 
-export function parseInvoiceTuple(invoiceId: bigint, raw: readonly unknown[]): InvoiceOnChain {
-  const isExtendedTuple = raw.length >= 20;
+export function parseInvoiceTuple(
+  invoiceId: bigint,
+  raw: readonly unknown[],
+  source?: InvoiceTupleSource,
+): InvoiceOnChain {
+  const tupleSource = source ?? (raw.length >= 20 ? "extended" : "legacy");
+  const isExtendedTuple = tupleSource === "extended";
   const statusIndex = isExtendedTuple ? 14 : 12;
   const debtorIndex = isExtendedTuple ? 11 : 9;
   const supplierIndex = isExtendedTuple ? 9 : 7;
