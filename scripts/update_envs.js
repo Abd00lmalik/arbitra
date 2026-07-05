@@ -1,6 +1,6 @@
 const { exec } = require("child_process");
 
-const envs = ["production", "preview"];
+const envs = ["production"];
 
 const vars = {
   "NEXT_PUBLIC_APP_URL": "https://arbitra-dapp.vercel.app",
@@ -15,7 +15,8 @@ const vars = {
   "NEXT_PUBLIC_KYB_ORACLE_ADDRESS": "0x8a8f06F0A8dc3dAD0e76f1eBd6CA0834f021f862",
   "NEXT_PUBLIC_INVESTOR_KYB_ORACLE_ADDRESS": "0xAB15403eE452d22A3F1a45Ba458B8c4beBcf3f9D",
   "NEXT_PUBLIC_RISK_CALC_ADDRESS": "0xFDB7600f1B30504D367de1BE5112e89C024a7876",
-  "NEXT_PUBLIC_USDC_ADDRESS": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+  "NEXT_PUBLIC_USDC_ADDRESS": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "NEXT_PUBLIC_CUSDC_ADDRESS": "0x4E7B06D78965594eB5EF5414c357ca21E1554491"
 };
 
 function runCmdAndKill(cmd) {

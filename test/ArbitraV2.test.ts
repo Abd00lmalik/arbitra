@@ -53,6 +53,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
         mockCUSDC = await MockERC7984Factory.deploy();
         await mockCUSDC.waitForDeployment();
         mockCUSDCAddr = await mockCUSDC.getAddress();
+        await (await mockCUSDC.setUnderlying(mockUSDCAddr)).wait();
 
         /* Deploy FingerprintRegistry */
         const FPFactory = await ethers.getContractFactory("ArbitraFingerprintRegistry", deployer);
@@ -96,6 +97,8 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
         await (await fpRegistry.connect(deployer).setRegistry(registryAddr)).wait();
         await (await collateralVault.connect(deployer).setRegistry(registryAddr)).wait();
         await (await escrowReceiver.connect(deployer).setRegistry(registryAddr)).wait();
+        await (await registry.connect(deployer).setCUsdc(mockCUSDCAddr)).wait();
+        await (await escrowReceiver.connect(deployer).setCUsdc(mockCUSDCAddr)).wait();
 
         /* Deploy supplier and investor SBTs and configure investor access on registry */
         const SBTFactory = await ethers.getContractFactory("ArbitraSBT", deployer);
@@ -119,6 +122,11 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
         /* Investor approvals */
         await (await mockUSDC.connect(investor).approve(registryAddr, 10_000_000_000n)).wait();
+
+        /* Mint cUSDC mock tokens to investor and grant registry operator access */
+        await (await mockCUSDC.mint(investor.address, 10_000_000_000n)).wait();
+        const until = Math.floor(Date.now() / 1000) + 31536000;
+        await (await mockCUSDC.connect(investor).setOperator(registryAddr, until)).wait();
     });
 
     describe("Full factoring lifecycle", function () {
@@ -281,6 +289,9 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                     [nextInvoiceId, paymentReference, faceValue, receivedAt, paymentNonce, bankTraceId, platformVerifier.address]
                 )
             );
+
+            /* Transfer USDC to represent mock bank lockbox settlement payment */
+            await (await mockUSDC.connect(debtor).transfer(escrowReceiverAddr, faceValue)).wait();
 
             await expect(
                 escrowReceiver.connect(bystander).repayInvoice(

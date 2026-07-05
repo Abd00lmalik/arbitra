@@ -23,6 +23,8 @@ import {
   type InvoiceTupleSource,
   EXTENDED_INVOICE_VIEW_ABI,
   LEGACY_INVOICE_VIEW_ABI,
+  CUSDC_ADDRESS,
+  CUSDC_ABI,
 } from "@/lib/contracts";
 
 const FHE_FACTOR_GAS_LIMIT  = 1_000_000n;
@@ -561,20 +563,20 @@ export function useInvoiceUploadedEvents(
 }
 
 /*
- * Hook: check if investor is approved on registry as an operator.
+ * Hook: check if investor has approved registry as operator on cUSDC.
  */
 export function useIsInvestorApproved(investor: `0x${string}` | undefined) {
   return useReadContract({
-    address: ARBITRA_REGISTRY_ADDRESS,
-    abi: ARBITRA_REGISTRY_ABI,
-    functionName: "isInvestorApproved",
-    args: investor ? [investor] : undefined,
-    query: { enabled: !!investor },
+    address: CUSDC_ADDRESS as `0x${string}`,
+    abi: CUSDC_ABI,
+    functionName: "isOperator",
+    args: investor ? [investor, ARBITRA_REGISTRY_ADDRESS] : undefined,
+    query: { enabled: !!investor && !!CUSDC_ADDRESS },
   });
 }
 
 /*
- * Hook: set registry as approved operator on USDC.
+ * Hook: set registry as approved operator on cUSDC.
  */
 export function useSetOperator() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
@@ -582,10 +584,10 @@ export function useSetOperator() {
   const setOperator = useCallback(
     async (operator: `0x${string}`, until: number) => {
       return writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: USDC_ABI,
-        functionName: "approve",
-        args: [operator, 115792089237316195423570985008687907853269984665640564039457584007913129639935n],
+        address: CUSDC_ADDRESS as `0x${string}`,
+        abi: CUSDC_ABI,
+        functionName: "setOperator",
+        args: [operator, until],
       });
     },
     [writeContractAsync]

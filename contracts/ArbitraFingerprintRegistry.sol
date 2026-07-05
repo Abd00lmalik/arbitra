@@ -45,6 +45,12 @@ contract ArbitraFingerprintRegistry is ZamaEthereumConfig, Ownable2Step {
     /** @notice Whether a supplier has a pending check ready to register */
     mapping(address => bool) public hasPendingDuplicateCheck;
 
+    /**
+     * @notice Permanently tracks which fingerprint handle keys have been registered
+     *         to block re-use of the same encrypted fingerprint across any invoice ID.
+     */
+    mapping(bytes32 => bool) private _usedFingerprintCommitments;
+
     /** @notice Registry address with authorization to register */
     address public arbitraRegistry;
 
@@ -93,6 +99,11 @@ contract ArbitraFingerprintRegistry is ZamaEthereumConfig, Ownable2Step {
         if (euint64.unwrap(_invoiceFingerprints[invoiceId]) != bytes32(0)) {
             return _invoiceFingerprints[invoiceId];
         }
+
+        /* Guard: block re-use of the same fingerprint handle across any invoice */
+        bytes32 fpKey = euint64.unwrap(fingerprint);
+        require(!_usedFingerprintCommitments[fpKey], "Arbitra: fingerprint already used");
+        _usedFingerprintCommitments[fpKey] = true;
 
         _fingerprints.push(fingerprint);
         _invoiceFingerprints[invoiceId] = fingerprint;
@@ -159,6 +170,12 @@ contract ArbitraFingerprintRegistry is ZamaEthereumConfig, Ownable2Step {
         require(fingerprintCount < MAX_FINGERPRINTS, "Arbitra: limit reached");
 
         euint64 fingerprint = _pendingHashes[msg.sender];
+
+        /* Guard: block re-use of the same fingerprint handle across any invoice */
+        bytes32 fpKey = euint64.unwrap(fingerprint);
+        require(!_usedFingerprintCommitments[fpKey], "Arbitra: fingerprint already used");
+        _usedFingerprintCommitments[fpKey] = true;
+
         _fingerprints.push(fingerprint);
         _invoiceFingerprints[invoiceId] = fingerprint;
         fingerprintCount++;
@@ -212,5 +229,14 @@ contract ArbitraFingerprintRegistry is ZamaEthereumConfig, Ownable2Step {
      */
     function getDuplicateCheckHandle(address supplier) external view returns (bytes32 handle) {
         return FHE.toBytes32(_pendingDuplicateChecks[supplier]);
+    }
+
+    /**
+     * @notice Check whether a fingerprint handle key has already been permanently registered.
+     * @param fpKey The bytes32 key derived from euint64.unwrap of the fingerprint handle.
+     * @return True if the fingerprint has been used.
+     */
+    function isFingerprintUsed(bytes32 fpKey) external view returns (bool) {
+        return _usedFingerprintCommitments[fpKey];
     }
 }

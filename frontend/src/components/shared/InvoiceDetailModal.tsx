@@ -8,6 +8,16 @@
 
 "use client";
 
+/*
+ * @file InvoiceDetailModal.tsx
+ * @description Shared details modal for invoices featuring smooth slide-up animation,
+ *              sequential investor flow (Request Access, Decrypt, Review, Deploy Capital),
+ *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
+ *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
+ */
+
+"use client";
+
 import React, { useEffect, useState } from "react";
 import { Key, Unlock, Sparkles, Zap, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
 import { usePublicClient, useReadContract } from "wagmi";
@@ -44,6 +54,8 @@ import {
   fromMicro,
   SBT_ABI,
   INVESTOR_SBT_ADDRESS,
+  CUSDC_ADDRESS,
+  CUSDC_ABI,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -309,11 +321,10 @@ export function InvoiceDetailModal({
         throw new Error("Encrypted underwriting is unavailable for this invoice. Capital deployment is blocked until final FHE risk output is returned.");
       }
 
-      if (usdcBalance < estimatedPurchasePrice) {
-        throw new Error(
-          `Insufficient USDC. You have $${fromMicro(usdcBalance)} but need $${fromMicro(estimatedPurchasePrice)}. Get test USDC at faucet.circle.com.`
-        );
-      }
+      /*
+       * Note: We do not block here if usdcBalance < estimatedPurchasePrice,
+       * in case the investor has already shielded their USDC into cUSDC.
+       */
 
       if (isEmbedded) {
         /*
@@ -324,20 +335,20 @@ export function InvoiceDetailModal({
         const { ethers } = await import("ethers");
         const signer = await getEmbeddedSigner();
 
-        /* Step 1: USDC max approval if not already set */
+        /* Step 1: cUSDC operator approval if not already set */
         if (!isApproved) {
-          const usdcContract = new ethers.Contract(
-            USDC_ADDRESS,
-            USDC_ABI,
+          const cUsdcContract = new ethers.Contract(
+            CUSDC_ADDRESS,
+            CUSDC_ABI,
             signer
           );
-          const MAX_UINT256 = ethers.MaxUint256;
-          const approveTx = await usdcContract["approve"](ARBITRA_REGISTRY_ADDRESS, MAX_UINT256);
+          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
+          const approveTx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, expiry);
           await approveTx.wait();
           await refetchApproval();
         }
 
-        /* Step 2: Factor the invoice - USDC moves investor to supplier on-chain */
+        /* Step 2: Factor the invoice - cUSDC moves investor to supplier on-chain */
         const registryContract = new ethers.Contract(
           ARBITRA_REGISTRY_ADDRESS,
           ARBITRA_REGISTRY_ABI,

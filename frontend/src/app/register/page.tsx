@@ -1310,7 +1310,7 @@ export default function RegisterPage() {
                     {[
                       { icon: Layers, label: "Purchase invoice pools with USDC on Sepolia" },
                       { icon: Cpu, label: "Decrypt deal terms privately using Zama FHE" },
-                      { icon: BarChart2, label: "Gemini AI-powered underwriting risk reports" },
+                      { icon: BarChart2, label: "Deterministic underwriting risk reports" },
                     ].map(({ icon: Icon, label }) => (
                       <li key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div

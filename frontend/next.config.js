@@ -33,12 +33,6 @@ const nextConfig = {
       "node-tkms",
     ],
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   /*
    * FHEVM SDK requires SharedArrayBuffer which needs COOP + COEP headers.
    * Using credentialless (not require-corp) to maintain WalletConnect compatibility.

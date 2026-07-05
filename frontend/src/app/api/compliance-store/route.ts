@@ -113,12 +113,7 @@ export async function POST(req: NextRequest) {
   let requestBody: ComplianceStoreRequestBody | null = null;
 
   try {
-    console.log("[Compliance API] Starting compliance-store request", {
-      identityAddress: IDENTITY_ADDRESS,
-      envIdentityAddress: process.env.NEXT_PUBLIC_IDENTITY_ADDRESS,
-      hasVerifierKey: Boolean(process.env.VERIFIER_PRIVATE_KEY),
-      hasSepoliaRpc: Boolean(process.env.SEPOLIA_RPC_URL || process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL),
-    });
+    console.log("[Compliance API] Starting compliance-store request");
 
     const normalizedVerifierKey = normalizeVerifierKey(process.env.VERIFIER_PRIVATE_KEY);
     if (!normalizedVerifierKey) {
@@ -177,12 +172,7 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
       DEFAULT_SEPOLIA_RPC_URL;
 
-    console.log("[Compliance API] Request payload accepted", {
-      wallet,
-      riskScore,
-      rpcUrl,
-      relayerAddress: account.address,
-    });
+    console.log("[Compliance API] Request payload accepted");
 
     const publicClient = createPublicClient({
       chain: sepolia,
@@ -190,7 +180,7 @@ export async function POST(req: NextRequest) {
     });
 
     const walletBalance = await publicClient.getBalance({ address: account.address });
-    console.log("[Compliance API] Server wallet balance:", `${formatEther(walletBalance)} ETH`);
+    console.log("[Compliance API] Server wallet ready");
     if (walletBalance === 0n) {
       return jsonError("Server relayer has no Sepolia ETH for gas.", 503);
     }
@@ -204,9 +194,7 @@ export async function POST(req: NextRequest) {
       20_000,
       "Relayer SDK initialization",
     );
-    console.log("[Compliance API] Relayer SDK initialized", {
-      elapsedMs: Date.now() - startedAt,
-    });
+    console.log("[Compliance API] Relayer SDK initialized");
 
     const encryptedInput = sdk.createEncryptedInput(IDENTITY_ADDRESS, account.address);
     encryptedInput.add32(taxIDInt);
@@ -218,9 +206,7 @@ export async function POST(req: NextRequest) {
       25_000,
       "Compliance encryption",
     );
-    console.log("[Compliance API] Encryption complete", {
-      elapsedMs: Date.now() - startedAt,
-    });
+    console.log("[Compliance API] Encryption complete");
 
     const walletClient = createWalletClient({
       account,
@@ -238,10 +224,7 @@ export async function POST(req: NextRequest) {
       toHex(encrypted.inputProof),
     ] as const;
 
-    console.log("[Compliance API] Using fixed FHE gas limit for relayed compliance transaction...", {
-      gasLimit: FHE_COMPLIANCE_GAS_LIMIT.toString(),
-      elapsedMs: Date.now() - startedAt,
-    });
+    console.log("[Compliance API] Submitting compliance transaction...");
 
     console.log("[Compliance API] Submitting relayed compliance transaction...");
     const txHash = await walletClient.writeContract({
@@ -252,10 +235,7 @@ export async function POST(req: NextRequest) {
       gas: FHE_COMPLIANCE_GAS_LIMIT,
     });
 
-    console.log("[Compliance API] Submitted encrypted compliance on-chain:", {
-      txHash,
-      elapsedMs: Date.now() - startedAt,
-    });
+    console.log("[Compliance API] Compliance transaction submitted");
 
     console.log("[Compliance API] Waiting for compliance transaction receipt...");
     const receipt = await withTimeout(
@@ -277,12 +257,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log("[Compliance API] Compliance transaction confirmed", {
-      txHash,
-      blockNumber: receipt.blockNumber?.toString(),
-      gasUsed: receipt.gasUsed?.toString(),
-      elapsedMs: Date.now() - startedAt,
-    });
+    console.log("[Compliance API] Compliance transaction confirmed");
 
     return NextResponse.json({
       success: true,

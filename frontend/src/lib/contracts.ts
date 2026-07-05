@@ -87,6 +87,13 @@ export const IDENTITY_ADDRESS =
     "0xF343B260c40C77670c40ED575dF8f42B8b1EB592",
   );
 
+/*
+ * Confidential USDC (cUSDC) — ArbitraConfidentialUSDC ERC-7984 wrapper.
+ * Deployed address is set via NEXT_PUBLIC_CUSDC_ADDRESS in .env.local after
+ * running deploy/09_deploy_cusdc.ts.
+ */
+export const CUSDC_ADDRESS =
+  process.env.NEXT_PUBLIC_CUSDC_ADDRESS ?? "";
 
 /* Constants */
 export const TOKEN_DECIMALS  = 6;
@@ -747,8 +754,8 @@ export const ESCROW_RECEIVER_ABI = [
       { name: "investor",          type: "address" },
       { name: "encFaceValue",      type: "bytes32" },
       { name: "faceValuePlaintext",type: "uint256" },
-      { name: "purchasePricePlaintext", type: "uint256" },
-      { name: "platformFeePlaintext", type: "uint256" },
+      { name: "encPurchasePrice",  type: "bytes32" },
+      { name: "encPlatformFee",    type: "bytes32" },
       { name: "maturityTimestamp", type: "uint256" },
     ],
     outputs: [],
@@ -762,9 +769,6 @@ export const ESCROW_RECEIVER_ABI = [
       { name: "bankTraceId", type: "bytes32" },
       { name: "settlementReceiptHash", type: "bytes32" },
       { name: "settledAt", type: "uint256" },
-      { name: "purchasePricePlaintext", type: "uint256" },
-      { name: "supplierReservePlaintext", type: "uint256" },
-      { name: "platformFeePlaintext", type: "uint256" },
     ],
   },
   {
@@ -967,5 +971,65 @@ export const IDENTITY_ABI = [
       { name: "wallet",    type: "address", indexed: true },
       { name: "timestamp", type: "uint256" },
     ],
+  },
+] as const;
+
+/* ArbitraConfidentialUSDC (cUSDC) ERC-7984 wrapper ABI */
+export const CUSDC_ABI = [
+  {
+    name: "wrap", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "to",     type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    name: "unwrap", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "from",            type: "address" },
+      { name: "to",              type: "address" },
+      { name: "encryptedAmount", type: "bytes32" },
+      { name: "inputProof",      type: "bytes"   },
+    ],
+    outputs: [{ name: "unwrapRequestId", type: "bytes32" }],
+  },
+  {
+    name: "finalizeUnwrap", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "unwrapRequestId",       type: "bytes32" },
+      { name: "unwrapAmountCleartext", type: "uint64"  },
+      { name: "decryptionProof",       type: "bytes"   },
+    ],
+    outputs: [],
+  },
+  {
+    /*
+     * CRITICAL: second param is uint48 TIMESTAMP, not bool.
+     * Sets operator approval until the given unix timestamp.
+     */
+    name: "setOperator", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "operator", type: "address" },
+      { name: "until",    type: "uint48"  },
+    ],
+    outputs: [],
+  },
+  {
+    name: "isOperator", type: "function", stateMutability: "view",
+    inputs: [
+      { name: "holder",  type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    /*
+     * Returns a bytes32 FHE handle, not a plaintext uint256.
+     * Use userDecrypt on the handle to reveal the balance.
+     */
+    name: "confidentialBalanceOf", type: "function", stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bytes32" }],
   },
 ] as const;

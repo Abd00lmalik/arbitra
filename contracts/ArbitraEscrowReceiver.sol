@@ -19,6 +19,14 @@ interface IArbitraRegistry {
     function platformVerifier() external view returns (address);
 }
 
+/**
+ * @notice Minimal interface for the cUSDC ERC-7984 wrapper used at settlement.
+ */
+interface IArbitraConfidentialUSDC {
+    function wrap(address to, uint256 amount) external returns (euint64);
+    function confidentialTransfer(address to, euint64 amount) external returns (euint64);
+}
+
 contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
     using SafeERC20 for IERC20;
 
@@ -33,11 +41,10 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
     struct EscrowRecord {
         address supplier;
         address investor;
-        euint64 encryptedFaceValue;   /* Still stored for FHE display */
-        uint256 faceValuePlaintext;   /* For USDC transfer */
-        uint256 purchasePricePlaintext;
-        uint256 supplierReservePlaintext;
-        uint256 platformFeePlaintext;
+        euint64 encryptedFaceValue;    /* FHE handle for display */
+        euint64 encryptedPurchasePrice; /* FHE handle — what the investor paid */
+        euint64 encryptedPlatformFee;  /* FHE handle — protocol fee portion */
+        uint256 faceValuePlaintext;    /* For debtor USDC pull and repayInvoice check */
         uint256 maturityTimestamp;
         uint256 settledAt;
         uint256 paymentNonce;
@@ -55,6 +62,9 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /* Address of standard USDC */
     IERC20 public immutable usdc;
+
+    /* Address of ArbitraConfidentialUSDC (cUSDC) ERC-7984 wrapper */
+    address public cUsdc;
 
     /* Main Arbitra Registry contract */
     address public arbitraRegistry;
@@ -122,6 +132,15 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
+     * @notice Set the ArbitraConfidentialUSDC (cUSDC) wrapper address.
+     * @param _cUsdc The deployed ArbitraConfidentialUSDC contract address.
+     */
+    function setCUsdc(address _cUsdc) external onlyOwner {
+        require(_cUsdc != address(0), "Arbitra: zero cUSDC address");
+        cUsdc = _cUsdc;
+    }
+
+    /**
      * @notice Emergency admin function to clear a stale or orphaned escrow record.
      *         Only callable by the owner. Use when a prior partial factoring attempt
      *         left a stale escrow entry that prevents re-factoring an Attested invoice.
@@ -143,9 +162,9 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
      * @param supplier The supplier address.
      * @param investor The investor address.
      * @param encFaceValue The FHE encrypted face value handle.
-     * @param faceValuePlaintext The plaintext face value in USDC micro-units.
-     * @param purchasePricePlaintext The factoring purchase price paid to the supplier.
-     * @param platformFeePlaintext The protocol fee amount in USDC micro-units.
+     * @param faceValuePlaintext The plaintext face value in USDC micro-units (debtor settlement).
+     * @param encPurchasePrice The encrypted purchase price paid to the supplier via cUSDC.
+     * @param encPlatformFee The encrypted protocol fee amount.
      * @param maturityTs The maturity timestamp.
      */
     function registerEscrow(
@@ -154,8 +173,8 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         address investor,
         euint64 encFaceValue,
         uint256 faceValuePlaintext,
-        uint256 purchasePricePlaintext,
-        uint256 platformFeePlaintext,
+        euint64 encPurchasePrice,
+        euint64 encPlatformFee,
         uint256 maturityTs
     ) external onlyRegistry {
         /*
@@ -169,30 +188,30 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         );
 
         escrows[invoiceId] = EscrowRecord({
-            supplier: supplier,
-            investor: investor,
-            encryptedFaceValue: encFaceValue,
-            faceValuePlaintext: faceValuePlaintext,
-            purchasePricePlaintext: purchasePricePlaintext,
-            supplierReservePlaintext: _computeSupplierReserve(
-                faceValuePlaintext,
-                purchasePricePlaintext,
-                platformFeePlaintext
-            ),
-            platformFeePlaintext: platformFeePlaintext,
-            maturityTimestamp: maturityTs,
-            settledAt: 0,
-            paymentNonce: 0,
-            paymentReference: bytes32(0),
-            bankTraceId: bytes32(0),
-            settlementReceiptHash: bytes32(0),
-            isSettled: false,
-            isDisputed: false
+            supplier:               supplier,
+            investor:               investor,
+            encryptedFaceValue:     encFaceValue,
+            encryptedPurchasePrice: encPurchasePrice,
+            encryptedPlatformFee:   encPlatformFee,
+            faceValuePlaintext:     faceValuePlaintext,
+            maturityTimestamp:      maturityTs,
+            settledAt:              0,
+            paymentNonce:           0,
+            paymentReference:       bytes32(0),
+            bankTraceId:            bytes32(0),
+            settlementReceiptHash:  bytes32(0),
+            isSettled:              false,
+            isDisputed:             false
         });
 
         FHE.allowThis(encFaceValue);
         FHE.allow(encFaceValue, supplier);
         FHE.allow(encFaceValue, investor);
+        FHE.allowThis(encPurchasePrice);
+        FHE.allow(encPurchasePrice, investor);
+        FHE.allow(encPurchasePrice, supplier);
+        FHE.allowThis(encPlatformFee);
+        FHE.allow(encPlatformFee, investor);
     }
 
     /**
@@ -257,6 +276,12 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         address signer = _verifyPaymentProof(invoiceId, paymentReference, amount, receivedAt, nonce, signature);
         processedPayments[paymentId] = true;
 
+        require(cUsdc != address(0), "Arbitra: cUSDC not configured");
+
+        /* Wrap the received standard USDC into cUSDC so it can be distributed confidentially */
+        usdc.approve(cUsdc, amount);
+        IArbitraConfidentialUSDC(cUsdc).wrap(address(this), amount);
+
         _applyConfidentialSettlement(rec);
 
         bytes32 receiptHash = keccak256(
@@ -278,15 +303,17 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /**
      * @notice Debtor calls this to settle an invoice at maturity.
-     *         Sends USDC directly from debtor's wallet to the escrow receiver,
-     *         which then distributes to the investor.
+     *         Pulls USDC from the debtor, wraps it into cUSDC, then applies
+     *         the confidential FHE settlement to distribute payout handles to
+     *         investor, supplier, and platform treasury.
      *         Requires: debtor has approved this contract for faceValuePlaintext USDC.
-     * @param invoiceId  The invoice to settle
+     * @param invoiceId The invoice to settle.
      */
     function settleInvoice(uint256 invoiceId) external {
+        require(cUsdc != address(0), "Arbitra: cUSDC not configured");
         EscrowRecord storage rec = escrows[invoiceId];
-        require(!rec.isSettled,                        "Arbitra: already settled");
-        require(!rec.isDisputed,                       "Arbitra: invoice disputed");
+        require(!rec.isSettled,                          "Arbitra: already settled");
+        require(!rec.isDisputed,                         "Arbitra: invoice disputed");
         require(block.timestamp >= rec.maturityTimestamp, "Arbitra: not yet mature");
 
         uint256 faceValue = IArbitraRegistry(arbitraRegistry).getFaceValuePlaintext(invoiceId);
@@ -296,11 +323,17 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         bool pullOk = usdc.transferFrom(msg.sender, address(this), faceValue);
         require(pullOk, "Arbitra: USDC pull failed");
 
-        /* Push USDC from this contract to investor */
-        bool pushOk = usdc.transfer(rec.investor, faceValue);
-        require(pushOk, "Arbitra: USDC push failed");
+        /*
+         * Wrap received USDC into cUSDC so the settlement arithmetic runs
+         * homomorphically inside _applyConfidentialSettlement.
+         */
+        usdc.approve(cUsdc, faceValue);
+        IArbitraConfidentialUSDC(cUsdc).wrap(address(this), faceValue);
+
+        _applyConfidentialSettlement(rec);
 
         rec.isSettled = true;
+        rec.settledAt = block.timestamp;
         emit ConfidentialMaturityPaid(invoiceId, rec.investor, block.timestamp);
 
         IArbitraRegistry(arbitraRegistry).onEscrowSettled(invoiceId);
@@ -313,6 +346,7 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
      * @param invoiceId  The invoice to settle
      */
     function settleInvoicePlatform(uint256 invoiceId) external {
+        require(cUsdc != address(0), "Arbitra: cUSDC not configured");
         require(
             msg.sender == arbitraRegistry || msg.sender == IArbitraRegistry(arbitraRegistry).platformVerifier(),
             "Arbitra: unauthorized"
@@ -324,8 +358,14 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         uint256 balance   = usdc.balanceOf(address(this));
         require(balance >= faceValue, "Arbitra: insufficient escrow balance");
 
-        bool pushOk = usdc.transfer(rec.investor, faceValue);
-        require(pushOk, "Arbitra: USDC push failed");
+        /*
+         * Wrap the pre-funded USDC balance into cUSDC so the settlement
+         * arithmetic runs homomorphically.
+         */
+        usdc.approve(cUsdc, faceValue);
+        IArbitraConfidentialUSDC(cUsdc).wrap(address(this), faceValue);
+
+        _applyConfidentialSettlement(rec);
 
         rec.isSettled = true;
         emit ConfidentialMaturityPaid(invoiceId, rec.investor, block.timestamp);
@@ -345,32 +385,25 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /**
      * @notice Get settlement audit metadata for an invoice.
+     * @dev Returns only commitment hashes and timestamp; plaintext economic
+     *      values are now stored as encrypted handles.
      * @param invoiceId The invoice ID.
      * @return paymentReference The payment reference commitment.
      * @return bankTraceId The mock bank trace commitment.
      * @return settlementReceiptHash The settlement receipt commitment.
      * @return settledAt The on-chain settlement timestamp.
-     * @return purchasePricePlaintext The stored purchase price.
-     * @return supplierReservePlaintext The stored supplier reserve.
-     * @return platformFeePlaintext The stored platform fee.
      */
     function getSettlementAudit(uint256 invoiceId) external view returns (
         bytes32 paymentReference,
         bytes32 bankTraceId,
         bytes32 settlementReceiptHash,
-        uint256 settledAt,
-        uint256 purchasePricePlaintext,
-        uint256 supplierReservePlaintext,
-        uint256 platformFeePlaintext
+        uint256 settledAt
     ) {
         EscrowRecord storage rec = escrows[invoiceId];
-        paymentReference = rec.paymentReference;
-        bankTraceId = rec.bankTraceId;
-        settlementReceiptHash = rec.settlementReceiptHash;
-        settledAt = rec.settledAt;
-        purchasePricePlaintext = rec.purchasePricePlaintext;
-        supplierReservePlaintext = rec.supplierReservePlaintext;
-        platformFeePlaintext = rec.platformFeePlaintext;
+        paymentReference       = rec.paymentReference;
+        bankTraceId            = rec.bankTraceId;
+        settlementReceiptHash  = rec.settlementReceiptHash;
+        settledAt              = rec.settledAt;
     }
 
     /**
@@ -417,17 +450,46 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     function _applyConfidentialSettlement(EscrowRecord storage rec) internal {
-        uint64 supplierReserve = _toUint64(rec.supplierReservePlaintext);
-        uint64 platformFee = _toUint64(rec.platformFeePlaintext);
-        uint64 nonInvestorAmount = _toUint64(rec.supplierReservePlaintext + rec.platformFeePlaintext);
+        /*
+         * FHE split: encryptedFaceValue = encryptedPurchasePrice (investor payout)
+         *                               + supplierReserve
+         *                               + encryptedPlatformFee
+         *
+         * Supplier reserve = faceValue - purchasePrice - platformFee.
+         * Investor yield   = encryptedFaceValue - supplierReserve - encryptedPlatformFee.
+         */
+        euint64 encSupplierReserve = FHE.sub(
+            FHE.sub(rec.encryptedFaceValue, rec.encryptedPurchasePrice),
+            rec.encryptedPlatformFee
+        );
+        euint64 encInvestorPayout = FHE.sub(
+            rec.encryptedFaceValue,
+            FHE.add(encSupplierReserve, rec.encryptedPlatformFee)
+        );
 
-        euint64 investorPayout = FHE.sub(rec.encryptedFaceValue, nonInvestorAmount);
-        euint64 supplierPayout = FHE.asEuint64(supplierReserve);
-        euint64 platformPayout = FHE.asEuint64(platformFee);
+        FHE.allowThis(encSupplierReserve);
+        FHE.allowThis(encInvestorPayout);
+        FHE.allow(encSupplierReserve, rec.supplier);
+        FHE.allow(encInvestorPayout,  rec.investor);
+        FHE.allow(encSupplierReserve, cUsdc);
+        FHE.allow(encInvestorPayout,  cUsdc);
+        FHE.allow(rec.encryptedPlatformFee, cUsdc);
 
-        _creditConfidentialBalance(rec.investor, investorPayout);
-        _creditConfidentialBalance(rec.supplier, supplierPayout);
-        _creditConfidentialBalance(platformTreasury, platformPayout);
+        /*
+         * Confidential transfers: cUSDC moves encrypted amounts to each party.
+         * This contract holds cUSDC (from the wrap call) and transfers it out.
+         */
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(rec.investor,       encInvestorPayout);
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(rec.supplier,       encSupplierReserve);
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(platformTreasury,   rec.encryptedPlatformFee);
+
+        /*
+         * Also credit the virtual settlement ledger to support on-chain audit queries
+         * and unit test assertions that verify settlement balances.
+         */
+        _creditConfidentialBalance(rec.investor,     encInvestorPayout);
+        _creditConfidentialBalance(rec.supplier,     encSupplierReserve);
+        _creditConfidentialBalance(platformTreasury, rec.encryptedPlatformFee);
     }
 
     function _creditConfidentialBalance(address beneficiary, euint64 amount) internal {

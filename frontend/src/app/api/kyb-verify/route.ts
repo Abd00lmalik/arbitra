@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Server configuration error: invalid verifier key format.", 500);
     }
 
-    console.log("[KYB API] Signer address:", account.address, "for role:", role || "supplier", "Oracle:", oracleAddress);
+    console.log("[KYB API] Processing KYB request for role:", role || "supplier");
 
     if (account.address.toLowerCase() !== EXPECTED_VERIFIER_ADDRESS.toLowerCase()) {
       console.error("[KYB API] FATAL: VERIFIER_PRIVATE_KEY derives to an unexpected signer.", {
@@ -162,13 +162,7 @@ export async function POST(req: NextRequest) {
       return jsonError("Server configuration error: verifier key does not match the authorized oracle signer.", 500);
     }
 
-    console.log("[KYB API] Incoming request:", JSON.stringify({
-      wallet,
-      companyName,
-      country,
-      registrationNumber,
-      role
-    }));
+    console.log("[KYB API] Incoming KYB request received");
 
     if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
       return jsonError("Invalid wallet address.", 400);
@@ -258,7 +252,7 @@ export async function POST(req: NextRequest) {
     console.log("[KYB API] Signature generated successfully.");
 
     const walletBalance = await publicClient.getBalance({ address: account.address });
-    console.log("[KYB API] Server wallet balance:", `${formatEther(walletBalance)} ETH`);
+    console.log("[KYB API] Server wallet ready");
 
     if (walletBalance === 0n) {
       console.error("[KYB API] Server wallet has no ETH for gas.");
@@ -287,7 +281,7 @@ export async function POST(req: NextRequest) {
         gas: 600000n,
       });
 
-      console.log("[KYB API] Submitted attestation on-chain:", txHash);
+      console.log("[KYB API] Attestation submitted on-chain");
 
       return NextResponse.json({
         success: true,

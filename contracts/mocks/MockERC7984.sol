@@ -6,6 +6,7 @@ import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 import { IERC7984 } from "../interfaces/IERC7984.sol";
 import { IERC7984Receiver } from "@openzeppelin/confidential-contracts/interfaces/IERC7984Receiver.sol";
 import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /*
  * @file MockERC7984.sol
@@ -27,6 +28,9 @@ contract MockERC7984 is ZamaEthereumConfig {
 
     /** @notice Encrypted balances per address */
     mapping(address => euint64) private _balances;
+
+    /** @notice Address of the underlying standard token */
+    address public underlying;
 
     /**
      * @notice ERC-7984 operator approvals: holder => operator => expiry.
@@ -53,6 +57,39 @@ contract MockERC7984 is ZamaEthereumConfig {
     }
 
     /*************** Test Helpers ***************/
+
+    /**
+     * @notice Set the underlying token address.
+     * @param _underlying The standard ERC-20 token address.
+     */
+    function setUnderlying(address _underlying) external {
+        underlying = _underlying;
+    }
+
+    /**
+     * @notice Wrap standard USDC to mock mint confidential tokens.
+     * @param to Recipient address.
+     * @param amount Plaintext USDC amount.
+     */
+    function wrap(address to, uint256 amount) external returns (bytes32) {
+        if (underlying != address(0)) {
+            IERC20(underlying).transferFrom(msg.sender, address(this), amount);
+        }
+        uint64 amount64 = uint64(amount);
+        euint64 enc = FHE.asEuint64(amount64);
+        euint64 current = _balances[to];
+
+        if (euint64.unwrap(current) == bytes32(0)) {
+            _balances[to] = enc;
+        } else {
+            _balances[to] = FHE.add(current, enc);
+        }
+
+        FHE.allowThis(_balances[to]);
+        FHE.allow(_balances[to], to);
+
+        return euint64.unwrap(enc);
+    }
 
     /**
      * @notice Mint plaintext amount of encrypted tokens to an address.

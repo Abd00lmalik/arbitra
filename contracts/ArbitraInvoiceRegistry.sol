@@ -51,12 +51,25 @@ interface IArbitraEscrowReceiver {
         address investor,
         euint64 encFaceValue,
         uint256 faceValuePlaintext,
-        uint256 purchasePricePlaintext,
-        uint256 platformFeePlaintext,
+        euint64 encPurchasePrice,
+        euint64 encPlatformFee,
         uint256 maturityTs
     ) external;
     function initiateDispute(uint256 invoiceId) external;
     function resolveDispute(uint256 invoiceId, bool fraudConfirmed) external;
+}
+
+/**
+ * @notice Minimal interface for the cUSDC ERC-7984 wrapper used in factoring.
+ */
+interface IArbitraConfidentialUSDC {
+    function confidentialTransferFrom(
+        address from,
+        address to,
+        euint64 amount
+    ) external returns (euint64);
+    function wrap(address to, uint256 amount) external returns (euint64);
+    function confidentialTransfer(address to, euint64 amount) external returns (euint64);
 }
 
 contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
@@ -127,6 +140,9 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     address public escrowReceiver;
     address public sbtContract;
 
+    /** @notice Address of the ArbitraConfidentialUSDC (cUSDC) ERC-7984 wrapper. */
+    address public cUsdc;
+
     /**
      * @notice Platform verifier wallet address.
      *         Signs email-verified attestations on behalf of non-crypto debtors.
@@ -196,6 +212,15 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /*************** Admin Functions ***************/
+
+    /**
+     * @notice Set the ArbitraConfidentialUSDC (cUSDC) wrapper address.
+     * @param _cUsdc The deployed ArbitraConfidentialUSDC contract address.
+     */
+    function setCUsdc(address _cUsdc) external onlyOwner {
+        require(_cUsdc != address(0), "Arbitra: zero cUSDC address");
+        cUsdc = _cUsdc;
+    }
 
     /**
      * @notice Set addresses of cooperating contracts.
@@ -488,47 +513,62 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     /**
      * @notice Factor (purchase) an invoice at its computed purchase price.
+     * @dev Requires the investor to have:
+     *      1. Shielded sufficient USDC into cUSDC via cUsdc.wrap.
+     *      2. Called cUsdc.setOperator(address(this), until) granting this
+     *         contract operator rights over their cUSDC balance.
+     *      The encrypted purchasePrice handle is transferred confidentially to
+     *      the supplier. No plaintext USDC moves between investor and supplier.
      */
     function factorInvoice(uint256 invoiceId) external {
+        require(cUsdc != address(0), "Arbitra: cUSDC not configured");
         Invoice storage inv = invoices[invoiceId];
         require(inv.status == InvoiceStatus.Attested, "Arbitra: not attested");
         require(inv.supplier != msg.sender, "Arbitra: supplier cannot factor own");
 
-        /* Compute purchase price in plaintext.
-         * Formula: purchasePricePlaintext = faceValuePlaintext * (10000 - discountBps) / 10000
-         * discountBps is an encrypted value - use the pre-computed plaintext approximation
-         * stored at upload time, OR require the investor to provide it after decryption.
-         *
-         * Pragmatic approach for v2.2: compute purchase price from plaintext face value
-         * and the plaintext equivalent of the encrypted discount rate.
-         * The encrypted values are still used for all FHE display and calculation logic.
-         */
-        uint256 purchasePricePlaintext = _computePurchasePricePlaintext(invoiceId);
-        uint256 platformFeePlaintext = 0;
-
         inv.investor = msg.sender;
-        inv.status = InvoiceStatus.Factored;
+        inv.status   = InvoiceStatus.Factored;
 
         /* Transition stake state to FINANCED */
         IArbitraCollateralVault(collateralVault).updateStakeState(invoiceId, 3);
 
-        /* Transfer USDC from investor to supplier */
-        bool ok = usdc.transferFrom(msg.sender, inv.supplier, purchasePricePlaintext);
-        require(ok, "Arbitra: USDC transfer failed");
-
+        /*
+         * Grant cUSDC coprocessor ACL on the encrypted purchase price handle.
+         * Required so the cUSDC contract's FHE engine can consume the handle
+         * during confidentialTransferFrom.
+         */
+        FHE.allow(inv.purchasePrice, cUsdc);
         FHE.allow(inv.purchasePrice, msg.sender);
-        FHE.allow(inv.faceValue, msg.sender);
-        FHE.allow(inv.faceValue, escrowReceiver);
+        FHE.allow(inv.faceValue,     msg.sender);
+        FHE.allow(inv.faceValue,     escrowReceiver);
+        FHE.allow(inv.purchasePrice, escrowReceiver);
 
-        /* Register escrow receiver payout */
+        /* Zero-value platform fee handle for the encrypted settlement record */
+        euint64 encPlatformFee = FHE.asEuint64(0);
+        FHE.allowThis(encPlatformFee);
+        FHE.allow(encPlatformFee, escrowReceiver);
+
+        /*
+         * Confidential transfer: moves the encrypted purchasePrice from the
+         * investor's cUSDC balance to the supplier's cUSDC balance.
+         * Requires investor to have previously called
+         * cUsdc.setOperator(address(this), until).
+         */
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransferFrom(
+            msg.sender,
+            inv.supplier,
+            inv.purchasePrice
+        );
+
+        /* Register escrow receiver record with encrypted handles */
         IArbitraEscrowReceiver(escrowReceiver).registerEscrow(
             invoiceId,
             inv.supplier,
             msg.sender,
             inv.faceValue,
             inv.faceValuePlaintext,
-            purchasePricePlaintext,
-            platformFeePlaintext,
+            inv.purchasePrice,
+            encPlatformFee,
             inv.maturityTimestamp
         );
 
