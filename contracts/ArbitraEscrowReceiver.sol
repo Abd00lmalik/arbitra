@@ -212,6 +212,10 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         FHE.allow(encPurchasePrice, supplier);
         FHE.allowThis(encPlatformFee);
         FHE.allow(encPlatformFee, investor);
+
+        /* Forward purchase price to supplier */
+        FHE.allow(encPurchasePrice, cUsdc);
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(supplier, encPurchasePrice);
     }
 
     /**

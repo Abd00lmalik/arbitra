@@ -550,13 +550,13 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
         /*
          * Confidential transfer: moves the encrypted purchasePrice from the
-         * investor's cUSDC balance to the supplier's cUSDC balance.
+         * investor's cUSDC balance to the escrow receiver contract's cUSDC balance.
          * Requires investor to have previously called
          * cUsdc.setOperator(address(this), until).
          */
         IArbitraConfidentialUSDC(cUsdc).confidentialTransferFrom(
             msg.sender,
-            inv.supplier,
+            escrowReceiver,
             inv.purchasePrice
         );
 
