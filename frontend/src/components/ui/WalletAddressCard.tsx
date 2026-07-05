@@ -179,7 +179,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
       const usdcContract = new ethers.Contract(USDC_ADDRESS, [
         "function approve(address spender, uint256 amount) returns (bool)",
       ], await signer);
-      const approveTx = await usdcContract["approve"](CUSDC_ADDRESS, amt);
+      const approveTx = await usdcContract["approve"](CUSDC_ADDRESS, amt, { gasLimit: 150000n });
       await approveTx.wait();
 
       /* Step 2: wrap */

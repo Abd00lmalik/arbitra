@@ -192,7 +192,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
       const usdcContract = new ethers.Contract(USDC_ADDRESS, [
         "function approve(address spender, uint256 amount) returns (bool)",
       ], await signer);
-      const approveTx = await usdcContract["approve"](CUSDC_ADDRESS, amt);
+      const approveTx = await usdcContract["approve"](CUSDC_ADDRESS, amt, { gasLimit: 150000n });
       await approveTx.wait();
 
       /* Step 2: wrap */
@@ -288,7 +288,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
       const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
         "function setOperator(address operator, uint48 until)",
       ], await signer);
-      const tx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, until);
+      const tx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, until, { gasLimit: 150000n });
       await tx.wait();
       setOperatorStatus("done");
     } catch (err) {

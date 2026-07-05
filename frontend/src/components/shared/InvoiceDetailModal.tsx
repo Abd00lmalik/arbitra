@@ -343,7 +343,7 @@ export function InvoiceDetailModal({
             signer
           );
           const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-          const approveTx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, expiry);
+          const approveTx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, expiry, { gasLimit: 150000n });
           await approveTx.wait();
           await refetchApproval();
         }
