@@ -200,7 +200,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
       const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
         "function wrap(address to, uint256 amount) returns (bytes32)",
       ], await signer);
-      const wrapTx = await cUsdcContract["wrap"](address, amt);
+      const wrapTx = await cUsdcContract["wrap"](address, amt, { gasLimit: 350000n });
       await wrapTx.wait();
 
       setShieldStatus("done");
@@ -238,7 +238,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
       const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
         "function unwrap(address from, address to, bytes32 encryptedAmount, bytes calldata inputProof) returns (bytes32 unwrapRequestId)",
       ], await signer);
-      const unwrapTx = await cUsdcContract["unwrap"](address, address, handle, inputProof);
+      const unwrapTx = await cUsdcContract["unwrap"](address, address, handle, inputProof, { gasLimit: 350000n });
       const receipt  = await unwrapTx.wait();
 
       /* Extract unwrapRequestId from receipt logs or return value */
@@ -256,6 +256,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
         unwrapRequestId,
         clearValue,
         toHex(publicDecryptResult.proof ?? new Uint8Array()),
+        { gasLimit: 350000n }
       );
       await finalizeTx.wait();
 

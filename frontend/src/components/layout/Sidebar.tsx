@@ -10,8 +10,6 @@ import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "@wagmi/core";
 import { shortAddress } from "@/lib/contracts";
-import { useWeb3Auth } from "@/providers/Web3AuthProvider";
-import { WalletPanel } from "@/components/shared/WalletPanel";
 
 const NAV_ITEMS = [
   {
@@ -62,19 +60,6 @@ export function Sidebar() {
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
-  const { logout } = useWeb3Auth();
-
-  async function handleDisconnect() {
-    try {
-      await logout();
-      return;
-    } catch (error) {
-      console.error("[Sidebar] Web3Auth logout failed, falling back to wagmi disconnect:", error);
-    }
-
-    disconnect();
-  }
-
   return (
     <aside
       className="fixed left-0 top-0 h-full w-64 flex flex-col z-30"
@@ -148,7 +133,25 @@ export function Sidebar() {
       {/* Wallet */}
       <div className="p-4 border-t border-white/6">
         {isConnected && address ? (
-          <WalletPanel address={address} onDisconnect={() => { void handleDisconnect(); }} />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-7 h-7 rounded-full flex-shrink-0"
+                style={{ background: "linear-gradient(135deg, #00F0FF30, #7B2FFF30)" }}
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <div className="text-xs font-mono text-slate-300 truncate">{shortAddress(address)}</div>
+                <div className="text-[10px] text-slate-600">Connected · Sepolia</div>
+              </div>
+            </div>
+            <button
+              onClick={() => disconnect()}
+              className="w-full text-xs text-slate-500 hover:text-slate-300 transition-colors py-1"
+            >
+              Disconnect
+            </button>
+          </div>
         ) : (
           <button
             onClick={() => connect({ connector: injected() })}

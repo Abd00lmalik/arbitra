@@ -187,7 +187,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
       const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
         "function wrap(address to, uint256 amount) returns (bytes32)",
       ], await signer);
-      const wrapTx = await cUsdcContract["wrap"](resolvedAddress, amt);
+      const wrapTx = await cUsdcContract["wrap"](resolvedAddress, amt, { gasLimit: 350000n });
       await wrapTx.wait();
 
       setShieldStatus("done");
@@ -224,7 +224,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
       const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
         "function unwrap(address from, address to, bytes32 encryptedAmount, bytes calldata inputProof) returns (bytes32 unwrapRequestId)",
       ], await signer);
-      const unwrapTx = await cUsdcContract["unwrap"](resolvedAddress, resolvedAddress, handle, inputProof);
+      const unwrapTx = await cUsdcContract["unwrap"](resolvedAddress, resolvedAddress, handle, inputProof, { gasLimit: 350000n });
       const receipt  = await unwrapTx.wait();
 
       /* Extract unwrapRequestId */
@@ -241,7 +241,8 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
       const finalizeTx = await cUsdcContract["finalizeUnwrap"](
         unwrapRequestId,
         clearValue,
-        "0x" + Array.from(publicDecryptResult.proof ?? new Uint8Array()).map((x: any) => x.toString(16).padStart(2, "0")).join("")
+        "0x" + Array.from(publicDecryptResult.proof ?? new Uint8Array()).map((x: any) => x.toString(16).padStart(2, "0")).join(""),
+        { gasLimit: 350000n }
       );
       await finalizeTx.wait();
 
