@@ -3,17 +3,7 @@
  * @description Shared details modal for invoices featuring smooth slide-up animation,
  *              sequential investor flow (Request Access, Decrypt, Review, Deploy Capital),
  *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
- *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
- */
-
-"use client";
-
-/*
- * @file InvoiceDetailModal.tsx
- * @description Shared details modal for invoices featuring smooth slide-up animation,
- *              sequential investor flow (Request Access, Decrypt, Review, Deploy Capital),
- *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
- *              USDC balance pre-flight check, and Step 5 confidential capital deployment UX.
+ *              confidential cUSDC funding, and Step 5 confidential capital deployment UX.
  */
 
 "use client";
@@ -26,12 +16,10 @@ import { generateRiskAssessment } from "@/lib/risk-assessment";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useInvoice,
-  useIsInvestorApproved,
-  useSetOperator,
   useFactorInvoice,
   useGrantRiskAccess,
-  useUSDCBalance,
 } from "@/hooks/useArbitraRegistry";
+import { useConfidentialWallet } from "@/hooks/useConfidentialWallet";
 import { useInvoiceDecrypt } from "@/hooks/useInvoiceDecrypt";
 import { useZama } from "@/providers/ZamaProvider";
 import { NeonButton } from "../ui/NeonButton";
@@ -47,15 +35,10 @@ import {
   ARBITRA_REGISTRY_ABI,
   ESCROW_RECEIVER_ADDRESS,
   ESCROW_RECEIVER_ABI,
-  USDC_ADDRESS,
-  USDC_ABI,
-  DEFAULT_OPERATOR_EXPIRY_SECONDS,
   InvoiceStatus,
   fromMicro,
   SBT_ABI,
   INVESTOR_SBT_ADDRESS,
-  CUSDC_ADDRESS,
-  CUSDC_ABI,
 } from "@/lib/contracts";
 
 interface InvoiceDetailModalProps {
@@ -122,16 +105,7 @@ export function InvoiceDetailModal({
   const { factorInvoice, isPending: isFactoringPending } = useFactorInvoice();
   const { grantAccess, isPending: isGrantPending } = useGrantRiskAccess();
 
-  /* Operator / USDC approval check */
-  const { data: isApprovedRefetch, refetch: refetchApproval } = useIsInvestorApproved(
-    currentUserAddress as `0x${string}` | undefined
-  );
-  const isApproved = isApprovedRefetch ?? false;
-  const { setOperator, isPending: isApproving } = useSetOperator();
-
-  /* USDC balance for pre-flight check */
-  const { data: usdcBalanceRaw } = useUSDCBalance(currentUserAddress as `0x${string}` | undefined);
-  const usdcBalance = usdcBalanceRaw ? (usdcBalanceRaw as bigint) : 0n;
+  const confidentialWallet = useConfidentialWallet(currentUserAddress as `0x${string}` | undefined);
 
   /* Query Investor SBT to gate FHE access requests */
   const { data: hasInvestorSBT } = useReadContract({
@@ -188,7 +162,13 @@ export function InvoiceDetailModal({
       : null;
 
   const estimatedPurchasePrice = decrypted?.purchasePrice ?? 0n;
-  const hasEnoughUSDC = estimatedPurchasePrice > 0n && usdcBalance >= estimatedPurchasePrice;
+  const confidentialBalanceState = confidentialWallet.balanceState;
+  const confidentialBalance =
+    confidentialBalanceState.kind === "ready" || confidentialBalanceState.kind === "zero_balance"
+      ? confidentialBalanceState.balance
+      : 0n;
+  const hasEnoughConfidentialCapital =
+    estimatedPurchasePrice > 0n && confidentialBalance >= estimatedPurchasePrice;
   const underwritingScore = decrypted?.riskScore !== undefined ? Number(decrypted.riskScore) : null;
   const underwritingBand = decrypted?.riskBand !== undefined ? Number(decrypted.riskBand) : null;
   const hasFinalUnderwriting = underwritingScore !== null && underwritingBand !== null;
@@ -225,7 +205,12 @@ export function InvoiceDetailModal({
       : displayedUnderwritingLabel === "High"
       ? "bg-neon-pink/10 text-neon-pink border border-neon-pink/20"
       : null;
-  const canDeployCapital = estimatedPurchasePrice > 0n && hasEnoughUSDC && hasFinalUnderwriting;
+  const canDeployCapital =
+    estimatedPurchasePrice > 0n &&
+    hasFinalUnderwriting &&
+    confidentialBalanceState.kind !== "loading" &&
+    confidentialBalanceState.kind !== "not_configured" &&
+    confidentialBalanceState.kind !== "wrapper_invalid";
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -306,7 +291,7 @@ export function InvoiceDetailModal({
     }
   };
 
-  /* Step 5: Deploy USDC Escrow Capital - full USDC approval + factor sequence */
+  /* Step 5: Deploy confidential cUSDC capital through the vNext registry flow */
   const handleFactorClick = async () => {
     setLocalBusy(true);
     setFactorError(null);
@@ -315,16 +300,42 @@ export function InvoiceDetailModal({
     try {
       if (!publicClient) throw new Error("Sepolia public client unavailable.");
       if (estimatedPurchasePrice === 0n) {
-        throw new Error("Decrypt the confidential purchase price before deploying capital.");
+        throw new Error("Decrypt the confidential purchase price before deploying confidential capital.");
       }
       if (!hasFinalUnderwriting) {
         throw new Error("Encrypted underwriting is unavailable for this invoice. Capital deployment is blocked until final FHE risk output is returned.");
       }
 
-      /*
-       * Note: We do not block here if usdcBalance < estimatedPurchasePrice,
-       * in case the investor has already shielded their USDC into cUSDC.
-       */
+      if (confidentialBalanceState.kind === "not_configured" || confidentialBalanceState.kind === "wrapper_invalid") {
+        throw new Error(confidentialBalanceState.message);
+      }
+
+      if (confidentialBalanceState.kind === "needs_permit") {
+        await confidentialWallet.grantPermit();
+        throw new Error("cUSDC balance unlocked. Review your confidential balance, then deploy capital.");
+      }
+
+      if (confidentialBalanceState.kind === "never_shielded") {
+        throw new Error("Shield public USDC into cUSDC from My Wallet before funding this invoice.");
+      }
+
+      if (confidentialBalanceState.kind === "loading") {
+        throw new Error("Your confidential cUSDC balance is still decrypting. Please wait a moment and retry.");
+      }
+
+      if (confidentialBalanceState.kind === "error") {
+        throw new Error(confidentialBalanceState.message);
+      }
+
+      if (confidentialBalance < estimatedPurchasePrice) {
+        throw new Error(
+          `Insufficient cUSDC. Available: $${fromMicro(confidentialBalance)} cUSDC. Required: $${fromMicro(estimatedPurchasePrice)} cUSDC.`,
+        );
+      }
+
+      if (!confidentialWallet.isOperatorApproved) {
+        await confidentialWallet.setRegistryOperator();
+      }
 
       if (isEmbedded) {
         /*
@@ -335,20 +346,7 @@ export function InvoiceDetailModal({
         const { ethers } = await import("ethers");
         const signer = await getEmbeddedSigner();
 
-        /* Step 1: cUSDC operator approval if not already set */
-        if (!isApproved) {
-          const cUsdcContract = new ethers.Contract(
-            CUSDC_ADDRESS,
-            CUSDC_ABI,
-            signer
-          );
-          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-          const approveTx = await cUsdcContract["setOperator"](ARBITRA_REGISTRY_ADDRESS, expiry, { gasLimit: 150000n });
-          await approveTx.wait();
-          await refetchApproval();
-        }
-
-        /* Step 2: Factor the invoice - cUSDC moves investor to supplier on-chain */
+        /* Step 2: Factor the invoice - encrypted cUSDC moves investor to escrow */
         const registryContract = new ethers.Contract(
           ARBITRA_REGISTRY_ADDRESS,
           ARBITRA_REGISTRY_ABI,
@@ -362,26 +360,13 @@ export function InvoiceDetailModal({
           throw new Error("factorInvoice transaction reverted on-chain.");
         }
       } else {
-        /*
-         * External wallet path (MetaMask / WalletConnect).
-         * wagmi hooks work correctly here.
-         */
-
-        /* Step 1: USDC approval if not already approved */
-        if (!isApproved) {
-          const expiry = Math.floor(Date.now() / 1000) + DEFAULT_OPERATOR_EXPIRY_SECONDS;
-          const approvalTxHash = await setOperator(ARBITRA_REGISTRY_ADDRESS, expiry);
-          await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
-          await refetchApproval();
-        }
-
-        /* Step 2: Factor invoice - USDC transfers to supplier */
+        /* External wallet path (MetaMask / WalletConnect). */
         const factorTxHash = await factorInvoice(invoice.invoiceId);
         await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
       }
 
       const disbursedStr = decrypted?.purchasePrice
-        ? `$${fromMicro(decrypted.purchasePrice)} USDC`
+        ? `$${fromMicro(decrypted.purchasePrice)} cUSDC`
         : `Invoice #${invoice.invoiceId}`;
 
       setFactorSuccess({ disbursed: disbursedStr, invoiceIdStr: `#${invoice.invoiceId}` });
@@ -391,7 +376,7 @@ export function InvoiceDetailModal({
       const msg = err instanceof Error ? err.message : "Factoring failed";
       const clean = msg.includes("User rejected") || msg.includes("user rejected")
         ? "Transaction cancelled by user."
-        : msg.includes("Insufficient USDC")
+        : msg.includes("Insufficient cUSDC")
         ? msg
         : msg.slice(0, 220);
       setFactorError(clean);
@@ -694,55 +679,94 @@ export function InvoiceDetailModal({
                   {investorStep === 3 && !factorSuccess && (
                     <div className="space-y-3">
                       <h4 className="text-sm font-bold text-white text-center flex items-center justify-center gap-1.5">
-                        <Zap className="w-4 h-4 text-amber-400" /> Deploy USDC Escrow Capital
+                        <Zap className="w-4 h-4 text-amber-400" /> Deploy Confidential cUSDC Capital
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed text-center">
-                        Sign an EIP-712 transaction to transfer USDC to escrow. Funds are released to the supplier upon confirmation. The registry records your ownership of this invoice RWA.
+                        Fund this invoice with shielded cUSDC. Arbitra moves encrypted capital from your wallet to escrow, then escrow forwards encrypted cUSDC to the supplier while recording your invoice RWA ownership.
                       </p>
-                      {/* USDC Balance check */}
+                      {/* Confidential capital readiness */}
                       <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
-                        <span className="text-slate-400">Your USDC Balance</span>
-                        <span className={`font-mono font-bold ${hasEnoughUSDC ? "text-neon-green" : "text-neon-pink"}`}>
-                          ${fromMicro(usdcBalance)} USDC {!hasEnoughUSDC && "Warning"}
+                        <span className="text-slate-400">Your Public USDC Balance</span>
+                        <span className="font-mono font-bold text-white">
+                          ${fromMicro(confidentialWallet.usdcBalance ?? 0n)} USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
+                        <span className="text-slate-400">Your Confidential cUSDC Balance</span>
+                        <span
+                          className={`font-mono font-bold ${
+                            hasEnoughConfidentialCapital || confidentialBalanceState.kind === "needs_permit"
+                              ? "text-neon-green"
+                              : "text-neon-pink"
+                          }`}
+                        >
+                          {confidentialBalanceState.kind === "ready" || confidentialBalanceState.kind === "zero_balance"
+                            ? `$${fromMicro(confidentialBalance)} cUSDC`
+                            : confidentialBalanceState.kind === "loading"
+                            ? "Decrypting..."
+                            : confidentialBalanceState.kind === "needs_permit"
+                            ? "Unlock to decrypt"
+                            : confidentialBalanceState.kind === "never_shielded"
+                            ? "Not yet shielded"
+                            : "Unavailable"}
                         </span>
                       </div>
                       {decrypted?.purchasePrice && (
                         <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
-                          <span className="text-slate-400">Capital Required (Purchase Price)</span>
-                          <span className="font-mono font-bold text-white">${fromMicro(decrypted.purchasePrice)} USDC</span>
+                          <span className="text-slate-400">Confidential Capital Required</span>
+                          <span className="font-mono font-bold text-white">${fromMicro(decrypted.purchasePrice)} cUSDC</span>
                         </div>
                       )}
                       {estimatedPurchasePrice === 0n ? (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
-                          Decrypt the confidential purchase price before deploying capital.
+                          Decrypt the confidential purchase price before deploying cUSDC capital.
                         </div>
                       ) : !hasFinalUnderwriting ? (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
                           Final encrypted underwriting is required before capital can be deployed.
                         </div>
-                      ) : !hasEnoughUSDC && (
+                      ) : confidentialBalanceState.kind === "needs_permit" ? (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
-                          Insufficient USDC. Get test tokens at{" "}
+                          Unlock your confidential cUSDC balance first so Arbitra can verify available capital.
+                        </div>
+                      ) : confidentialBalanceState.kind === "never_shielded" ? (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          No cUSDC balance exists for this wallet yet. Shield public USDC from My Wallet before funding the invoice.
+                        </div>
+                      ) : !hasEnoughConfidentialCapital ? (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          Insufficient confidential capital. Shield more USDC into cUSDC, then retry. Public USDC test funds are available at{" "}
                           <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer" className="underline">
                             faucet.circle.com
                           </a>
+                        </div>
+                      ) : !confidentialWallet.isOperatorApproved ? (
+                        <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs">
+                          The registry still needs ERC-7984 operator rights on your cUSDC. Arbitra will request that approval during funding.
+                        </div>
+                      ) : null}
+                      {confidentialWallet.operatorError && (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
+                          {confidentialWallet.operatorError}
                         </div>
                       )}
                       <NeonButton
                         variant="primary"
                         size="md"
-                        loading={isFactoringPending || isApproving || localBusy}
+                        loading={isFactoringPending || confidentialWallet.operatorPhase === "pending" || localBusy}
                         onClick={handleFactorClick}
                         disabled={!canDeployCapital}
                         className="w-full bg-gradient-to-r from-neon-purple to-indigo-600 border-neon-purple/50"
                       >
-                        {isApproving
-                          ? "Approving USDC Spend..."
+                        {confidentialBalanceState.kind === "needs_permit"
+                          ? "Unlock cUSDC Balance"
+                          : confidentialWallet.operatorPhase === "pending"
+                          ? "Authorizing cUSDC Operator..."
                           : isFactoringPending || localBusy
-                          ? `Transferring${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} to Supplier...`
-                          : isApproved
-                          ? "Deploy USDC Escrow Capital"
-                          : "Approve USDC & Deploy Capital"}
+                          ? `Deploying${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} cUSDC...`
+                          : confidentialWallet.isOperatorApproved
+                          ? "Deploy Confidential cUSDC Capital"
+                          : "Authorize cUSDC Operator & Deploy"}
                       </NeonButton>
                       {factorError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
@@ -760,13 +784,14 @@ export function InvoiceDetailModal({
                       </div>
                       <h4 className="text-sm font-bold text-neon-green">Financing Approved</h4>
                       <p className="text-xs text-slate-300">
-                        <span className="font-bold text-white">{factorSuccess.disbursed}</span> disbursed to supplier.
+                        <span className="font-bold text-white">{factorSuccess.disbursed}</span> deployed as confidential supplier funding.
                         Invoice {factorSuccess.invoiceIdStr} is now registered to your wallet as an on-chain RWA asset.
                       </p>
                       <div className="p-3 rounded-xl bg-neon-green/10 border border-neon-green/20 text-neon-green text-xs text-left space-y-1">
-                        <div>✓ USDC transferred to supplier escrow</div>
-                        <div>✓ Invoice RWA ownership recorded on-chain</div>
-                        <div>✓ Repayment tracked via encrypted escrow receiver</div>
+                        <div>Investor cUSDC transferred confidentially to escrow</div>
+                        <div>Escrow forwarded encrypted cUSDC to the supplier</div>
+                        <div>Invoice RWA ownership recorded on-chain</div>
+                        <div>Repayment remains tracked through the encrypted escrow receiver</div>
                       </div>
                       <NeonButton variant="secondary" size="sm" onClick={onClose} className="w-full">
                         Close Panel

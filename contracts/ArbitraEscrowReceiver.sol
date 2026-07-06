@@ -5,7 +5,7 @@
 /* SPDX-License-Identifier: MIT */
 pragma solidity ^0.8.27;
 
-import { FHE, euint64, ebool }   from "@fhevm/solidity/lib/FHE.sol";
+import { FHE, euint64 }          from "@fhevm/solidity/lib/FHE.sol";
 import { ZamaEthereumConfig }    from "@fhevm/solidity/config/ZamaConfig.sol";
 import { Ownable2Step, Ownable } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IERC20 }                from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -42,8 +42,8 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         address supplier;
         address investor;
         euint64 encryptedFaceValue;    /* FHE handle for display */
-        euint64 encryptedPurchasePrice; /* FHE handle — what the investor paid */
-        euint64 encryptedPlatformFee;  /* FHE handle — protocol fee portion */
+        euint64 encryptedPurchasePrice; /* FHE handle - what the investor paid */
+        euint64 encryptedPlatformFee;  /* FHE handle - protocol fee portion */
         uint256 faceValuePlaintext;    /* For debtor USDC pull and repayInvoice check */
         uint256 maturityTimestamp;
         uint256 settledAt;
@@ -455,44 +455,31 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
 
     function _applyConfidentialSettlement(EscrowRecord storage rec) internal {
         /*
-         * FHE split: encryptedFaceValue = encryptedPurchasePrice (investor payout)
-         *                               + supplierReserve
-         *                               + encryptedPlatformFee
-         *
-         * Supplier reserve = faceValue - purchasePrice - platformFee.
-         * Investor yield   = encryptedFaceValue - supplierReserve - encryptedPlatformFee.
+         * Supplier already received the discounted purchase price at factor time.
+         * At maturity, the wrapped debtor repayment is distributed only to:
+         *   1. the investor, net of any explicit encrypted platform fee; and
+         *   2. the platform treasury for that explicit encrypted fee.
          */
-        euint64 encSupplierReserve = FHE.sub(
-            FHE.sub(rec.encryptedFaceValue, rec.encryptedPurchasePrice),
-            rec.encryptedPlatformFee
-        );
-        euint64 encInvestorPayout = FHE.sub(
-            rec.encryptedFaceValue,
-            FHE.add(encSupplierReserve, rec.encryptedPlatformFee)
-        );
+        euint64 encInvestorRepayment = FHE.sub(rec.encryptedFaceValue, rec.encryptedPlatformFee);
 
-        FHE.allowThis(encSupplierReserve);
-        FHE.allowThis(encInvestorPayout);
-        FHE.allow(encSupplierReserve, rec.supplier);
-        FHE.allow(encInvestorPayout,  rec.investor);
-        FHE.allow(encSupplierReserve, cUsdc);
-        FHE.allow(encInvestorPayout,  cUsdc);
+        FHE.allowThis(encInvestorRepayment);
+        FHE.allow(encInvestorRepayment, rec.investor);
+        FHE.allow(encInvestorRepayment, cUsdc);
         FHE.allow(rec.encryptedPlatformFee, cUsdc);
 
         /*
-         * Confidential transfers: cUSDC moves encrypted amounts to each party.
-         * This contract holds cUSDC (from the wrap call) and transfers it out.
+         * Confidential transfers: cUSDC moves the encrypted debtor repayment to
+         * the investor, with the explicit encrypted platform fee transferred
+         * separately when configured.
          */
-        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(rec.investor,       encInvestorPayout);
-        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(rec.supplier,       encSupplierReserve);
-        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(platformTreasury,   rec.encryptedPlatformFee);
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(rec.investor, encInvestorRepayment);
+        IArbitraConfidentialUSDC(cUsdc).confidentialTransfer(platformTreasury, rec.encryptedPlatformFee);
 
         /*
-         * Also credit the virtual settlement ledger to support on-chain audit queries
-         * and unit test assertions that verify settlement balances.
+         * Also credit the virtual settlement ledger to support on-chain audit
+         * queries and unit test assertions.
          */
-        _creditConfidentialBalance(rec.investor,     encInvestorPayout);
-        _creditConfidentialBalance(rec.supplier,     encSupplierReserve);
+        _creditConfidentialBalance(rec.investor, encInvestorRepayment);
         _creditConfidentialBalance(platformTreasury, rec.encryptedPlatformFee);
     }
 
@@ -511,18 +498,4 @@ contract ArbitraEscrowReceiver is ZamaEthereumConfig, Ownable2Step, EIP712 {
         FHE.allow(newBalance, beneficiary);
     }
 
-    function _computeSupplierReserve(
-        uint256 faceValuePlaintext,
-        uint256 purchasePricePlaintext,
-        uint256 platformFeePlaintext
-    ) internal pure returns (uint256) {
-        uint256 allocated = purchasePricePlaintext + platformFeePlaintext;
-        require(allocated <= faceValuePlaintext, "Arbitra: economics exceed face value");
-        return faceValuePlaintext - allocated;
-    }
-
-    function _toUint64(uint256 value) internal pure returns (uint64) {
-        require(value <= type(uint64).max, "Arbitra: value exceeds euint64");
-        return uint64(value);
-    }
 }

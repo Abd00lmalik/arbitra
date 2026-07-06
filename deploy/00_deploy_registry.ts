@@ -15,71 +15,28 @@ dotenv.config({ path: path.join(__dirname, "../.env.local") });
 dotenv.config({ path: path.join(__dirname, "../.env") });
 
 /*
- * Zama Wrappers Registry on Sepolia.
- * USDC on Sepolia (official Circle): 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
- * USDT on Sepolia (Zama underlying): 0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0
+ * Official Circle USDC on Sepolia.
+ * The confidential wrapper is resolved or deployed separately in
+ * deploy/09_deploy_cusdc.ts.
  */
-const WRAPPERS_REGISTRY = "0x2f0750Bbb0A246059d80e94c454586a7F27a128e";
-const USDC_SEPOLIA       = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
-const USDT_SEPOLIA       = "0xa7dA08FafDC9097Cc0E7D4f113A61e31d7e8e9b0";
-
-/* Minimal ABI for getConfidentialTokenAddress */
-const REGISTRY_ABI = [
-  "function getConfidentialTokenAddress(address token) external view returns (bool found, address confidentialToken)"
-];
+const USDC_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, getNamedAccounts, network, ethers: hEthers } = hre;
   const { deploy } = deployments;
   const { deployer } = await getNamedAccounts();
-  const signer = await hEthers.provider.getSigner(deployer);
   const forceFreshSepoliaStack = process.env.ARBITRA_FORCE_FRESH_STACK === "true";
-
-  let cUSDCAddress: string;
   let usdcAddress: string;
 
   if (network.name === "sepolia") {
     usdcAddress = USDC_SEPOLIA;
-    /* Query the Zama Wrappers Registry for the canonical cUSDC address */
-    const registryContract = new hEthers.Contract(
-      WRAPPERS_REGISTRY, REGISTRY_ABI,
-      signer
-    );
-    
-    console.log(`\nQuerying wrappers registry at ${WRAPPERS_REGISTRY} for USDC ${USDC_SEPOLIA}...`);
-    try {
-      const [found, confidentialToken] = await registryContract.getConfidentialTokenAddress(USDC_SEPOLIA);
-      if (found && confidentialToken !== hEthers.ZeroAddress) {
-        cUSDCAddress = confidentialToken;
-        console.log(`- cUSDC address from Zama Wrappers Registry: ${cUSDCAddress}`);
-      } else {
-        console.log(`- cUSDC not found in Zama Wrappers Registry for USDC. Querying cUSDT as fallback...`);
-        const [usdtFound, usdtConfidentialToken] = await registryContract.getConfidentialTokenAddress(USDT_SEPOLIA);
-        if (usdtFound && usdtConfidentialToken !== hEthers.ZeroAddress) {
-          cUSDCAddress = usdtConfidentialToken;
-          console.log(`- Using cUSDT from Wrappers Registry as cUSDC fallback: ${cUSDCAddress}`);
-        } else {
-          cUSDCAddress = "0x4E7B06D78965594eB5EF5414c357ca21E1554491"; /* hardcoded fallback */
-          console.log(`- Using hardcoded cUSDT address as fallback: ${cUSDCAddress}`);
-        }
-      }
-    } catch (e: any) {
-      console.warn(`- Registry query failed: ${e.message || e}. Using hardcoded fallback.`);
-      cUSDCAddress = "0x4E7B06D78965594eB5EF5414c357ca21E1554491"; /* cUSDT fallback */
-    }
   } else {
     /* For local testing: deploy MockUSDC */
     const mockUSDC = await deploy("MockUSDC", {
       from: deployer, args: [], log: true, waitConfirmations: 1,
     });
     usdcAddress = mockUSDC.address;
-
-    /* Deploy MockERC7984 for cUSDC mock */
-    const mockCUSDC = await deploy("MockERC7984", {
-      from: deployer, args: [], log: true, waitConfirmations: 1,
-    });
-    cUSDCAddress = mockCUSDC.address;
-    console.log(`(local) MockUSDC at ${usdcAddress}, MockERC7984 at ${cUSDCAddress}`);
+    console.log(`(local) MockUSDC at ${usdcAddress}`);
   }
 
   let fpRegistryAddress: string;
@@ -204,6 +161,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   });
 
   /* Wire up contracts if not done already */
+  const signer = await hEthers.provider.getSigner(deployer);
   const fpRegistry = await hEthers.getContractAt("ArbitraFingerprintRegistry", fpRegistryAddress, signer);
   const collateralVault = await hEthers.getContractAt("ArbitraCollateralVault", vaultAddress, signer);
   const escrowReceiver = await hEthers.getContractAt("ArbitraEscrowReceiver", escrowAddress, signer);
@@ -275,12 +233,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   console.log("\n====================================================");
   console.log("DEPLOYMENT COMPLETE - ADD TO VERCEL ENV VARIABLES:");
   console.log(`NEXT_PUBLIC_REGISTRY_ADDRESS=${registryDeployment.address}`);
-  console.log(`NEXT_PUBLIC_CUSDC_ADDRESS=${cUSDCAddress}`);
   console.log(`NEXT_PUBLIC_USDC_ADDRESS=${usdcAddress}`);
   console.log(`NEXT_PUBLIC_RISK_CALC_ADDRESS=${riskCalcAddress}`);
   console.log(`NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS=${fpRegistryAddress}`);
   console.log(`NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS=${vaultAddress}`);
   console.log(`NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS=${escrowAddress}`);
+  console.log("NEXT_PUBLIC_CUSDC_ADDRESS=<run deploy/09_deploy_cusdc.ts>");
   console.log("====================================================\n");
 };
 

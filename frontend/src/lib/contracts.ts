@@ -1,14 +1,6 @@
 /**
  * @file contracts.ts
  * @description Arbitra v2.2 contract addresses, ABIs, and utility helpers.
- *
- * ARCHITECTURE NOTE:
- * Payment token: Standard ERC-20 USDC on Sepolia (NOT wrapped cUSDC).
- * FHE layer:     Zama FHEVM encrypts invoice face values, due dates,
- *                discount rates, purchase prices, and fingerprints.
- *                FHE calculations run on-chain via ArbitraRiskCalculator.
- * This hybrid design keeps full homomorphic encryption for data privacy
- * while using standard USDC for frictionless payments.
  */
 
 const USE_ENV_CONTRACT_ADDRESSES =
@@ -36,25 +28,25 @@ export const USDC_ADDRESS =
 export const ARBITRA_REGISTRY_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_REGISTRY_ADDRESS",
-    "0x709A65C50a592079df4Ac376a8E31eF35D5D9a39",
+    "0x1528fb2aB25CD159d02E1514966765c4D162d6D4",
   );
 
 export const ESCROW_RECEIVER_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS",
-    "0x19DF224CC80FF95b2bcc6E4374521a364BAf045A",
+    "0xd9a1eD0F832960dB90F87f6675b086c1615CdbEd",
   );
 
 export const COLLATERAL_VAULT_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS",
-    "0x8aD8705396389AA6e446532A1D0Dcd8E766Cb803",
+    "0xeb57202078B514e7FA44fE6d3b5dbCF8EB93B872",
   );
 
 export const FINGERPRINT_REGISTRY_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS",
-    "0xD0ed1Ca29c5c6A03164cfc5a1fa358fa6A5Daf48",
+    "0x3FA6e889Ba0E0713F2CD8BB20Abb73dcB21f6147",
   );
 
 export const SBT_ADDRESS =
@@ -87,14 +79,22 @@ export const IDENTITY_ADDRESS =
     "0xF343B260c40C77670c40ED575dF8f42B8b1EB592",
   );
 
+export const ZERO_ADDRESS =
+  "0x0000000000000000000000000000000000000000" as const;
+
+export const ZERO_ENCRYPTED_VALUE =
+  "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
+
 /*
- * Confidential USDC (cUSDC) — ArbitraConfidentialUSDC ERC-7984 wrapper.
- * Deployed address is set via NEXT_PUBLIC_CUSDC_ADDRESS in .env.local after
- * running deploy/09_deploy_cusdc.ts.
+ * Confidential USDC (cUSDC) ERC-7984 wrapper.
+ * This must point to a wrapper whose underlying() is the official Sepolia
+ * USDC address and whose decimals() returns 6.
  */
 export const CUSDC_ADDRESS =
-  process.env.NEXT_PUBLIC_CUSDC_ADDRESS ?? "";
-
+  envAddress(
+    "NEXT_PUBLIC_CUSDC_ADDRESS",
+    ZERO_ADDRESS,
+  );
 /* Constants */
 export const TOKEN_DECIMALS  = 6;
 export const TOKEN_SYMBOL    = "USDC";
@@ -1031,5 +1031,20 @@ export const CUSDC_ABI = [
     name: "confidentialBalanceOf", type: "function", stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    name: "underlying", type: "function", stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    name: "decimals", type: "function", stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    name: "inferredTotalSupply", type: "function", stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;

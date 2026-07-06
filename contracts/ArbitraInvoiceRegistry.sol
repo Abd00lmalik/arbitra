@@ -68,8 +68,8 @@ interface IArbitraConfidentialUSDC {
         address to,
         euint64 amount
     ) external returns (euint64);
-    function wrap(address to, uint256 amount) external returns (euint64);
-    function confidentialTransfer(address to, euint64 amount) external returns (euint64);
+
+    function isOperator(address holder, address spender) external view returns (bool);
 }
 
 contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
@@ -718,10 +718,16 @@ contract ArbitraInvoiceRegistry is ZamaEthereumConfig, Ownable2Step, EIP712 {
     }
 
     /**
-     * @notice Check allowance status on USDC.
+     * @notice Check whether the registry is currently an approved cUSDC operator.
+     * @param investor The investor wallet to check.
+     * @return approved True when the registry can move the investor's cUSDC.
      */
     function isInvestorApproved(address investor) external view returns (bool approved) {
-        return usdc.allowance(investor, address(this)) > 0;
+        if (cUsdc == address(0)) {
+            return false;
+        }
+
+        return IArbitraConfidentialUSDC(cUsdc).isOperator(investor, address(this));
     }
 
     /**

@@ -142,9 +142,9 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             const requiredCollateral = (faceValue * 500n) / 10000n;
             await (await mockUSDC.connect(supplier).approve(collateralVaultAddr, requiredCollateral)).wait();
 
-            expect(await collateralVault.stakeStates(fingerprint)).to.equal(0n); // UNSTAKED
+            expect(await collateralVault.stakeStates(fingerprint)).to.equal(0n); /* UNSTAKED */
             await (await collateralVault.connect(supplier).stakeCollateral(fingerprint, faceValue)).wait();
-            expect(await collateralVault.stakeStates(fingerprint)).to.equal(1n); // STAKED_PENDING_REGISTRATION
+            expect(await collateralVault.stakeStates(fingerprint)).to.equal(1n); /* STAKED_PENDING_REGISTRATION */
 
             expect(await collateralVault.stakedCollateralByFingerprint(fingerprint)).to.equal(requiredCollateral);
             expect(await collateralVault.supplierByFingerprint(fingerprint)).to.equal(supplier.address);
@@ -176,7 +176,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(requiredCollateral);
             expect(await collateralVault.invoiceSupplier(nextInvoiceId)).to.equal(supplier.address);
             expect(await collateralVault.stakedCollateralByFingerprint(fingerprint)).to.equal(0n);
-            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(2n); // REGISTERED
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(2n); /* REGISTERED */
 
             /* Step 3: Debtor attestation via EIP-712 */
             const attestationCommitment = ethers.keccak256(
@@ -238,7 +238,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
                 registry.connect(investor).factorInvoice(nextInvoiceId)
             ).to.emit(registry, "InvoiceFactored").withArgs(nextInvoiceId, investor.address, (val: bigint) => val > 0n);
 
-            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(3n); // FINANCED
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(3n); /* FINANCED */
 
             const invAfterFactor = await registry.invoices(nextInvoiceId);
             expect(invAfterFactor.status).to.equal(2n); /* Factored */
@@ -319,22 +319,22 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             ).to.be.revertedWith("Arbitra: already settled");
 
             const investorSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(investor.address);
-            const supplierSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(supplier.address);
             const platformSettlementHandle = await escrowReceiver.getConfidentialSettlementBalance(deployer.address);
 
             const investorSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, investorSettlementHandle);
-            const supplierSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, supplierSettlementHandle);
             const platformSettlementBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, platformSettlementHandle);
 
-            expect(investorSettlementBalance).to.equal(purchasePrice);
-            expect(supplierSettlementBalance).to.equal(supplierReserve);
+            expect(investorSettlementBalance).to.equal(faceValue);
+            expect(
+                await escrowReceiver.getConfidentialSettlementBalance(supplier.address)
+            ).to.equal("0x0000000000000000000000000000000000000000000000000000000000000000");
             expect(platformSettlementBalance).to.equal(0n);
 
             /* Check that escrow status is settled and supplier collateral released */
             const invAfterRepay = await registry.invoices(nextInvoiceId);
             expect(invAfterRepay.status).to.equal(3n); /* Settled */
             expect(await collateralVault.stakedCollateral(nextInvoiceId)).to.equal(0n);
-            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(5n); // STAKE_RELEASED
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(5n); /* STAKE_RELEASED */
 
             const ratioHandle = await registry.getSupplierRatioHandle(supplier.address);
             const repaymentRatio = await fhevm.debugger.decryptEuint(FhevmType.euint64, ratioHandle);
@@ -604,7 +604,7 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
 
             expect(finalInvestorUSDC - initialInvestorUSDC).to.equal(expectedSlashAmount);
             expect(await collateralVault.isSlashed(nextInvoiceId)).to.equal(true);
-            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(6n); // SLASHED
+            expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(6n); /* SLASHED */
 
             const defaultCountHandle = await registry.getSupplierDefaultCountHandle(supplier.address);
             const defaultCount = await fhevm.debugger.decryptEuint(FhevmType.euint64, defaultCountHandle);

@@ -1,30 +1,23 @@
 "use client";
 
-/**
+/*
  * @file WalletAddressCard.tsx
- * @description Displays the active Sepolia wallet, balances, copy action, faucet links, and withdraw panel.
+ * @description Displays the active Sepolia wallet, public balances, shared
+ *              cUSDC shield and unshield actions, and the existing withdraw
+ *              surface for ETH and USDC.
  */
 
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState } from "react";
 import {
   useAccount,
-  useBalance,
   useSendTransaction,
   useWaitForTransactionReceipt,
   useWriteContract,
-  useReadContract,
 } from "wagmi";
 import { erc20Abi, formatEther, formatUnits, isAddress, parseEther, parseUnits } from "viem";
 import { GlassCard } from "@/components/ui/GlassCard";
-import {
-  USDC_ADDRESS,
-  CUSDC_ADDRESS,
-  CUSDC_ABI,
-  fromMicro,
-} from "@/lib/contracts";
-import { useZama } from "@/providers/ZamaProvider";
-import { encryptUint64, userDecryptHandles } from "@/lib/zama";
-import { useActiveWalletClient } from "@/hooks/useActiveWalletClient";
+import { USDC_ADDRESS, fromMicro } from "@/lib/contracts";
+import { useConfidentialWallet } from "@/hooks/useConfidentialWallet";
 
 interface WalletAddressCardProps {
   walletAddress?: `0x${string}` | null;
@@ -52,11 +45,6 @@ function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function formatAmount(value: bigint | undefined, decimals: number, digits: number) {
-  if (value === undefined) return "-";
-  return Number.parseFloat(formatUnits(value, decimals)).toFixed(digits);
-}
-
 function getErrorMessage(error: unknown) {
   if (!error) return null;
   if (typeof error === "object" && error !== null) {
@@ -70,9 +58,39 @@ function getErrorMessage(error: unknown) {
   return String(error);
 }
 
+function parseTokenAmount(value: string): bigint | null {
+  const normalized = Number.parseFloat(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    return null;
+  }
+
+  return BigInt(Math.round(normalized * 1_000_000));
+}
+
+function renderConfidentialBalance(balanceState: ReturnType<typeof useConfidentialWallet>["balanceState"]) {
+  if (balanceState.kind === "ready" || balanceState.kind === "zero_balance") {
+    return `${fromMicro(balanceState.balance)} cUSDC`;
+  }
+
+  if (balanceState.kind === "loading") {
+    return "Decrypting...";
+  }
+
+  if (balanceState.kind === "needs_permit") {
+    return "Unlock to decrypt";
+  }
+
+  if (balanceState.kind === "never_shielded") {
+    return "Not yet shielded";
+  }
+
+  return "Unavailable";
+}
+
 export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
   const { address, isConnected } = useAccount();
   const resolvedAddress = walletAddress ?? (isConnected ? address : undefined);
+  const wallet = useConfidentialWallet(resolvedAddress);
 
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<WalletView>("main");
@@ -80,194 +98,8 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
   const [sendAmount, setSendAmount] = useState("");
   const [sendAsset, setSendAsset] = useState<SendAsset>("ETH");
   const [sendError, setSendError] = useState<string | null>(null);
-
-  const { walletClient, isEmbedded, getEmbeddedSigner } = useActiveWalletClient();
-  const { instance } = useZama();
-
-  /* ---------- Balance state ---------- */
-  const [cUsdcBalance, setCusdcBalance] = useState<bigint | null>(null);
-  const [cUsdcHandle, setCusdcHandle]   = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
-
-  /* ---------- Shield state ---------- */
   const [shieldAmount, setShieldAmount] = useState("");
-  const [shieldStatus, setShieldStatus] = useState<"idle" | "approving" | "shielding" | "done" | "error">("idle");
-  const [shieldError, setShieldError]   = useState<string | null>(null);
-
-  /* ---------- Unshield state ---------- */
   const [unshieldAmount, setUnshieldAmount] = useState("");
-  const [unshieldStatus, setUnshieldStatus] = useState<"idle" | "encrypting" | "unwrapping" | "waiting-kms" | "finalizing" | "done" | "error">("idle");
-  const [unshieldError, setUnshieldError]   = useState<string | null>(null);
-
-  /* ---------- cUSDC handle (wagmi read) ---------- */
-  const { data: cUsdcHandleRaw, refetch: refetchCUsdc } = useReadContract({
-    address: CUSDC_ADDRESS as `0x${string}`,
-    abi: CUSDC_ABI,
-    functionName: "confidentialBalanceOf",
-    args: [resolvedAddress as `0x${string}`],
-    query: { enabled: Boolean(resolvedAddress) && Boolean(CUSDC_ADDRESS) },
-  });
-
-  useEffect(() => {
-    const handle = cUsdcHandleRaw as `0x${string}` | undefined;
-    if (handle && handle !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
-      setCusdcHandle(handle);
-    } else {
-      setCusdcHandle(null);
-      setCusdcBalance(null);
-    }
-  }, [cUsdcHandleRaw]);
-
-  /* ---------- Decrypt cUSDC balance ---------- */
-  const decryptCusdcBalance = useCallback(async () => {
-    if (!instance || !cUsdcHandle || !CUSDC_ADDRESS || !resolvedAddress) return;
-    setBalanceLoading(true);
-    try {
-      const signer = {
-        getAddress: async () => resolvedAddress,
-        signTypedData: async (domain: object, types: object, value: object) => {
-          if (isEmbedded) {
-            const s = await getEmbeddedSigner();
-            const cleanTypes = { ...types } as Record<string, unknown>;
-            delete cleanTypes.EIP712Domain;
-            return s.signTypedData(domain, cleanTypes, value);
-          }
-          if (!walletClient) throw new Error("Wallet not connected");
-          return walletClient.signTypedData({
-            domain: domain as Parameters<typeof walletClient.signTypedData>[0]["domain"],
-            types: types as Parameters<typeof walletClient.signTypedData>[0]["types"],
-            primaryType: Object.keys(types as Record<string, unknown>)[0],
-            message: value as Parameters<typeof walletClient.signTypedData>[0]["message"],
-            account: resolvedAddress as `0x${string}`,
-          });
-        },
-      };
-      const clearValues = await userDecryptHandles(
-        instance,
-        [{ handle: cUsdcHandle, contractAddress: CUSDC_ADDRESS }],
-        signer,
-      );
-      const decrypted = clearValues[cUsdcHandle];
-      if (typeof decrypted === "bigint") {
-        setCusdcBalance(decrypted);
-      }
-    } catch (e) {
-      console.error("Decrypt failed:", e);
-      setCusdcBalance(null);
-    } finally {
-      setBalanceLoading(false);
-    }
-  }, [instance, cUsdcHandle, resolvedAddress, isEmbedded, getEmbeddedSigner, walletClient]);
-
-  /* ================================================================
-   * SHIELD: approve USDC -> cUsdc.wrap(user, amount)
-   * ================================================================ */
-  const handleShield = async () => {
-    const amt = BigInt(Math.round(Number(shieldAmount) * 1_000_000));
-    if (amt <= 0n) return;
-
-    setShieldStatus("approving");
-    setShieldError(null);
-
-    try {
-      const { ethers } = await import("ethers");
-      const signer = isEmbedded
-        ? await getEmbeddedSigner()
-        : new ethers.BrowserProvider((window as any).ethereum).getSigner();
-
-      /* Step 1: approve USDC to cUSDC contract */
-      const usdcContract = new ethers.Contract(USDC_ADDRESS, [
-        "function approve(address spender, uint256 amount) returns (bool)",
-      ], await signer);
-      const approveTx = await usdcContract["approve"](CUSDC_ADDRESS, amt, { gasLimit: 150000n });
-      await approveTx.wait();
-
-      /* Step 2: wrap */
-      setShieldStatus("shielding");
-      const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
-        "function wrap(address to, uint256 amount) returns (bytes32)",
-      ], await signer);
-      const wrapTx = await cUsdcContract["wrap"](resolvedAddress, amt, { gasLimit: 350000n });
-      await wrapTx.wait();
-
-      setShieldStatus("done");
-      setShieldAmount("");
-      if (refetchCUsdc) await refetchCUsdc();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setShieldError(msg.includes("rejected") ? "Transaction cancelled." : msg.slice(0, 200));
-      setShieldStatus("error");
-    }
-  };
-
-  /* ================================================================
-   * UNSHIELD (2-phase): encrypt -> unwrap -> publicDecrypt -> finalizeUnwrap
-   * ================================================================ */
-  const handleUnshield = async () => {
-    const amt = BigInt(Math.round(Number(unshieldAmount) * 1_000_000));
-    if (amt <= 0n || !instance || !CUSDC_ADDRESS || !resolvedAddress) return;
-
-    setUnshieldStatus("encrypting");
-    setUnshieldError(null);
-
-    try {
-      const { ethers } = await import("ethers");
-      const signer = isEmbedded
-        ? await getEmbeddedSigner()
-        : new ethers.BrowserProvider((window as any).ethereum).getSigner();
-
-      /* Step 1: encrypt the amount */
-      const { handle, inputProof } = await encryptUint64(instance, amt, CUSDC_ADDRESS, resolvedAddress);
-
-      /* Step 2: unwrap -> returns unwrapRequestId (bytes32 handle) */
-      setUnshieldStatus("unwrapping");
-      const cUsdcContract = new ethers.Contract(CUSDC_ADDRESS, [
-        "function unwrap(address from, address to, bytes32 encryptedAmount, bytes calldata inputProof) returns (bytes32 unwrapRequestId)",
-      ], await signer);
-      const unwrapTx = await cUsdcContract["unwrap"](resolvedAddress, resolvedAddress, handle, inputProof, { gasLimit: 350000n });
-      const receipt  = await unwrapTx.wait();
-
-      /* Extract unwrapRequestId */
-      const unwrapRequestId: `0x${string}` = receipt?.logs?.[0]?.topics?.[1] ?? handle;
-
-      /* Step 3: off-chain public decrypt via relayer */
-      setUnshieldStatus("waiting-kms");
-      const publicDecryptResult = await instance.publicDecrypt([unwrapRequestId]);
-      const clearValue = (publicDecryptResult?.clearValues ?? {})[unwrapRequestId] as bigint;
-      if (clearValue === undefined) throw new Error("Public decrypt did not return a clear value.");
-
-      /* Step 4: finalizeUnwrap on-chain */
-      setUnshieldStatus("finalizing");
-      const finalizeTx = await cUsdcContract["finalizeUnwrap"](
-        unwrapRequestId,
-        clearValue,
-        "0x" + Array.from(publicDecryptResult.proof ?? new Uint8Array()).map((x: any) => x.toString(16).padStart(2, "0")).join(""),
-        { gasLimit: 350000n }
-      );
-      await finalizeTx.wait();
-
-      setUnshieldStatus("done");
-      setUnshieldAmount("");
-      if (refetchCUsdc) await refetchCUsdc();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setUnshieldError(msg.includes("rejected") ? "Transaction cancelled." : msg.slice(0, 200));
-      setUnshieldStatus("error");
-    }
-  };
-
-  const { data: ethBalance } = useBalance({
-    address: resolvedAddress,
-    chainId: 11155111,
-    query: { enabled: !!resolvedAddress },
-  });
-
-  const { data: usdcBalance } = useBalance({
-    address: resolvedAddress,
-    token: USDC_ADDRESS,
-    chainId: 11155111,
-    query: { enabled: !!resolvedAddress },
-  });
 
   const {
     sendTransactionAsync,
@@ -284,16 +116,28 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
   } = useWriteContract();
 
   const activeSendTxHash = (usdcSendTxHash ?? ethSendTxHash) || undefined;
-  const {
-    isLoading: isConfirmingSend,
-    isSuccess: sendSuccess,
-  } = useWaitForTransactionReceipt({ hash: activeSendTxHash });
+  const { isLoading: isConfirmingSend, isSuccess: sendSuccess } = useWaitForTransactionReceipt({
+    hash: activeSendTxHash,
+  });
 
   const isSending = isSendingEth || isSendingUsdc;
   const sendWriteError = sendAsset === "USDC" ? sendUsdcError : sendEthError;
 
-  const ethFormatted = useMemo(() => formatAmount(ethBalance?.value, 18, 4), [ethBalance?.value]);
-  const usdcFormatted = useMemo(() => formatAmount(usdcBalance?.value, 6, 2), [usdcBalance?.value]);
+  const ethFormatted = useMemo(() => {
+    if (wallet.ethBalance === undefined) {
+      return "-";
+    }
+
+    return Number.parseFloat(formatEther(wallet.ethBalance)).toFixed(4);
+  }, [wallet.ethBalance]);
+
+  const usdcFormatted = useMemo(() => {
+    if (wallet.usdcBalance === undefined) {
+      return "-";
+    }
+
+    return Number.parseFloat(formatUnits(wallet.usdcBalance, 6)).toFixed(2);
+  }, [wallet.usdcBalance]);
 
   if (!resolvedAddress) return null;
 
@@ -327,7 +171,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
     try {
       if (sendAsset === "ETH") {
         const weiAmount = parseEther(sendAmount);
-        if (ethBalance?.value !== undefined && weiAmount > ethBalance.value) {
+        if (wallet.ethBalance !== undefined && weiAmount > wallet.ethBalance) {
           setSendError("Insufficient ETH balance");
           return;
         }
@@ -341,7 +185,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
       }
 
       const tokenAmount = parseUnits(sendAmount, 6);
-      if (usdcBalance?.value !== undefined && tokenAmount > usdcBalance.value) {
+      if (wallet.usdcBalance !== undefined && tokenAmount > wallet.usdcBalance) {
         setSendError("Insufficient USDC balance");
         return;
       }
@@ -406,145 +250,217 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
               <span style={{ color: "#8B9CC8", fontWeight: 600 }}>cUSDC Balance</span>
-              <span style={{ color: "#00F0FF", fontWeight: 800 }}>
-                {cUsdcHandle === null
-                  ? "0.00"
-                  : balanceLoading
-                  ? "Decrypting..."
-                  : cUsdcBalance !== null
-                  ? `${fromMicro(cUsdcBalance)} cUSDC`
-                  : (
-                      <button
-                        type="button"
-                        onClick={decryptCusdcBalance}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#00F0FF",
-                          textDecoration: "underline",
-                          cursor: "pointer",
-                          padding: 0,
-                          font: "inherit",
-                        }}
-                      >
-                        🔒 Decrypt
-                      </button>
-                    )}
-              </span>
+              <span style={{ color: "#00F0FF", fontWeight: 800 }}>{renderConfidentialBalance(wallet.balanceState)}</span>
             </div>
           </div>
 
-          {/* Shield Form */}
-          <div style={{ display: "grid", gap: 6, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10 }}>
-            <div style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>Shield USDC → cUSDC</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="USDC amount"
-                value={shieldAmount}
-                onChange={(e) => {
-                  setShieldAmount(e.target.value);
-                  setShieldStatus("idle");
-                  setShieldError(null);
-                }}
-                style={{
-                  flex: 1,
-                  background: "rgba(0,0,0,0.2)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 8,
-                  padding: "6px 10px",
-                  color: "#EEF2FF",
-                  fontSize: 12,
-                }}
-              />
-              <button
-                type="button"
-                onClick={handleShield}
-                disabled={shieldStatus === "approving" || shieldStatus === "shielding" || !shieldAmount}
-                style={{
-                  border: "1px solid rgba(0,240,255,0.3)",
-                  background: "rgba(0,240,255,0.12)",
-                  color: "#00F0FF",
-                  borderRadius: 8,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  opacity: (shieldStatus === "approving" || shieldStatus === "shielding" || !shieldAmount) ? 0.5 : 1,
-                }}
-              >
-                {shieldStatus === "idle" && "Shield"}
-                {shieldStatus === "approving" && "Approving..."}
-                {shieldStatus === "shielding" && "Shielding..."}
-                {shieldStatus === "done" && "Done ✓"}
-                {shieldStatus === "error" && "Retry"}
-              </button>
-            </div>
-            {shieldError && (
-              <div style={{ color: "#FF4A7A", fontSize: 10 }}>{shieldError}</div>
-            )}
-          </div>
+          {wallet.balanceState.kind === "needs_permit" && (
+            <button
+              type="button"
+              onClick={() => {
+                void wallet.grantPermit();
+              }}
+              style={{
+                border: "1px solid rgba(0,240,255,0.3)",
+                background: "rgba(0,240,255,0.12)",
+                color: "#00F0FF",
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Unlock cUSDC balance
+            </button>
+          )}
 
-          {/* Unshield Form */}
-          {cUsdcHandle && (
-            <div style={{ display: "grid", gap: 6, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, marginBottom: 10 }}>
-              <div style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>Unshield cUSDC → USDC</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="cUSDC amount"
-                  value={unshieldAmount}
-                  onChange={(e) => {
-                    setUnshieldAmount(e.target.value);
-                    setUnshieldStatus("idle");
-                    setUnshieldError(null);
-                  }}
-                  style={{
-                    flex: 1,
-                    background: "rgba(0,0,0,0.2)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 8,
-                    padding: "6px 10px",
-                    color: "#EEF2FF",
-                    fontSize: 12,
-                  }}
-                />
+          {(wallet.balanceState.kind === "never_shielded" ||
+            wallet.balanceState.kind === "error" ||
+            wallet.balanceState.kind === "wrapper_invalid" ||
+            wallet.balanceState.kind === "not_configured") && (
+            <div style={{ color: "#8B9CC8", fontSize: 11, lineHeight: 1.6 }}>
+              {wallet.balanceState.message}
+            </div>
+          )}
+
+          {wallet.isConfigured && (
+            <>
+              <div style={{ display: "grid", gap: 6, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10 }}>
+                <div style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>Shield USDC to cUSDC</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="USDC amount"
+                    value={shieldAmount}
+                    onChange={(event) => {
+                      setShieldAmount(event.target.value);
+                    }}
+                    style={{
+                      flex: 1,
+                      background: "rgba(0,0,0,0.2)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      color: "#EEF2FF",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const amount = parseTokenAmount(shieldAmount);
+                      if (!amount) {
+                        return;
+                      }
+
+                      void wallet.shield(amount);
+                    }}
+                    disabled={wallet.shieldPhase === "pending" || !parseTokenAmount(shieldAmount)}
+                    style={{
+                      border: "1px solid rgba(0,240,255,0.3)",
+                      background: "rgba(0,240,255,0.12)",
+                      color: "#00F0FF",
+                      borderRadius: 8,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      opacity: wallet.shieldPhase === "pending" || !parseTokenAmount(shieldAmount) ? 0.5 : 1,
+                    }}
+                  >
+                    {wallet.shieldPhase === "pending"
+                      ? "Shielding..."
+                      : wallet.shieldPhase === "success"
+                      ? "Shield complete"
+                      : wallet.shieldPhase === "error"
+                      ? "Retry"
+                      : "Shield"}
+                  </button>
+                </div>
+                {wallet.shieldError && (
+                  <div style={{ color: "#FF4A7A", fontSize: 10 }}>{wallet.shieldError}</div>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gap: 6, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10 }}>
+                <div style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>Unshield cUSDC to USDC</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="cUSDC amount"
+                    value={unshieldAmount}
+                    onChange={(event) => {
+                      setUnshieldAmount(event.target.value);
+                    }}
+                    style={{
+                      flex: 1,
+                      background: "rgba(0,0,0,0.2)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      color: "#EEF2FF",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const amount = parseTokenAmount(unshieldAmount);
+                      if (!amount) {
+                        return;
+                      }
+
+                      void wallet.unshield(amount);
+                    }}
+                    disabled={wallet.unshieldPhase === "submitting" || wallet.unshieldPhase === "waiting" || wallet.unshieldPhase === "finalizing" || !parseTokenAmount(unshieldAmount)}
+                    style={{
+                      border: "1px solid rgba(168,127,255,0.3)",
+                      background: "rgba(168,127,255,0.12)",
+                      color: "#A87FFF",
+                      borderRadius: 8,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      opacity: wallet.unshieldPhase === "submitting" || wallet.unshieldPhase === "waiting" || wallet.unshieldPhase === "finalizing" || !parseTokenAmount(unshieldAmount) ? 0.5 : 1,
+                    }}
+                  >
+                    {wallet.unshieldPhase === "submitting"
+                      ? "Submitting unwrap..."
+                      : wallet.unshieldPhase === "waiting"
+                      ? "Waiting for decryption..."
+                      : wallet.unshieldPhase === "finalizing"
+                      ? "Finalizing..."
+                      : wallet.unshieldPhase === "success"
+                      ? "Unshield complete"
+                      : wallet.unshieldPhase === "error"
+                      ? "Retry"
+                      : "Unshield"}
+                  </button>
+                </div>
+                {wallet.pendingUnshieldTxHash && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void wallet.resumePendingUnshield();
+                    }}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#EEF2FF",
+                      borderRadius: 8,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Resume pending unshield
+                  </button>
+                )}
+                {wallet.unshieldError && (
+                  <div style={{ color: "#FF4A7A", fontSize: 10 }}>{wallet.unshieldError}</div>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gap: 6, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, marginBottom: 10 }}>
+                <div style={{ color: "#EEF2FF", fontSize: 12, fontWeight: 700 }}>Confidential invoice funding</div>
                 <button
                   type="button"
-                  onClick={handleUnshield}
-                  disabled={unshieldStatus !== "idle" && unshieldStatus !== "done" && unshieldStatus !== "error" || !unshieldAmount || !instance}
+                  onClick={() => {
+                    void wallet.setRegistryOperator();
+                  }}
+                  disabled={wallet.operatorPhase === "pending" || wallet.isOperatorApproved}
                   style={{
-                    border: "1px solid rgba(168,127,255,0.3)",
-                    background: "rgba(168,127,255,0.12)",
-                    color: "#A87FFF",
+                    border: "1px solid rgba(0,255,136,0.2)",
+                    background: "rgba(0,255,136,0.08)",
+                    color: "#00FF88",
                     borderRadius: 8,
-                    padding: "6px 12px",
+                    padding: "8px 12px",
                     fontSize: 12,
                     fontWeight: 800,
                     cursor: "pointer",
-                    opacity: (unshieldStatus !== "idle" && unshieldStatus !== "done" && unshieldStatus !== "error" || !unshieldAmount || !instance) ? 0.5 : 1,
+                    opacity: wallet.operatorPhase === "pending" || wallet.isOperatorApproved ? 0.6 : 1,
                   }}
                 >
-                  {unshieldStatus === "idle" && "Unshield"}
-                  {unshieldStatus === "encrypting" && "Encrypting..."}
-                  {unshieldStatus === "unwrapping" && "Unwrapping..."}
-                  {unshieldStatus === "waiting-kms" && "KMS Decrypt..."}
-                  {unshieldStatus === "finalizing" && "Finalizing..."}
-                  {unshieldStatus === "done" && "Done ✓"}
-                  {unshieldStatus === "error" && "Retry"}
+                  {wallet.isOperatorApproved
+                    ? "Registry operator authorized"
+                    : wallet.operatorPhase === "pending"
+                    ? "Authorizing registry..."
+                    : wallet.operatorPhase === "success"
+                    ? "Registry operator authorized"
+                    : "Authorize registry operator"}
                 </button>
+                {wallet.operatorError && (
+                  <div style={{ color: "#FF4A7A", fontSize: 10 }}>{wallet.operatorError}</div>
+                )}
               </div>
-              {unshieldStatus === "waiting-kms" && (
-                <div style={{ color: "#8B9CC8", fontSize: 10 }}>Unshield takes 30-60s for KMS decryption.</div>
-              )}
-              {unshieldError && (
-                <div style={{ color: "#FF4A7A", fontSize: 10 }}>{unshieldError}</div>
-              )}
-            </div>
+            </>
           )}
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -608,7 +524,7 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
 
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ color: "#8B9CC8", fontSize: 12, lineHeight: 1.6 }}>
-              Fund this wallet with Sepolia ETH for gas and Sepolia USDC for collateral/factoring tests.
+              Fund this wallet with Sepolia ETH for gas and Sepolia USDC for confidential factoring tests.
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {FAUCETS.map((faucet) => (
