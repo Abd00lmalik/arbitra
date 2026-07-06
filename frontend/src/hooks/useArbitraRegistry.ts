@@ -27,11 +27,8 @@ import {
   CUSDC_ABI,
 } from "@/lib/contracts";
 
-const FHE_FACTOR_GAS_LIMIT  = 1_000_000n;
-/* uploadInvoice calls FingerprintRegistry + RiskCalculator inline via FHE coprocessor.
- * Gas estimation overflows Sepolia's block cap (16,777,216). Cap explicitly at 14M. */
-const FHE_UPLOAD_GAS_LIMIT  = 14_000_000n;
-const STAKE_GAS_LIMIT        = 500_000n;
+const FHE_FACTOR_GAS_LIMIT = 1_000_000n;
+const STAKE_GAS_LIMIT = 500_000n;
 
 function resolveRegistryAddress(address?: `0x${string}`) {
   return address ?? ARBITRA_REGISTRY_ADDRESS;
@@ -363,13 +360,14 @@ export function useUploadInvoice() {
       enableUnderwriting: boolean,
       faceValuePlaintext: bigint,
       plaintextFingerprint: bigint,
-      discountRatePlaintext: bigint
+      discountRatePlaintext: bigint,
+      gasLimit?: bigint,
     ) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "uploadInvoice",
-        gas: FHE_UPLOAD_GAS_LIMIT,
+        gas: gasLimit,
         args: [
           encFaceValue, proofFaceValue,
           encDueDate, proofDueDate,

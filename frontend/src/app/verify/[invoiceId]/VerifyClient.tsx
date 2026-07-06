@@ -223,7 +223,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
     if (!walletClient || !address || !invoice || !decryptedData) return;
     setAttestError(null);
 
-    // Gas/balance check
+    /* Open the wallet panel immediately when the debtor lacks enough gas to sign and attest. */
     if (ethBalance && ethBalance.value < parseEther("0.001")) {
       setIsWalletOpen(true);
       setAttestError("Insufficient Sepolia ETH for gas. Please fund your wallet using the faucets below.");
@@ -310,7 +310,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
         setSuccessAttesting(true);
         setWeb2TxHash(data.txHash);
         
-        // Wait on the client-side for transaction block confirmation
+        /* Keep the success state hidden until the debtor-side attestation is mined on Sepolia. */
         if (publicClient && data.txHash) {
           setIsMining(true);
           try {
@@ -526,7 +526,7 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
 
       {tokenError && (
         <div className="p-4 rounded-xl bg-neon-pink/5 border border-neon-pink/15 text-xs text-neon-pink space-y-2">
-          <p className="font-semibold">⚠️ {tokenError}</p>
+          <p className="font-semibold">Warning: {tokenError}</p>
           <p className="text-[11px] text-slate-500">
             You can still verify this invoice by connecting your Ethereum wallet directly if your address matches the registered debtor.
           </p>
@@ -835,21 +835,23 @@ function VerifyClientContent({ invoiceId }: VerifyClientProps) {
 
       {isWalletOpen && typeof document !== "undefined" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
-          <GlassCard className="w-full max-w-md p-6 relative overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-4 border-b border-white/5 mb-4">
-              <span className="text-white font-bold text-base">My Wallet</span>
-              <button
-                onClick={() => setIsWalletOpen(false)}
-                className="text-slate-500 hover:text-white transition-colors"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-            <WalletAddressCard walletAddress={address} />
-          </GlassCard>
+          <div className="w-full max-w-md overflow-y-auto" style={{ maxHeight: "calc(100vh - 2rem)" }}>
+            <GlassCard className="w-full p-6 relative flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between pb-4 border-b border-white/5 mb-4">
+                <span className="text-white font-bold text-base">My Wallet</span>
+                <button
+                  onClick={() => setIsWalletOpen(false)}
+                  className="text-slate-500 hover:text-white transition-colors"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <WalletAddressCard walletAddress={address} />
+            </GlassCard>
+          </div>
         </div>
       )}
     </div>

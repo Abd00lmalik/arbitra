@@ -268,7 +268,8 @@ function AuthenticatedDashboard({ wallet }: { wallet: `0x${string}` }) {
           aria-label="My Wallet"
         >
           <div
-            className="space-y-5 rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-[0_0_80px_rgba(0,240,255,0.12)]"
+            className="space-y-5 rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-[0_0_80px_rgba(0,240,255,0.12)] overflow-y-auto"
+            style={{ maxHeight: "calc(100vh - 2rem)" }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between">

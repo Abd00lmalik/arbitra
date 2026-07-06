@@ -1,7 +1,7 @@
 /*
  * @file InvoiceDetailModal.tsx
  * @description Shared details modal for invoices featuring smooth slide-up animation,
- *              sequential investor flow (Request Access, Decrypt, Review, Deploy Capital),
+ *              sequential investor flow (Request Access, Decrypt, Review, Fund with cUSDC),
  *              real FHE decryption, deterministic risk analysis fed with real decrypted values,
  *              confidential cUSDC funding, and Step 5 confidential capital deployment UX.
  */
@@ -570,7 +570,7 @@ export function InvoiceDetailModal({
               <div className="rounded-2xl border border-neon-purple/20 bg-gradient-to-br from-neon-purple/5 to-transparent overflow-hidden">
                 {/* Step Progress Bar */}
                 <div className="flex border-b border-white/5">
-                  {["Request Access", "Decrypt", "Review Result", "Deploy Capital"].map((label, idx) => (
+                  {["Request Access", "Decrypt", "Review Result", "Fund with cUSDC"].map((label, idx) => (
                     <div
                       key={idx}
                       className={`flex-1 py-2 text-center text-[9px] font-bold uppercase tracking-widest transition-all ${
@@ -678,11 +678,11 @@ export function InvoiceDetailModal({
                     </div>
                   )}
 
-                  {/* STEP 3: Deploy Capital */}
+                  {/* STEP 3: Fund with cUSDC */}
                   {investorStep === 3 && !factorSuccess && (
                     <div className="space-y-3">
                       <h4 className="text-sm font-bold text-white text-center flex items-center justify-center gap-1.5">
-                        <Zap className="w-4 h-4 text-amber-400" /> Deploy Confidential cUSDC Capital
+                        <Zap className="w-4 h-4 text-amber-400" /> Fund with Confidential cUSDC
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed text-center">
                         Fund this invoice with shielded cUSDC. Arbitra moves encrypted capital from your wallet to escrow, then escrow forwards encrypted cUSDC to the supplier while recording your invoice RWA ownership.
@@ -692,7 +692,7 @@ export function InvoiceDetailModal({
                       </p>
                       {/* Confidential capital readiness */}
                       <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
-                        <span className="text-slate-400">Your Shieldable USDC Balance</span>
+                        <span className="text-slate-400">Your Public USDC Balance</span>
                         <span className="font-mono font-bold text-white">
                           ${fromMicro(confidentialWallet.usdcBalance ?? 0n)} USDC
                         </span>
@@ -782,10 +782,10 @@ export function InvoiceDetailModal({
                           : confidentialWallet.operatorPhase === "pending"
                           ? "Authorizing cUSDC Operator..."
                           : isFactoringPending || localBusy
-                          ? `Deploying${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} cUSDC...`
+                          ? `Funding${decrypted?.purchasePrice ? ` $${fromMicro(decrypted.purchasePrice)}` : ""} cUSDC...`
                           : confidentialWallet.isOperatorApproved
-                          ? "Deploy Confidential cUSDC Capital"
-                          : "Authorize cUSDC Operator & Deploy"}
+                          ? "Fund Invoice with cUSDC"
+                          : "Authorize cUSDC Operator & Fund"}
                       </NeonButton>
                       {factorError && (
                         <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">

@@ -58,6 +58,20 @@ describe("Frontend confidential wallet state", function () {
     }
   });
 
+  it("never collapses NoCiphertextError into a decrypted zero balance", function () {
+    const state = deriveConfidentialBalanceState({
+      wrapperAddress,
+      isWrapperValid: true,
+      hasPermit: true,
+      rawHandle: nonZeroHandle,
+      isLoading: false,
+      balance: 0n,
+      error: new NoCiphertextError("No ciphertext for this account"),
+    });
+
+    expect(state.kind).to.equal("never_shielded");
+  });
+
   it("stays in loading while wrapper validation metadata is still resolving", function () {
     const state = deriveConfidentialBalanceState({
       wrapperAddress,

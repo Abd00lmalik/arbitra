@@ -66,10 +66,17 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 type EncryptionSubstep = "idle" | "params" | "zkp" | "sign" | "blockchain";
 
 const FALLBACK_SEPOLIA_GAS_PRICE  = parseGwei("2");
-/* Hard gas caps - prevents Wagmi/viem's inflated simulation estimates           */
+/*
+ * Uploading an invoice is FHE-heavy, but the old 14M ceiling was only meant as a
+ * last-resort guard. Treating it like the expected gas burn made the UI tell users
+ * they needed absurd amounts of Sepolia ETH. Use a realistic fallback plus a live
+ * estimate with bounded headroom instead.
+ */
 const FRAUD_CHECK_GAS_CAP         = 2_500_000n;
-const UPLOAD_GAS_CAP              = 14_000_000n;
+const UPLOAD_GAS_FALLBACK_LIMIT   = 1_800_000n;
+const UPLOAD_GAS_LIMIT_CEILING    = 3_000_000n;
 const GAS_HEADROOM_BPS            = 12_000n;
+const GAS_LIMIT_PADDING           = 25_000n;
 
 function formatEthAmount(value: bigint) {
   return Number.parseFloat(formatEther(value)).toFixed(4);
@@ -77,6 +84,22 @@ function formatEthAmount(value: bigint) {
 
 function gasCostWithHeadroom(gasLimit: bigint, gasPrice: bigint) {
   return (gasLimit * gasPrice * GAS_HEADROOM_BPS) / 10_000n;
+}
+
+function addGasHeadroom(gasLimit: bigint) {
+  return (gasLimit * GAS_HEADROOM_BPS) / 10_000n + GAS_LIMIT_PADDING;
+}
+
+function clampUploadGasLimit(gasLimit: bigint) {
+  if (gasLimit < UPLOAD_GAS_FALLBACK_LIMIT) {
+    return UPLOAD_GAS_FALLBACK_LIMIT;
+  }
+
+  if (gasLimit > UPLOAD_GAS_LIMIT_CEILING) {
+    return UPLOAD_GAS_LIMIT_CEILING;
+  }
+
+  return gasLimit;
 }
 
 function getUploadedInvoiceIdFromReceipt(receipt: { logs: readonly { topics: readonly `0x${string}`[]; data: `0x${string}` }[] }) {
@@ -133,7 +156,7 @@ function formatGasAwareError(error: unknown, liveGasPrice?: bigint, customGasCap
     }
 
     if (liveGasPrice) {
-      const estLimit = customGasCap ?? UPLOAD_GAS_CAP;
+      const estLimit = customGasCap ?? UPLOAD_GAS_FALLBACK_LIMIT;
       /* Add a standard 50% margin to the estimate to match wallet buffers */
       const bufferedGasPrice = (liveGasPrice * 15n) / 10n;
       const requiredWei = estLimit * bufferedGasPrice;
@@ -213,6 +236,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
   const [uploadedInvoiceId, setUploadedInvoiceId] = useState<bigint | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [fraudCheckDisplayGasPrice, setFraudCheckDisplayGasPrice] = useState<bigint>(FALLBACK_SEPOLIA_GAS_PRICE);
+  const [uploadGasLimit, setUploadGasLimit] = useState<bigint>(UPLOAD_GAS_FALLBACK_LIMIT);
 
   const { data: allowance, refetch: refetchAllowance } = useUSDCAllowance(activeWallet, COLLATERAL_VAULT_ADDRESS);
   const requiredCollateral = (invoice.faceValue * 500n) / 10000n; /* 5% */
@@ -247,7 +271,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     hash: fraudCheckTxHash ?? undefined,
     query: { enabled: !!fraudCheckTxHash },
   });
-  const requiredUploadGasWei = gasCostWithHeadroom(UPLOAD_GAS_CAP, fraudCheckDisplayGasPrice);
+  const requiredUploadGasWei = gasCostWithHeadroom(uploadGasLimit, fraudCheckDisplayGasPrice);
   const canAffordUpload = ethBalance?.value !== undefined ? ethBalance.value >= requiredUploadGasWei : false;
 
   useEffect(() => {
@@ -776,7 +800,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
     try {
       const walletBalance = await publicClient.getBalance({ address: activeWallet });
       const uploadGasPrice = await publicClient.getGasPrice().catch(() => fraudCheckDisplayGasPrice);
-      const requiredUploadBalance = gasCostWithHeadroom(UPLOAD_GAS_CAP, uploadGasPrice);
+      const requiredUploadBalance = gasCostWithHeadroom(uploadGasLimit, uploadGasPrice);
       if (walletBalance < requiredUploadBalance) {
         throw new Error(
           `You need approximately ${formatEthAmount(requiredUploadBalance)} Sepolia ETH for upload gas at the current gas price.`
@@ -865,37 +889,46 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
         timeout: 120_000,
       });
 
+      const uploadArgs = [
+        h1, proofHex,
+        h2, proofHex,
+        h3, proofHex,
+        h4, proofHex,
+        h5, proofHex,
+        (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
+        true,
+        invoice.faceValue,
+        invoice.fingerprint,
+        discountRatePlaintext,
+      ] as const;
+
+      let resolvedUploadGasLimit = UPLOAD_GAS_FALLBACK_LIMIT;
+      try {
+        const estimatedUploadGas = await publicClient.estimateContractGas({
+          account: activeWallet,
+          address: ARBITRA_REGISTRY_ADDRESS,
+          abi: ARBITRA_REGISTRY_ABI,
+          functionName: "uploadInvoice",
+          args: [...uploadArgs],
+        });
+        resolvedUploadGasLimit = clampUploadGasLimit(addGasHeadroom(estimatedUploadGas));
+      } catch {
+        resolvedUploadGasLimit = UPLOAD_GAS_FALLBACK_LIMIT;
+      }
+
+      setUploadGasLimit(resolvedUploadGasLimit);
+
       /* Submit the encrypted invoice payload to the registry after duplicate confirmation. */
       if (isEmbedded) {
         const signer = await getEmbeddedSigner();
         const { ethers } = await import("ethers");
         const contract = new ethers.Contract(ARBITRA_REGISTRY_ADDRESS, ARBITRA_REGISTRY_ABI, signer);
-        const tx = await contract.uploadInvoice(
-          h1, proofHex,
-          h2, proofHex,
-          h3, proofHex,
-          h4, proofHex,
-          h5, proofHex,
-          (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
-          true,
-          invoice.faceValue,
-          invoice.fingerprint,
-          discountRatePlaintext,
-          { gasLimit: UPLOAD_GAS_CAP }
-        );
+        const tx = await contract.uploadInvoice(...uploadArgs, { gasLimit: resolvedUploadGasLimit });
         hash = tx.hash as `0x${string}`;
       } else {
         const txHashResult = await uploadInvoice(
-          h1, proofHex,
-          h2, proofHex,
-          h3, proofHex,
-          h4, proofHex,
-          h5, proofHex,
-          (invoice.debtor || "0x0000000000000000000000000000000000000000") as `0x${string}`,
-          true,
-          invoice.faceValue,
-          invoice.fingerprint,
-          discountRatePlaintext
+          ...uploadArgs,
+          resolvedUploadGasLimit,
         );
         if (!txHashResult) {
           throw new Error("Upload transaction hash was not returned.");
@@ -970,7 +1003,7 @@ export function UploadInvoiceForm({ onSuccess }: UploadInvoiceFormProps) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg(formatGasAwareError(err, fraudCheckDisplayGasPrice, UPLOAD_GAS_CAP) || "Encryption transaction failed.");
+      setErrorMsg(formatGasAwareError(err, fraudCheckDisplayGasPrice, uploadGasLimit) || "Encryption transaction failed.");
       setWizardStep(5);
     }
   };
