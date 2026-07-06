@@ -93,7 +93,7 @@ export const ZERO_ENCRYPTED_VALUE =
 export const CUSDC_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_CUSDC_ADDRESS",
-    ZERO_ADDRESS,
+    "0xBf7BF8aF778fA83cCfb6e18B53ACa13A0a0A0Fe1",
   );
 /* Constants */
 export const TOKEN_DECIMALS  = 6;

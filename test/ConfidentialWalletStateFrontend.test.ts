@@ -14,7 +14,8 @@ ModuleLib.Module._initPaths();
 const {
   deriveConfidentialBalanceState,
 } = require("../frontend/src/lib/confidentialWalletState");
-const { ZERO_ENCRYPTED_VALUE } = require("../frontend/src/lib/contracts");
+const contractsModulePath = require.resolve("../frontend/src/lib/contracts");
+const { ZERO_ENCRYPTED_VALUE } = require(contractsModulePath);
 const { NoCiphertextError } = require("@zama-fhe/sdk");
 
 describe("Frontend confidential wallet state", function () {
@@ -61,5 +62,33 @@ describe("Frontend confidential wallet state", function () {
     if (state.kind === "zero_balance") {
       expect(state.balance).to.equal(0n);
     }
+  });
+
+  it("falls back to the deployed cUSDC wrapper when env toggles are missing", function () {
+    const previousUseEnv = process.env.NEXT_PUBLIC_USE_ENV_CONTRACT_ADDRESSES;
+    const previousCusdcAddress = process.env.NEXT_PUBLIC_CUSDC_ADDRESS;
+
+    delete process.env.NEXT_PUBLIC_USE_ENV_CONTRACT_ADDRESSES;
+    delete process.env.NEXT_PUBLIC_CUSDC_ADDRESS;
+    delete require.cache[contractsModulePath];
+
+    const reloadedContracts = require(contractsModulePath);
+
+    expect(reloadedContracts.CUSDC_ADDRESS).to.equal(wrapperAddress);
+
+    if (previousUseEnv === undefined) {
+      delete process.env.NEXT_PUBLIC_USE_ENV_CONTRACT_ADDRESSES;
+    } else {
+      process.env.NEXT_PUBLIC_USE_ENV_CONTRACT_ADDRESSES = previousUseEnv;
+    }
+
+    if (previousCusdcAddress === undefined) {
+      delete process.env.NEXT_PUBLIC_CUSDC_ADDRESS;
+    } else {
+      process.env.NEXT_PUBLIC_CUSDC_ADDRESS = previousCusdcAddress;
+    }
+
+    delete require.cache[contractsModulePath];
+    require(contractsModulePath);
   });
 });
