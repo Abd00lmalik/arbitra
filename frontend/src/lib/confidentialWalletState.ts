@@ -39,6 +39,7 @@ export function getZamaErrorMessage(error: unknown, fallback = "Confidential wal
 interface DeriveConfidentialBalanceStateParams {
   wrapperAddress?: string;
   wrapperMessage?: string | null;
+  isWrapperValidationPending?: boolean;
   isWrapperValid: boolean;
   hasPermit: boolean;
   rawHandle?: string;
@@ -55,6 +56,10 @@ export function deriveConfidentialBalanceState(
       kind: "not_configured",
       message: "cUSDC is not configured for this Sepolia deployment yet.",
     };
+  }
+
+  if (params.isWrapperValidationPending) {
+    return { kind: "loading" };
   }
 
   if (!params.isWrapperValid) {

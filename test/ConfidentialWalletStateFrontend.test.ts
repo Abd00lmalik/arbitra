@@ -58,6 +58,18 @@ describe("Frontend confidential wallet state", function () {
     }
   });
 
+  it("stays in loading while wrapper validation metadata is still resolving", function () {
+    const state = deriveConfidentialBalanceState({
+      wrapperAddress,
+      isWrapperValidationPending: true,
+      isWrapperValid: false,
+      hasPermit: false,
+      isLoading: false,
+    });
+
+    expect(state.kind).to.equal("loading");
+  });
+
   it("keeps a decrypted zero balance distinct from never shielded", function () {
     const state = deriveConfidentialBalanceState({
       wrapperAddress,

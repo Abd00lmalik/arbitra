@@ -234,15 +234,42 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             expect(postAccessAcl.bandAllowed).to.equal(true);
 
             /* Step 5: Factoring purchase */
-            await expect(
-                registry.connect(investor).factorInvoice(nextInvoiceId)
-            ).to.emit(registry, "InvoiceFactored").withArgs(nextInvoiceId, investor.address, (val: bigint) => val > 0n);
+            const factorTx = await registry.connect(investor).factorInvoice(nextInvoiceId);
+            await expect(factorTx)
+                .to.emit(registry, "InvoiceFactored")
+                .withArgs(nextInvoiceId, investor.address, (val: bigint) => val > 0n);
+            const factorReceipt = await factorTx.wait();
 
             expect(await collateralVault.stakeStates(nextInvoiceId)).to.equal(3n); /* FINANCED */
 
             const invAfterFactor = await registry.invoices(nextInvoiceId);
             expect(invAfterFactor.status).to.equal(2n); /* Factored */
             expect(invAfterFactor.investor).to.equal(investor.address);
+
+            const purchasePriceAtFunding = await registry.getPurchasePricePlaintext(nextInvoiceId);
+            const supplierCusdcHandle = await mockCUSDC.confidentialBalanceOf(supplier.address);
+            const investorCusdcHandle = await mockCUSDC.confidentialBalanceOf(investor.address);
+            const supplierCusdcBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, supplierCusdcHandle);
+            const investorCusdcBalance = await fhevm.debugger.decryptEuint(FhevmType.euint64, investorCusdcHandle);
+
+            expect(supplierCusdcBalance).to.equal(purchasePriceAtFunding);
+            expect(investorCusdcBalance).to.equal(10_000_000_000n - purchasePriceAtFunding);
+
+            const confidentialTransferLogs = (factorReceipt?.logs ?? [])
+                .filter((log: any) => log.address.toLowerCase() === mockCUSDCAddr.toLowerCase())
+                .map((log: any) => mockCUSDC.interface.parseLog(log))
+                .filter((parsed: any) => parsed && parsed.name === "ConfidentialTransfer");
+
+            expect(confidentialTransferLogs).to.have.length(2);
+            expect(confidentialTransferLogs[0]?.args?.from).to.equal(investor.address);
+            expect(confidentialTransferLogs[0]?.args?.to).to.equal(escrowReceiverAddr);
+            expect(confidentialTransferLogs[1]?.args?.from).to.equal(escrowReceiverAddr);
+            expect(confidentialTransferLogs[1]?.args?.to).to.equal(supplier.address);
+
+            const publicUsdcTransferLogs = (factorReceipt?.logs ?? []).filter(
+                (log: any) => log.address.toLowerCase() === mockUSDCAddr.toLowerCase()
+            );
+            expect(publicUsdcTransferLogs).to.have.length(0);
 
             /* Advance time to maturity */
             await ethers.provider.send("evm_increaseTime", [30 * 86400 + 10]);
@@ -255,7 +282,6 @@ describe("Arbitra v2.0 E2E Lifecycle", function () {
             const receivedAt = BigInt(latestPaymentBlock!.timestamp);
             const paymentNonce = 1n;
             const purchasePrice = await registry.getPurchasePricePlaintext(nextInvoiceId);
-            const supplierReserve = faceValue - purchasePrice;
 
             const paymentDomain = {
                 name: "ArbitraSettlement",

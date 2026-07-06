@@ -155,6 +155,14 @@ export function useConfidentialWallet(walletAddress?: `0x${string}` | null): Con
     );
   }, [isConfigured, wrapperDecimals, wrapperUnderlying]);
 
+  const isWrapperValidationPending = useMemo(() => {
+    if (!isConfigured) {
+      return false;
+    }
+
+    return wrapperUnderlying === undefined || wrapperDecimals === undefined;
+  }, [isConfigured, wrapperDecimals, wrapperUnderlying]);
+
   const { data: hasPermitResult } = useHasPermit(
     { contractAddresses: wrapperAddress ? [wrapperAddress] : [] },
     { enabled: Boolean(wrapperAddress) && Boolean(resolvedAddress) },
@@ -213,6 +221,7 @@ export function useConfidentialWallet(walletAddress?: `0x${string}` | null): Con
       deriveConfidentialBalanceState({
         wrapperAddress,
         wrapperMessage: wrapperValidationMessage,
+        isWrapperValidationPending,
         isWrapperValid,
         hasPermit,
         rawHandle: rawHandle as string | undefined,
@@ -226,6 +235,7 @@ export function useConfidentialWallet(walletAddress?: `0x${string}` | null): Con
       balanceQuery.isLoading,
       balanceQuery.isRefetching,
       hasPermit,
+      isWrapperValidationPending,
       isWrapperValid,
       rawHandle,
       wrapperAddress,
