@@ -210,7 +210,10 @@ export function InvoiceDetailModal({
     hasFinalUnderwriting &&
     confidentialBalanceState.kind !== "loading" &&
     confidentialBalanceState.kind !== "not_configured" &&
-    confidentialBalanceState.kind !== "wrapper_invalid";
+    confidentialBalanceState.kind !== "wrapper_invalid" &&
+    confidentialBalanceState.kind !== "error" &&
+    confidentialBalanceState.kind !== "never_shielded" &&
+    (confidentialBalanceState.kind === "needs_permit" || hasEnoughConfidentialCapital);
 
   /* EIP-712 dynamic decryption execution */
   const handleDecrypt = async () => {
@@ -548,21 +551,21 @@ export function InvoiceDetailModal({
                 <span>Invoice Status:</span>
                 <span className="font-semibold text-white">
                   {isRepaid ? (
-                    <span className="text-neon-green">● Settled</span>
+                    <span className="text-neon-green">Settled</span>
                   ) : isDisputed ? (
-                    <span className="text-neon-pink">● Disputed</span>
+                    <span className="text-neon-pink">Disputed</span>
                   ) : isFactored ? (
-                    <span className="text-neon-purple">● Factored (Awaiting Maturity)</span>
+                    <span className="text-neon-purple">Factored (Awaiting Maturity)</span>
                   ) : invoice.status === InvoiceStatus.Attested ? (
-                    <span className="text-neon-cyan">● Attested (Ready to Factor)</span>
+                    <span className="text-neon-cyan">Attested (Ready to Factor)</span>
                   ) : (
-                    <span className="text-yellow-400">● Pending Debtor Attestation</span>
+                    <span className="text-yellow-400">Pending Debtor Attestation</span>
                   )}
                 </span>
               </div>
             </div>
 
-            {/* ─── INVESTOR SEQUENTIAL FLOW (Prospective) ─── */}
+            {/* --- INVESTOR SEQUENTIAL FLOW (Prospective) --- */}
             {isProspectiveInvestor && invoice.status === InvoiceStatus.Attested && (
               <div className="rounded-2xl border border-neon-purple/20 bg-gradient-to-br from-neon-purple/5 to-transparent overflow-hidden">
                 {/* Step Progress Bar */}
@@ -578,7 +581,7 @@ export function InvoiceDetailModal({
                           : "text-slate-600"
                       }`}
                     >
-                      {idx < investorStep ? "✓ " : idx === investorStep ? "> " : ""}{label}
+                      {idx < investorStep ? "Done: " : idx === investorStep ? "Now: " : ""}{label}
                     </div>
                   ))}
                 </div>
@@ -684,9 +687,12 @@ export function InvoiceDetailModal({
                       <p className="text-xs text-slate-400 leading-relaxed text-center">
                         Fund this invoice with shielded cUSDC. Arbitra moves encrypted capital from your wallet to escrow, then escrow forwards encrypted cUSDC to the supplier while recording your invoice RWA ownership.
                       </p>
+                      <p className="text-[11px] text-slate-500 leading-relaxed text-center">
+                        Use My Wallet to shield public USDC into cUSDC first. If this is your first confidential action, Arbitra will also request the ERC-7984 operator approval needed to route encrypted capital through the registry.
+                      </p>
                       {/* Confidential capital readiness */}
                       <div className="flex justify-between items-center p-2.5 rounded-xl bg-white/2 border border-white/5 text-xs">
-                        <span className="text-slate-400">Your Public USDC Balance</span>
+                        <span className="text-slate-400">Your Shieldable USDC Balance</span>
                         <span className="font-mono font-bold text-white">
                           ${fromMicro(confidentialWallet.usdcBalance ?? 0n)} USDC
                         </span>
@@ -725,6 +731,19 @@ export function InvoiceDetailModal({
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
                           Final encrypted underwriting is required before capital can be deployed.
                         </div>
+                      ) : confidentialBalanceState.kind === "not_configured" ||
+                        confidentialBalanceState.kind === "wrapper_invalid" ? (
+                        <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
+                          {confidentialBalanceState.message}
+                        </div>
+                      ) : confidentialBalanceState.kind === "error" ? (
+                        <div className="p-3 rounded-xl bg-neon-pink/10 border border-neon-pink/20 text-neon-pink text-xs">
+                          {confidentialBalanceState.message}
+                        </div>
+                      ) : confidentialBalanceState.kind === "loading" ? (
+                        <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs">
+                          Arbitra is still decrypting your cUSDC balance. Wait for the confidential balance check to finish before deploying capital.
+                        </div>
                       ) : confidentialBalanceState.kind === "needs_permit" ? (
                         <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-xs">
                           Unlock your confidential cUSDC balance first so Arbitra can verify available capital.
@@ -742,7 +761,7 @@ export function InvoiceDetailModal({
                         </div>
                       ) : !confidentialWallet.isOperatorApproved ? (
                         <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs">
-                          The registry still needs ERC-7984 operator rights on your cUSDC. Arbitra will request that approval during funding.
+                          The registry still needs ERC-7984 operator rights on your cUSDC. Arbitra will request that time-bounded operator approval during funding.
                         </div>
                       ) : null}
                       {confidentialWallet.operatorError && (
@@ -790,6 +809,7 @@ export function InvoiceDetailModal({
                       <div className="p-3 rounded-xl bg-neon-green/10 border border-neon-green/20 text-neon-green text-xs text-left space-y-1">
                         <div>Investor cUSDC transferred confidentially to escrow</div>
                         <div>Escrow forwarded encrypted cUSDC to the supplier</div>
+                        <div>Supplier can now view or unshield the received cUSDC from My Wallet</div>
                         <div>Invoice RWA ownership recorded on-chain</div>
                         <div>Repayment remains tracked through the encrypted escrow receiver</div>
                       </div>
@@ -802,28 +822,28 @@ export function InvoiceDetailModal({
               </div>
             )}
 
-            {/* ─── ENCRYPTED VALUE GRID ─── */}
+            {/* --- ENCRYPTED VALUE GRID --- */}
             <div className="grid grid-cols-2 gap-3.5">
               {[
                 {
                   label: "Face Value",
                   clear: decrypted?.faceValue !== undefined ? formatUSDC(decrypted.faceValue) : undefined,
-                  icon: "💰",
+                  icon: "FV",
                 },
                 {
                   label: "Purchase Price",
                   clear: decrypted?.purchasePrice !== undefined ? formatUSDC(decrypted.purchasePrice) : undefined,
-                  icon: "🏷",
+                  icon: "PP",
                 },
                 {
                   label: "Due Date",
                   clear: decrypted?.dueDate !== undefined ? formatTimestamp(decrypted.dueDate) : undefined,
-                  icon: "📅",
+                  icon: "DD",
                 },
                 {
                   label: "Discount Rate",
                   clear: decrypted?.discountRate !== undefined ? formatBps(decrypted.discountRate) : undefined,
-                  icon: "📊",
+                  icon: "DR",
                 },
               ].map((field, idx) => (
                 <div
@@ -1039,12 +1059,12 @@ export function InvoiceDetailModal({
               <div className="space-y-2.5 text-xs">
                 {/* 1. Debtor Attestation */}
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 text-emerald-400">🛡</span>
+                  <span className="mt-0.5 text-emerald-400">1</span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between font-bold text-slate-200">
                       <span>Debtor Attestation (Plaid Link)</span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${invoice.isEmailVerified ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" : "bg-yellow-400/10 text-yellow-400 border border-yellow-400/20"}`}>
-                        {invoice.isEmailVerified ? "Verified ✓" : "Pending Attestation ⌛"}
+                        {invoice.isEmailVerified ? "Verified" : "Pending Attestation"}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
@@ -1057,12 +1077,12 @@ export function InvoiceDetailModal({
 
                 {/* 2. Collateral Vault Protection */}
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 text-emerald-400">💎</span>
+                  <span className="mt-0.5 text-emerald-400">2</span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between font-bold text-slate-200">
                       <span>Supplier Default Collateral</span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${invoice.collateralStaked ? "bg-emerald-400/10 text-emerald-400 border border-emerald-400/20" : "bg-red-400/10 text-red-400 border border-red-400/20"}`}>
-                        {invoice.collateralStaked ? "Staked (5% Vault) ✓" : "Uncollateralized ❌"}
+                        {invoice.collateralStaked ? "Staked (5% Vault)" : "Uncollateralized"}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
@@ -1075,12 +1095,12 @@ export function InvoiceDetailModal({
 
                 {/* 3. Escrow Capital Protection */}
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 text-emerald-400">🏦</span>
+                  <span className="mt-0.5 text-emerald-400">3</span>
                   <div className="flex-1">
                     <div className="flex justify-between font-bold text-slate-200">
                       <span>Escrow Settlement Safety</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
-                        Active Escrow ✓
+                        Active Escrow
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
@@ -1091,12 +1111,12 @@ export function InvoiceDetailModal({
 
                 {/* 4. Zama FHEVM Shielded Financials */}
                 <div className="flex items-start gap-2">
-                  <span className="mt-0.5 text-emerald-400">🔮</span>
+                  <span className="mt-0.5 text-emerald-400">4</span>
                   <div className="flex-1">
                     <div className="flex justify-between font-bold text-slate-200">
                       <span>FHE Privacy Compliance</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
-                        Zama FHEVM Shielded ✓
+                        Zama FHEVM Shielded
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5 leading-normal">
@@ -1107,7 +1127,7 @@ export function InvoiceDetailModal({
               </div>
             </div>
 
-            {/* ─── ADDRESSES BLOCK ─── */}
+            {/* --- ADDRESSES BLOCK --- */}
             <div className="p-3.5 rounded-2xl bg-white/2 border border-white/5 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Supplier:</span>
@@ -1125,7 +1145,7 @@ export function InvoiceDetailModal({
               )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Days to Maturity:</span>
-                <span className="font-mono text-slate-300">{isRepaid ? "Settled ✓" : `${daysLeft} days`}</span>
+                <span className="font-mono text-slate-300">{isRepaid ? "Settled" : `${daysLeft} days`}</span>
               </div>
             </div>
           </div>

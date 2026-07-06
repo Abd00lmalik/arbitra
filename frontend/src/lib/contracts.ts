@@ -28,25 +28,25 @@ export const USDC_ADDRESS =
 export const ARBITRA_REGISTRY_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_REGISTRY_ADDRESS",
-    "0x1528fb2aB25CD159d02E1514966765c4D162d6D4",
+    "0xd63b7b493f7a2b2cdD33B329afB249eecdFfaD49",
   );
 
 export const ESCROW_RECEIVER_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_ESCROW_RECEIVER_ADDRESS",
-    "0xd9a1eD0F832960dB90F87f6675b086c1615CdbEd",
+    "0x9A81Ee3cD7255e2bb1ab86861904Df408c91D9e0",
   );
 
 export const COLLATERAL_VAULT_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_COLLATERAL_VAULT_ADDRESS",
-    "0xeb57202078B514e7FA44fE6d3b5dbCF8EB93B872",
+    "0xB95d930BE201E235c327626d3C6230552920DBE5",
   );
 
 export const FINGERPRINT_REGISTRY_ADDRESS =
   envAddress(
     "NEXT_PUBLIC_FINGERPRINT_REGISTRY_ADDRESS",
-    "0x3FA6e889Ba0E0713F2CD8BB20Abb73dcB21f6147",
+    "0xF5E50261eBD2794CFF3C447fC833cA9d78d2803e",
   );
 
 export const SBT_ADDRESS =
@@ -101,6 +101,11 @@ export const TOKEN_SYMBOL    = "USDC";
 export const ETHERSCAN_BASE  = "https://sepolia.etherscan.io";
 export const COLLATERAL_BPS  = 500; /* 5% of face value */
 export const DEFAULT_OPERATOR_EXPIRY_SECONDS = 31536000; /* 365 days */
+export const RISK_CALCULATOR_ADDRESS =
+  envAddress(
+    "NEXT_PUBLIC_RISK_CALC_ADDRESS",
+    "0x54119bDf49E69b54c8EC176CA98e3f4dC0A25d5c",
+  );
 
 /* Utilities */
 export const toMicro = (n: number): bigint =>

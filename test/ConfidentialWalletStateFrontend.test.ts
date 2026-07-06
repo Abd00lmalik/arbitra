@@ -33,6 +33,11 @@ describe("Frontend confidential wallet state", function () {
     });
 
     expect(state.kind).to.equal("never_shielded");
+    if (state.kind === "never_shielded") {
+      expect(state.message).to.equal(
+        "No cUSDC ciphertext exists for this wallet yet. Shield USDC to get started.",
+      );
+    }
   });
 
   it("maps NoCiphertextError to the wallet empty state", function () {
@@ -46,6 +51,11 @@ describe("Frontend confidential wallet state", function () {
     });
 
     expect(state.kind).to.equal("never_shielded");
+    if (state.kind === "never_shielded") {
+      expect(state.message).to.equal(
+        "No cUSDC ciphertext exists for this wallet yet. Shield USDC to get started.",
+      );
+    }
   });
 
   it("keeps a decrypted zero balance distinct from never shielded", function () {
