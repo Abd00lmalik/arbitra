@@ -712,6 +712,7 @@ export default function RegisterPage() {
       }
 
       setStage("KYB_PENDING");
+      await submitVerifierMint(kybPayload);
     } catch (submissionError) {
       setIsMintingSBT(false);
       setError(submissionError instanceof Error ? submissionError.message : "Onboarding processing failed.");
@@ -721,15 +722,22 @@ export default function RegisterPage() {
   }
 
   async function handleMintSBT() {
-    if (!activeWallet || !kybResult) return;
+    if (!kybResult) return;
 
-    if (!kybResult.signature || !kybResult.verification_id_bytes32 || !kybResult.attestation_hash_bytes32) {
+    await submitVerifierMint(kybResult);
+  }
+
+  async function submitVerifierMint(result: KYBResult) {
+    if (!activeWallet) return;
+
+    if (!result.signature || !result.verification_id_bytes32 || !result.attestation_hash_bytes32) {
       setError("Onboarding verification data is incomplete. Please restart the verification flow.");
       return;
     }
 
     setIsMintingSBT(true);
     setError(null);
+    setStatusMessage("Submitting SBT mint with the verifier wallet...");
 
     try {
       /* Submit via the backend verifier wallet - never use the user's wallet for this call */
@@ -738,11 +746,11 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wallet: activeWallet,
-          verificationIdBytes32: kybResult.verification_id_bytes32,
-          attestationHashBytes32: kybResult.attestation_hash_bytes32,
-          riskScore: Number(kybResult.risk_score),
-          timestamp: kybResult.verified_at,
-          signature: kybResult.signature,
+          verificationIdBytes32: result.verification_id_bytes32,
+          attestationHashBytes32: result.attestation_hash_bytes32,
+          riskScore: Number(result.risk_score),
+          timestamp: result.verified_at,
+          signature: result.signature,
           role: selectedRole,
         }),
       });
@@ -757,10 +765,12 @@ export default function RegisterPage() {
         throw new Error(apiError);
       }
 
+      setStatusMessage("Verifier transaction submitted. Waiting for Sepolia confirmation...");
       setSbtTxHash(data.txHash as `0x${string}`);
     } catch (mintError) {
       console.error(mintError);
       setIsMintingSBT(false);
+      setStage("KYB_PENDING");
       setError(`SBT minting failed: ${extractErrorMessage(mintError)}`);
     }
   }
