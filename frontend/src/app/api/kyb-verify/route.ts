@@ -278,7 +278,6 @@ export async function POST(req: NextRequest) {
           BigInt(timestamp),
           signature,
         ],
-        gas: 600000n,
       });
 
       console.log("[KYB API] Attestation submitted on-chain");
@@ -304,8 +303,26 @@ export async function POST(req: NextRequest) {
       });
     } catch (txError) {
       const txMessage = txError instanceof Error ? txError.message : String(txError);
-      console.error("[KYB API] On-chain submission failed:", txMessage);
-      return jsonError(`On-chain SBT minting failed: ${txMessage}`, 500);
+      console.error("[KYB API] On-chain submission failed, returning signed data for client retry:", txMessage);
+      /* Return the signed attestation so the client can retry via /api/kyb-mint */
+      return NextResponse.json({
+        success: true,
+        requiresClientMint: true,
+        mintFallbackReason: "On-chain submission failed. Click 'Mint Soulbound Token' to retry.",
+        verification_id: kybResult.verification_id,
+        company_status: kybResult.company_status,
+        sanctions_flag: kybResult.sanctions_flag,
+        pep_flag: kybResult.pep_flag,
+        risk_score: kybResult.risk_score,
+        oracle_signature: kybResult.oracle_signature,
+        signature,
+        verified_at: timestamp,
+        verification_id_bytes32: verificationIdBytes32,
+        attestation_hash_bytes32: attestationHashBytes32,
+        kybApproved: true,
+        signerAddress: account.address,
+        message: "Business verified. Please click 'Mint Soulbound Token' to complete onboarding.",
+      });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

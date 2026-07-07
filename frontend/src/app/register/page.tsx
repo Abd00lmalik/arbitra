@@ -25,7 +25,6 @@ import {
   useConnect,
   usePublicClient,
   useWaitForTransactionReceipt,
-  useWriteContract,
 } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWeb3Auth } from "@/providers/Web3AuthProvider";
@@ -35,9 +34,6 @@ import { readSessionWallet } from "@/lib/sessionWallet";
 import {
   IDENTITY_ABI,
   IDENTITY_ADDRESS,
-  KYB_ORACLE_ABI,
-  KYB_ORACLE_ADDRESS,
-  INVESTOR_KYB_ORACLE_ADDRESS,
   SBT_ABI,
   SBT_ADDRESS,
   INVESTOR_SBT_ADDRESS,
@@ -330,7 +326,7 @@ export default function RegisterPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
-  const { writeContractAsync } = useWriteContract();
+
   const publicClient = usePublicClient();
 
   const [stage, setStage] = useState<Stage>("AUTH_CHOICE");
@@ -733,24 +729,33 @@ export default function RegisterPage() {
     setIsMintingSBT(true);
     setError(null);
 
-    const targetOracleAddress = selectedRole === "investor" ? INVESTOR_KYB_ORACLE_ADDRESS : KYB_ORACLE_ADDRESS;
-
     try {
-      const hash = await writeContractAsync({
-        address: targetOracleAddress,
-        abi: KYB_ORACLE_ABI,
-        functionName: "submitKYBAttestation",
-        args: [
-          activeWallet,
-          kybResult.verification_id_bytes32,
-          kybResult.attestation_hash_bytes32,
-          Number(kybResult.risk_score),
-          BigInt(kybResult.verified_at),
-          kybResult.signature,
-        ],
-        chainId: 11155111,
+      /* Submit via the backend verifier wallet - never use the user's wallet for this call */
+      const response = await fetch("/api/kyb-mint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: activeWallet,
+          verificationIdBytes32: kybResult.verification_id_bytes32,
+          attestationHashBytes32: kybResult.attestation_hash_bytes32,
+          riskScore: Number(kybResult.risk_score),
+          timestamp: kybResult.verified_at,
+          signature: kybResult.signature,
+          role: selectedRole,
+        }),
       });
-      setSbtTxHash(hash);
+
+      const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+
+      if (!response.ok || typeof data?.txHash !== "string") {
+        const apiError =
+          typeof data?.error === "string"
+            ? data.error
+            : `SBT minting failed with HTTP ${response.status}.`;
+        throw new Error(apiError);
+      }
+
+      setSbtTxHash(data.txHash as `0x${string}`);
     } catch (mintError) {
       console.error(mintError);
       setIsMintingSBT(false);
