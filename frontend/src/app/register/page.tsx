@@ -19,6 +19,8 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ArbitraLogo } from "@/components/shared/ArbitraLogo";
+
 import {
   useAccount,
   useChainId,
@@ -898,6 +900,9 @@ export default function RegisterPage() {
             >
               <GlassCard className="p-8" glow="cyan">
                 <div style={{ marginBottom: 26 }}>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
+                    <ArbitraLogo size={44} showText={false} />
+                  </div>
                   <div
                     style={{
                       display: "inline-flex",
@@ -965,6 +970,9 @@ export default function RegisterPage() {
               transition={{ duration: 0.28 }}
             >
               <GlassCard className="p-8" glow="cyan">
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
+                  <ArbitraLogo size={44} showText={false} />
+                </div>
                 <h2 style={headingStyle}>Checking business access</h2>
                 <p style={{ ...bodyStyle, marginBottom: 22 }}>
                   Wallet Connected: {truncAddr(activeWallet ?? "")}
@@ -1022,6 +1030,9 @@ export default function RegisterPage() {
             >
               {/* Page heading */}
               <div style={{ textAlign: "center", marginBottom: 40 }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+                  <ArbitraLogo size={44} showText={false} />
+                </div>
                 <div
                   style={{
                     display: "inline-flex",

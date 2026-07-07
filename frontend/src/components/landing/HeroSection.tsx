@@ -8,6 +8,8 @@
 import React, { useRef } from "react";
 import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
+import { ArbitraLogo } from "../shared/ArbitraLogo";
+
 
 interface Particle {
   top: string;
@@ -172,18 +174,12 @@ export function HeroSection() {
       >
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: "linear-gradient(135deg, #00F0FF, #7B2FFF)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontWeight: 800, fontSize: 17, color: "#020714",
-            fontFamily: "Satoshi, sans-serif",
-            boxShadow: "0 0 20px rgba(0,240,255,0.3)"
-          }}>A</div>
-          <span style={{
-            fontFamily: "Satoshi, sans-serif",
-            fontWeight: 800, fontSize: 19, color: "#EEF2FF"
-          }}>Arbitra</span>
+          <ArbitraLogo
+            size={34}
+            showText={true}
+            textClassName="font-bold text-white text-lg tracking-tight"
+            subtextClassName="text-[9px] text-slate-500 font-mono uppercase tracking-wider"
+          />
           <span style={{
             background: "rgba(0,240,255,0.08)",
             border: "1px solid rgba(0,240,255,0.22)",
@@ -192,7 +188,8 @@ export function HeroSection() {
             fontSize: 11, fontWeight: 600,
             color: "#00F0FF",
             fontFamily: "Satoshi, sans-serif",
-            letterSpacing: "0.05em"
+            letterSpacing: "0.05em",
+            marginLeft: 8
           }}>Sepolia Testnet</span>
         </div>
 

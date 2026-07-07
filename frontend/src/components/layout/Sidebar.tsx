@@ -10,6 +10,7 @@ import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "@wagmi/core";
 import { shortAddress } from "@/lib/contracts";
+import { ArbitraLogo } from "../shared/ArbitraLogo";
 
 const NAV_ITEMS = [
   {
@@ -68,24 +69,13 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="p-6 border-b border-white/6">
-        <Link href="/" className="flex items-center gap-3 group" aria-label="Arbitra Home">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #00F0FF, #7B2FFF)" }}
-            aria-hidden="true"
-          >
-            <svg className="w-5 h-5 text-white" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 1L3 6v8l7 4 7-4V6L10 1zM10 15.4L4 12V8l6-3.4L16 8v4l-6 3.4z" />
-            </svg>
-          </div>
-          <div>
-            <div className="font-bold text-white text-base group-hover:text-neon-cyan transition-colors">
-              Arbitra
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono">
-              Confidential Factoring
-            </div>
-          </div>
+        <Link href="/" className="group" aria-label="Arbitra Home">
+          <ArbitraLogo
+            size={32}
+            showText={true}
+            textClassName="font-bold text-white text-base group-hover:text-neon-cyan transition-colors"
+            subtextClassName="text-[10px] text-slate-500 font-mono uppercase"
+          />
         </Link>
       </div>
 
