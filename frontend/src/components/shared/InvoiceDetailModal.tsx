@@ -66,6 +66,11 @@ interface SettlementSuccessState {
   settlementReceiptHash?: `0x${string}`;
 }
 
+const FACTOR_GAS_FALLBACK_LIMIT = 1_800_000n;
+const FACTOR_GAS_LIMIT_CEILING = 3_000_000n;
+const FACTOR_GAS_PADDING_BPS = 12_000n;
+const FACTOR_GAS_PADDING_MIN = 25_000n;
+
 /* Compute annualized yield % from decrypted face value, purchase price, and days to maturity */
 function computeYield(faceValue: bigint, purchasePrice: bigint, daysToMaturity: number): string {
   if (purchasePrice === 0n || daysToMaturity <= 0) return "N/A";
@@ -74,6 +79,22 @@ function computeYield(faceValue: bigint, purchasePrice: bigint, daysToMaturity: 
   if (cost <= 0) return "N/A";
   const annualized = (gain / cost) * (365 / daysToMaturity) * 100;
   return `${annualized.toFixed(2)}%`;
+}
+
+function addFactorGasHeadroom(gasLimit: bigint) {
+  return (gasLimit * FACTOR_GAS_PADDING_BPS) / 10_000n + FACTOR_GAS_PADDING_MIN;
+}
+
+function clampFactorGasLimit(gasLimit: bigint) {
+  if (gasLimit < FACTOR_GAS_FALLBACK_LIMIT) {
+    return FACTOR_GAS_FALLBACK_LIMIT;
+  }
+
+  if (gasLimit > FACTOR_GAS_LIMIT_CEILING) {
+    return FACTOR_GAS_LIMIT_CEILING;
+  }
+
+  return gasLimit;
 }
 
 export function InvoiceDetailModal({
@@ -340,6 +361,24 @@ export function InvoiceDetailModal({
         await confidentialWallet.setRegistryOperator();
       }
 
+      let factorGasLimit = FACTOR_GAS_FALLBACK_LIMIT;
+      try {
+        if (!currentUserAddress || !publicClient) {
+          throw new Error("Missing wallet context for factorInvoice gas estimation.");
+        }
+
+        const estimatedFactorGas = await publicClient.estimateContractGas({
+          account: currentUserAddress as `0x${string}`,
+          address: ARBITRA_REGISTRY_ADDRESS,
+          abi: ARBITRA_REGISTRY_ABI,
+          functionName: "factorInvoice",
+          args: [invoice.invoiceId],
+        });
+
+        factorGasLimit = clampFactorGasLimit(addFactorGasHeadroom(estimatedFactorGas));
+      } catch {
+      }
+
       if (isEmbedded) {
         /*
          * Web3Auth embedded wallet path.
@@ -356,7 +395,7 @@ export function InvoiceDetailModal({
           signer
         );
         const factorTx = await registryContract["factorInvoice"](invoice.invoiceId, {
-          gasLimit: 1_000_000n,
+          gasLimit: factorGasLimit,
         });
         const receipt = await factorTx.wait();
         if (!receipt || receipt.status !== 1) {
@@ -364,7 +403,7 @@ export function InvoiceDetailModal({
         }
       } else {
         /* External wallet path (MetaMask / WalletConnect). */
-        const factorTxHash = await factorInvoice(invoice.invoiceId);
+        const factorTxHash = await factorInvoice(invoice.invoiceId, factorGasLimit);
         await publicClient.waitForTransactionReceipt({ hash: factorTxHash });
       }
 

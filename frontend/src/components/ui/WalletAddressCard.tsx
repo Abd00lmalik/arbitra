@@ -18,6 +18,10 @@ import { erc20Abi, formatEther, formatUnits, isAddress, parseEther, parseUnits }
 import { GlassCard } from "@/components/ui/GlassCard";
 import { USDC_ADDRESS, fromMicro } from "@/lib/contracts";
 import { useConfidentialWallet } from "@/hooks/useConfidentialWallet";
+import {
+  getConfidentialBalanceDisplay,
+  getConfidentialBalanceNotice,
+} from "@/lib/confidentialWalletPresentation";
 
 interface WalletAddressCardProps {
   walletAddress?: `0x${string}` | null;
@@ -65,26 +69,6 @@ function parseTokenAmount(value: string): bigint | null {
   }
 
   return BigInt(Math.round(normalized * 1_000_000));
-}
-
-function renderConfidentialBalance(balanceState: ReturnType<typeof useConfidentialWallet>["balanceState"]) {
-  if (balanceState.kind === "ready" || balanceState.kind === "zero_balance") {
-    return `${fromMicro(balanceState.balance)} cUSDC`;
-  }
-
-  if (balanceState.kind === "loading") {
-    return "Decrypting...";
-  }
-
-  if (balanceState.kind === "needs_permit") {
-    return "Unlock to decrypt";
-  }
-
-  if (balanceState.kind === "never_shielded") {
-    return "Not yet shielded";
-  }
-
-  return "Unavailable";
 }
 
 export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
@@ -250,7 +234,9 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
               <span style={{ color: "#8B9CC8", fontWeight: 600 }}>cUSDC Balance</span>
-              <span style={{ color: "#00F0FF", fontWeight: 800 }}>{renderConfidentialBalance(wallet.balanceState)}</span>
+              <span style={{ color: "#00F0FF", fontWeight: 800 }}>
+                {getConfidentialBalanceDisplay(wallet.balanceState)}
+              </span>
             </div>
           </div>
 
@@ -275,12 +261,9 @@ export function WalletAddressCard({ walletAddress }: WalletAddressCardProps) {
             </button>
           )}
 
-          {(wallet.balanceState.kind === "never_shielded" ||
-            wallet.balanceState.kind === "error" ||
-            wallet.balanceState.kind === "wrapper_invalid" ||
-            wallet.balanceState.kind === "not_configured") && (
+          {getConfidentialBalanceNotice(wallet.balanceState) && (
             <div style={{ color: "#8B9CC8", fontSize: 11, lineHeight: 1.6 }}>
-              {wallet.balanceState.message}
+              {getConfidentialBalanceNotice(wallet.balanceState)}
             </div>
           )}
 

@@ -11,6 +11,10 @@ import React, { useMemo, useState } from "react";
 import { formatEther } from "viem";
 import { fromMicro, shortAddress } from "@/lib/contracts";
 import { useConfidentialWallet } from "@/hooks/useConfidentialWallet";
+import {
+  getConfidentialBalanceDisplay,
+  getConfidentialBalanceNotice,
+} from "@/lib/confidentialWalletPresentation";
 
 interface WalletPanelProps {
   address: string;
@@ -24,26 +28,6 @@ function parseAmount(value: string): bigint | null {
   }
 
   return BigInt(Math.round(normalized * 1_000_000));
-}
-
-function balanceText(kind: ReturnType<typeof useConfidentialWallet>["balanceState"]) {
-  if (kind.kind === "ready" || kind.kind === "zero_balance") {
-    return `${fromMicro(kind.balance)} cUSDC`;
-  }
-
-  if (kind.kind === "loading") {
-    return "Decrypting...";
-  }
-
-  if (kind.kind === "needs_permit") {
-    return "Unlock to decrypt";
-  }
-
-  if (kind.kind === "never_shielded") {
-    return "Not yet shielded";
-  }
-
-  return "Unavailable";
 }
 
 export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
@@ -110,7 +94,7 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
         <div className="flex justify-between text-[11px]">
           <span className="text-slate-500">cUSDC</span>
           <span className="font-mono" style={{ color: "#00F0FF" }}>
-            {balanceText(wallet.balanceState)}
+            {getConfidentialBalanceDisplay(wallet.balanceState)}
           </span>
         </div>
       </div>
@@ -126,12 +110,9 @@ export function WalletPanel({ address, onDisconnect }: WalletPanelProps) {
         </button>
       )}
 
-      {(wallet.balanceState.kind === "never_shielded" ||
-        wallet.balanceState.kind === "error" ||
-        wallet.balanceState.kind === "wrapper_invalid" ||
-        wallet.balanceState.kind === "not_configured") && (
+      {getConfidentialBalanceNotice(wallet.balanceState) && (
         <p className="text-[10px] text-slate-500 leading-tight">
-          {wallet.balanceState.message}
+          {getConfidentialBalanceNotice(wallet.balanceState)}
         </p>
       )}
 

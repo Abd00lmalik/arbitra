@@ -14,6 +14,10 @@ ModuleLib.Module._initPaths();
 const {
   deriveConfidentialBalanceState,
 } = require("../frontend/src/lib/confidentialWalletState");
+const {
+  getConfidentialBalanceDisplay,
+  getConfidentialBalanceNotice,
+} = require("../frontend/src/lib/confidentialWalletPresentation");
 const contractsModulePath = require.resolve("../frontend/src/lib/contracts");
 const { ZERO_ENCRYPTED_VALUE } = require(contractsModulePath);
 const { NoCiphertextError } = require("@zama-fhe/sdk");
@@ -56,6 +60,11 @@ describe("Frontend confidential wallet state", function () {
         "No cUSDC ciphertext exists for this wallet yet. Shield USDC to get started.",
       );
     }
+
+    expect(getConfidentialBalanceDisplay(state)).to.equal("Not yet shielded");
+    expect(getConfidentialBalanceNotice(state)).to.equal(
+      "No cUSDC ciphertext exists for this wallet yet. Shield USDC to get started.",
+    );
   });
 
   it("never collapses NoCiphertextError into a decrypted zero balance", function () {

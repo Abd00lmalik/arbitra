@@ -27,7 +27,6 @@ import {
   CUSDC_ABI,
 } from "@/lib/contracts";
 
-const FHE_FACTOR_GAS_LIMIT = 1_000_000n;
 const STAKE_GAS_LIMIT = 500_000n;
 
 function resolveRegistryAddress(address?: `0x${string}`) {
@@ -323,13 +322,13 @@ export function useFactorInvoice() {
   const { writeContractAsync, isPending, error, data } = useWriteContract();
 
   const factorInvoice = useCallback(
-    async (invoiceId: bigint) => {
+    async (invoiceId: bigint, gasLimit?: bigint) => {
       return writeContractAsync({
         address: ARBITRA_REGISTRY_ADDRESS,
         abi: ARBITRA_REGISTRY_ABI,
         functionName: "factorInvoice",
         args: [invoiceId],
-        gas: FHE_FACTOR_GAS_LIMIT,
+        gas: gasLimit,
       });
     },
     [writeContractAsync]
